@@ -1,0 +1,12 @@
+from PySide6.QtWidgets import QMainWindow
+
+
+class DashboardWindow(QMainWindow):
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.setWindowTitle("Printing Press ERP")
+
+        self.resize(1400, 900)
