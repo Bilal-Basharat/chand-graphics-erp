@@ -5,9 +5,10 @@ from sqlalchemy import DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import TimestampMixin
 
 
-class SalePaymentModel(Base):
+class SalePaymentModel(Base, TimestampMixin):
     __tablename__ = "sale_payments"
 
     id: Mapped[int] = mapped_column(primary_key=True)

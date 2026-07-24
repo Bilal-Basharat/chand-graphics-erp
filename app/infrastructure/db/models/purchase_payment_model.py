@@ -5,9 +5,10 @@ from sqlalchemy import DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import TimestampMixin
 
 
-class PurchasePaymentModel(Base):
+class PurchasePaymentModel(Base, TimestampMixin):
     __tablename__ = "purchase_payments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -68,10 +69,4 @@ class PurchasePaymentModel(Base):
     paid_by_user = relationship(
         "UserModel",
         back_populates="purchase_payments",
-    )
-
-    payments = relationship(
-    "PurchasePaymentModel",
-    back_populates="purchase",
-    cascade="all, delete-orphan",
     )

@@ -1,18 +1,21 @@
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, String
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.enums.item_type import ItemType
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import TimestampMixin
 
 
-class PurchaseItemModel(Base):
+class PurchaseItemModel(Base, TimestampMixin):
     __tablename__ = "purchase_items"
 
     __table_args__ = (
         CheckConstraint(
-            "(card_id IS NOT NULL) OR (inventory_item_id IS NOT NULL)",
-            name="ck_purchase_items_has_target",
+           "(card_id IS NOT NULL AND inventory_item_id IS NULL) OR "
+        "(card_id IS NULL AND inventory_item_id IS NOT NULL)",
+        name="ck_purchase_items_exclusive_target",
         ),
     )
 
@@ -25,7 +28,7 @@ class PurchaseItemModel(Base):
     )
 
     item_type: Mapped[str] = mapped_column(
-        String(20),
+        Enum(ItemType, name="item_type_enum", native_enum=False),
         nullable=False,
         index=True,
     )
@@ -47,16 +50,6 @@ class PurchaseItemModel(Base):
         default=0,
     )
 
-    previous_stock: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-    )
-
-    resulting_stock: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-    )
-
     note: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
@@ -72,6 +65,16 @@ class PurchaseItemModel(Base):
         ForeignKey("inventory_items.id"),
         nullable=True,
         index=True,
+    )
+
+    previous_stock: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    resulting_stock: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
 #############################################################

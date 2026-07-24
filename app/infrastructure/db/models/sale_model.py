@@ -5,9 +5,10 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class SaleModel(Base):
+class SaleModel(Base, AuditMixin):
     __tablename__ = "sales"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -16,18 +17,6 @@ class SaleModel(Base):
         String(50),
         unique=True,
         nullable=False,
-        index=True,
-    )
-
-    customer_id: Mapped[int | None] = mapped_column(
-        ForeignKey("customers.id"),
-        nullable=True,
-        index=True,
-    )
-
-    payment_method_id: Mapped[int | None] = mapped_column(
-        ForeignKey("payment_methods.id"),
-        nullable=True,
         index=True,
     )
 
@@ -49,29 +38,29 @@ class SaleModel(Base):
         default=0,
     )
 
-    received_amount: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-        default=0,
-    )
-
     balance_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
         default=0,
     )
 
-    created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"),
-        nullable=True,
-        index=True,
+    customer_id: Mapped[int | None] = mapped_column(
+            ForeignKey("customers.id"),
+            nullable=True,
+            index=True,
     )
+    
+    # created_by_user_id: Mapped[int | None] = mapped_column(
+    #     ForeignKey("users.id"),
+    #     nullable=True,
+    #     index=True,
+    # )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-    )
+    # created_at: Mapped[datetime] = mapped_column(
+    #     DateTime,
+    #     nullable=False,
+    #     default=datetime.utcnow,
+    # )
 
     note: Mapped[str | None] = mapped_column(
         String(500),

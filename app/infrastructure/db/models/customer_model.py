@@ -2,9 +2,10 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class CustomerModel(Base):
+class CustomerModel(Base, AuditMixin):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -31,11 +32,11 @@ class CustomerModel(Base):
         nullable=True,
     )
 
-    created_by_user_id: Mapped[int | None] = mapped_column(
-            ForeignKey("users.id"),
-            nullable=True,
-            index=True,
-    )
+    # created_by_user_id: Mapped[int | None] = mapped_column(
+    #         ForeignKey("users.id"),
+    #         nullable=True,
+    #         index=True,
+    # )
 
 #############################################################
 #################### relationship methods ###################

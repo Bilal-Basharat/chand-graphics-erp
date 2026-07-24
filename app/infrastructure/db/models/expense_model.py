@@ -5,9 +5,10 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class ExpenseModel(Base):
+class ExpenseModel(Base, AuditMixin):
     __tablename__ = "expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,17 +47,17 @@ class ExpenseModel(Base):
         index=True,
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-    )
+    # created_at: Mapped[datetime] = mapped_column(
+    #     DateTime,
+    #     nullable=False,
+    #     default=datetime.utcnow,
+    # )
 
-    created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"),
-        nullable=True,
-        index=True,
-    )
+    # created_by_user_id: Mapped[int | None] = mapped_column(
+    #     ForeignKey("users.id"),
+    #     nullable=True,
+    #     index=True,
+    # )
 
 #############################################################
 #################### relationship methods ###################

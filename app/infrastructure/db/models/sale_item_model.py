@@ -1,37 +1,29 @@
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Integer, Numeric, String
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.enums.item_type import ItemType
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import TimestampMixin
 
 
-class SaleItemModel(Base):
+class SaleItemModel(Base, TimestampMixin):
     __tablename__ = "sale_items"
+
+    __table_args__ = (
+            CheckConstraint(
+               "(card_id IS NOT NULL AND inventory_item_id IS NULL) OR "
+            "(card_id IS NULL AND inventory_item_id IS NOT NULL)",
+            name="ck_sale_items_exclusive_target",
+            ),
+        )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    sale_id: Mapped[int] = mapped_column(
-        ForeignKey("sales.id"),
-        nullable=False,
-        index=True,
-    )
-
     item_type: Mapped[str] = mapped_column(
-        String(20),
+        Enum(ItemType, name="item_type_enum", native_enum=False),
         nullable=False,
-        index=True,
-    )
-
-    card_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id"),
-        nullable=True,
-        index=True,
-    )
-
-    inventory_item_id: Mapped[int | None] = mapped_column(
-        ForeignKey("inventory_items.id"),
-        nullable=True,
         index=True,
     )
 
@@ -50,6 +42,39 @@ class SaleItemModel(Base):
         Numeric(12, 2),
         nullable=False,
         default=0,
+    )
+
+    note: Mapped[str | None] = mapped_column(
+            String(500),
+            nullable=True,
+    )
+
+    previous_stock: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    resulting_stock: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    card_id: Mapped[int | None] = mapped_column(
+            ForeignKey("cards.id"),
+            nullable=True,
+            index=True,
+    )
+    
+    sale_id: Mapped[int] = mapped_column(
+                ForeignKey("sales.id"),
+                nullable=False,
+                index=True,
+    )
+
+    inventory_item_id: Mapped[int | None] = mapped_column(
+            ForeignKey("inventory_items.id"),
+            nullable=True,
+            index=True,
     )
 
 #############################################################

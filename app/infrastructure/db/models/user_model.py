@@ -4,15 +4,16 @@ from sqlalchemy import DateTime, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class UserModel(Base):
+class UserModel(Base, AuditMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
     email: Mapped[str] = mapped_column(
-        String(50),
+        String(255),
         unique=True,
         index=True,
         nullable=False,
@@ -38,12 +39,6 @@ class UserModel(Base):
         Boolean,
         nullable=False,
         default=True,
-    )
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
     )
 
 #############################################################

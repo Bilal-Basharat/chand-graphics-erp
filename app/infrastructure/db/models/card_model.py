@@ -3,9 +3,10 @@ from sqlalchemy import ForeignKey, Integer, String, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class CardModel(Base):
+class CardModel(Base, AuditMixin):
     __tablename__ = "cards"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,15 +47,15 @@ class CardModel(Base):
         default=0,
     )
 
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
     cabinet_id: Mapped[int | None] = mapped_column(
         ForeignKey("cabinets.id"),
         nullable=True,
         index=True,
-    )
-
-    description: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
     )
 
 #############################################################
