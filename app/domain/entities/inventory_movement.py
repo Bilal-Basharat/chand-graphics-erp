@@ -28,6 +28,7 @@ class InventoryMovement(AuditEntity):
     note: str | None = None
     occurred_at: datetime | None = None
     reason: str | None = None
+    id: int | None = None
 
     def __post_init__(self) -> None:
 

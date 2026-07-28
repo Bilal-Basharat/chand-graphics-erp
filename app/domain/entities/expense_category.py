@@ -8,3 +8,5 @@ class ExpenseCategory(TimestampEntity):
 
     name: str
     description: str | None = None
+    id: int | None = None
+    expense_id: int | None = None

@@ -32,7 +32,7 @@ class CreateExpenseUseCase(UseCase[CreateExpenseCommand, Expense]):
 
             expense = Expense(
                 expense_name=request.expense_name.strip(),
-                amount=amount,
+                total_amount=amount,
                 category_id=request.category_id,
                 quantity=request.quantity,
                 unit_price=request.unit_price,

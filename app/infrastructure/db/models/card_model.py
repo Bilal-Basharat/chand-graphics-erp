@@ -62,9 +62,16 @@ class CardModel(Base, AuditMixin):
 #################### relationship methods ###################
 #############################################################
 
+    created_by_user = relationship(
+            "UserModel",
+            back_populates="cards",
+            foreign_keys="CardModel.created_by_user_id",
+    )
+    
     cabinet = relationship(
         "CabinetModel",
         back_populates="cards",
+        foreign_keys="CardModel.cabinet_id",
     )
 
     purchase_items = relationship(

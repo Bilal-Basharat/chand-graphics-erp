@@ -16,9 +16,8 @@ class Sale(AuditEntity):
     discount_amount: Decimal = Decimal("0.00")
     items: list[SaleItem] = field(default_factory=list)
     payments: list[SalePayment] = field(default_factory=list)
-    
+    id: int | None = None
     customer_id: int | None = None
-    # created_by_user_id: int | None = None
 
     def __post_init__(self) -> None:
         if not self.invoice_no.strip():

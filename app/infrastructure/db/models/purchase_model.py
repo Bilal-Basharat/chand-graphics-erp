@@ -60,28 +60,22 @@ class PurchaseModel(Base, AuditMixin):
         index=True,
     )
 
-    # created_by_user_id: Mapped[int | None] = mapped_column(
-    #     ForeignKey("users.id"),
-    #     nullable=True,
-    #     index=True,
-    # )
+    #############################################################
+    #################### relationship methods ###################
+    #############################################################
 
-    # created_at: Mapped[datetime] = mapped_column(
-    #     DateTime,
-    #     nullable=False,
-    #     default=datetime.utcnow,
-    # )
-
-#############################################################
-#################### relationship methods ###################
-#############################################################
- 
     supplier = relationship("SupplierModel", back_populates="purchases")
-    created_by_user = relationship("UserModel", back_populates="purchases")
+
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="purchases",
+        foreign_keys="PurchaseModel.created_by_user_id",
+    )
 
     items = relationship(
         "PurchaseItemModel",
         back_populates="purchase",
-        cascade="all, delete-orphan",)
+        cascade="all, delete-orphan",
+    )
 
     payments = relationship("PurchasePaymentModel", back_populates="purchase")

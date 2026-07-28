@@ -45,34 +45,26 @@ class SaleModel(Base, AuditMixin):
     )
 
     customer_id: Mapped[int | None] = mapped_column(
-            ForeignKey("customers.id"),
-            nullable=True,
-            index=True,
+        ForeignKey("customers.id"),
+        nullable=True,
+        index=True,
     )
-    
-    # created_by_user_id: Mapped[int | None] = mapped_column(
-    #     ForeignKey("users.id"),
-    #     nullable=True,
-    #     index=True,
-    # )
-
-    # created_at: Mapped[datetime] = mapped_column(
-    #     DateTime,
-    #     nullable=False,
-    #     default=datetime.utcnow,
-    # )
 
     note: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
     )
 
-#############################################################
-#################### relationship methods ###################
-#############################################################
+    #############################################################
+    #################### relationship methods ###################
+    #############################################################
 
     customer = relationship("CustomerModel", back_populates="sales")
-    created_by_user = relationship("UserModel", back_populates="sales")
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="sales",
+        foreign_keys="SaleModel.created_by_user_id",
+    )
     items = relationship(
         "SaleItemModel",
         back_populates="sale",
@@ -80,7 +72,7 @@ class SaleModel(Base, AuditMixin):
     )
 
     payments = relationship(
-    "SalePaymentModel",
-    back_populates="sale",
-    cascade="all, delete-orphan",
+        "SalePaymentModel",
+        back_populates="sale",
+        cascade="all, delete-orphan",
     )

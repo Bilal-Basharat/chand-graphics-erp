@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from app.domain.entities.base import AuditEntity
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class InventoryItem(AuditEntity):
 
     name: str

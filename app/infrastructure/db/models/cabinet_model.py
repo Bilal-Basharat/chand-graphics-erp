@@ -29,4 +29,11 @@ class CabinetModel(Base, AuditMixin):
     cards = relationship(
         "CardModel",
         back_populates="cabinet",
+        foreign_keys="CardModel.cabinet_id",
+    )
+
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="cabinets",
+        foreign_keys="CabinetModel.created_by_user_id",
     )

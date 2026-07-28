@@ -102,4 +102,4 @@ class InventoryMovementModel(Base, AuditMixin):
 
     card = relationship("CardModel")
     inventory_item = relationship("InventoryItemModel")
-    created_by_user = relationship("UserModel")
+    created_by_user = relationship("UserModel", foreign_keys="InventoryMovementModel.created_by_user_id", back_populates="inventory_movements")

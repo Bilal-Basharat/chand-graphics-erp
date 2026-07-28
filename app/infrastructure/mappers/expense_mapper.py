@@ -12,7 +12,7 @@ class ExpenseMapper:
     def to_entity(model: ExpenseModel) -> Expense:
         entity = Expense(
             expense_name=model.expense_name,
-            amount=model.total_amount,
+            total_amount=model.total_amount,
             category_id=model.category_id,
             quantity=model.quantity,
             unit_price=model.unit_price,
@@ -23,7 +23,7 @@ class ExpenseMapper:
 
     @staticmethod
     def to_model(entity: Expense) -> ExpenseModel:
-        total_amount = entity.amount
+        total_amount = entity.total_amount
         if entity.quantity is not None and entity.unit_price is not None:
             total_amount = entity.unit_price * entity.quantity
 

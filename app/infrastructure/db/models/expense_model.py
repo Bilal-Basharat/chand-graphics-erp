@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
@@ -47,21 +47,13 @@ class ExpenseModel(Base, AuditMixin):
         index=True,
     )
 
-    # created_at: Mapped[datetime] = mapped_column(
-    #     DateTime,
-    #     nullable=False,
-    #     default=datetime.utcnow,
-    # )
+    #############################################################
+    #################### relationship methods ###################
+    #############################################################
 
-    # created_by_user_id: Mapped[int | None] = mapped_column(
-    #     ForeignKey("users.id"),
-    #     nullable=True,
-    #     index=True,
-    # )
-
-#############################################################
-#################### relationship methods ###################
-#############################################################
-
-    created_by_user = relationship("UserModel", back_populates="expenses")
-    category = relationship("ExpenseCategoryModel", back_populates="expenses")
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="expenses",
+        foreign_keys="ExpenseModel.created_by_user_id",
+    )
+    category = relationship("ExpenseCategoryModel", foreign_keys=("ExpenseModel.category_id"), back_populates="expenses")

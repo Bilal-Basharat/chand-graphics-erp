@@ -33,7 +33,7 @@ class PurchaseItemMapper:
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
             unit_price=entity.unit_price,
-            total_amount=entity.total_amount,
+            line_total=entity.total_amount,
             previous_stock=entity.previous_stock,
             resulting_stock=entity.resulting_stock,
             note=entity.note,

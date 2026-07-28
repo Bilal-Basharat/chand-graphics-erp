@@ -31,16 +31,14 @@ class CustomerModel(Base, AuditMixin):
         String(500),
         nullable=True,
     )
-
-    # created_by_user_id: Mapped[int | None] = mapped_column(
-    #         ForeignKey("users.id"),
-    #         nullable=True,
-    #         index=True,
-    # )
-
-#############################################################
-#################### relationship methods ###################
-#############################################################
+    
+    #############################################################
+    #################### relationship methods ###################
+    #############################################################
 
     sales = relationship("SaleModel", back_populates="customer")
-    created_by_user = relationship("UserModel", back_populates="customers")
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="customers",
+        foreign_keys="CustomerModel.created_by_user_id",
+    )

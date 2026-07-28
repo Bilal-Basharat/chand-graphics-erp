@@ -275,7 +275,6 @@ class CreateExpenseCategoryUseCase(UseCase[CreateExpenseCategoryCommand, Expense
             category = ExpenseCategory(
                 name=name,
                 description=request.description,
-                created_by_user_id=request.created_by_user_id,
             )
             return categories.add(category)
 

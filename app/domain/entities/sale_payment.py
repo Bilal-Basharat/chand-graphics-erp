@@ -12,7 +12,7 @@ class SalePayment(TimestampEntity):
     amount: Decimal
     reference_no: str | None = None
     note: str | None = None
-    received_at: datetime = datetime.utcnow()
+    received_at: datetime | None = None
 
     sale_id: int | None = None
     payment_method_id: int

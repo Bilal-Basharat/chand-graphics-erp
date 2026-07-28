@@ -13,7 +13,7 @@ class PurchasePayment(TimestampEntity):
     reference_no: str | None = None
     note: str | None = None
 
-    paid_at: datetime = datetime.utcnow()
+    paid_at: datetime | None = None
 
     purchase_id: int | None = None
     paid_by_user_id: int

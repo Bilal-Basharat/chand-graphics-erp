@@ -51,6 +51,12 @@ class InventoryItemModel(Base, AuditMixin):
 #################### relationship methods ###################
 #############################################################
 
+    created_by_user = relationship(
+                "UserModel",
+                back_populates="inventory_items",
+                foreign_keys="InventoryItemModel.created_by_user_id",
+    )
+    
     purchase_items = relationship(
         "PurchaseItemModel",
         back_populates="inventory_item",

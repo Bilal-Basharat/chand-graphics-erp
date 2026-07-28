@@ -12,9 +12,13 @@ class Expense(AuditEntity):
     quantity: int | None = None
     unit_price: Decimal | None = None
     remarks: str | None = None
-
-    # created_by_user_id: int | None = None
+    category_id: int | None = None
+    id: int | None = None
     
+    @property
+    def amount(self) -> Decimal:
+        return self.total_amount
+
     def __post_init__(self) -> None:
 
         if not self.expense_name.strip():

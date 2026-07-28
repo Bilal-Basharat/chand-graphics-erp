@@ -16,8 +16,7 @@ class Purchase(AuditEntity):
     items: list[PurchaseItem] = field(default_factory=list)
     payments: list[PurchasePayment] = field(default_factory=list)
     reference_no: str | None = None
-    
-    # created_by_user_id: int | None = None
+    id: int | None = None
     supplier_id: int | None = None
 
 

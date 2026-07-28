@@ -32,15 +32,13 @@ class SupplierModel(Base, AuditMixin):
         nullable=True,
     )
 
-    # created_by_user_id: Mapped[int | None] = mapped_column(
-    #         ForeignKey("users.id"),
-    #         nullable=True,
-    #         index=True,
-    # )
-
-#############################################################
-#################### relationship methods ###################
-#############################################################
+    #############################################################
+    #################### relationship methods ###################
+    #############################################################
 
     purchases = relationship("PurchaseModel", back_populates="supplier")
-    created_by_user = relationship("UserModel", back_populates="suppliers")
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="suppliers",
+        foreign_keys="SupplierModel.created_by_user_id",
+    )
