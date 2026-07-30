@@ -16,3 +16,7 @@ class CardRepository(Repository[Card], ABC):
     def list_low_stock(self, limit: int = 100) -> list[Card]:
         """Return cards at or below minimum stock."""
         raise NotImplementedError
+
+    @abstractmethod
+    def search_by_term(self, term: str, limit: int = 50) -> list[Card]:
+        raise NotImplementedError

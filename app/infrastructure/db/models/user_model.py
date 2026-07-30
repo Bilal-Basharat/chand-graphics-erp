@@ -77,6 +77,11 @@ class UserModel(Base, AuditMixin):
         back_populates="created_by_user",
         foreign_keys="ExpenseModel.created_by_user_id",
     )
+    expense_categories = relationship(
+        "ExpenseCategoryModel",
+        back_populates="created_by_user",
+        foreign_keys="ExpenseCategoryModel.created_by_user_id",
+    )
     customers = relationship(
         "CustomerModel",
         back_populates="created_by_user",

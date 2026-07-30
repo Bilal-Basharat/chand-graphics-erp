@@ -47,7 +47,7 @@ from app.infrastructure.db.models.sale_model import SaleModel  # noqa: F401
 from app.infrastructure.db.models.sale_payment_model import SalePaymentModel  # noqa: F401
 from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
 from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
-
+from app.infrastructure.db.models.login_audit_model import LoginAuditModel  # noqa: F401
 
 def init_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)

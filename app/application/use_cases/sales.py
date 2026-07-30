@@ -16,32 +16,38 @@ from app.domain.uow import UnitOfWork
 
 from app.domain.enums.item_type import ItemType
 
-class CreateSaleUseCase(UseCase[CreateSaleCommand, Sale]):
-    def __init__(self, uow: UnitOfWork) -> None:
+from app.application.auth.session import CurrentUserSession
+from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+
+class CreateSaleUseCase(AuthenticatedUseCase[CreateSaleCommand, Sale]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateSaleCommand) -> Sale:
         if not request.items:
             raise ValueError("sale must contain at least one item")
 
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             sales = self.require(uow.sales, "sales")
             customers = self.require(uow.customers, "customers")
             payment_methods = self.require(uow.payment_methods, "payment_methods")
-            users = self.require(uow.users, "users")
+            # users = self.require(uow.users, "users")
 
             if request.customer_id is not None and customers.get_by_id(request.customer_id) is None:
                 raise NotFoundError(f"Customer id={request.customer_id} not found")
 
-            if request.created_by_user_id is not None and users.get_by_id(request.created_by_user_id) is None:
-                raise NotFoundError(f"User id={request.created_by_user_id} not found")
+            # if request.created_by_user_id is not None and users.get_by_id(request.created_by_user_id) is None:
+            #     raise NotFoundError(f"User id={request.created_by_user_id} not found")
 
             sale = Sale(
                 invoice_no=request.invoice_no.strip(),
                 customer_id=request.customer_id,
                 note=request.note,
                 discount_amount=request.discount_amount,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
 
             stock_cache: dict[tuple[str, int], object] = {}
@@ -86,8 +92,8 @@ class CreateSaleUseCase(UseCase[CreateSaleCommand, Sale]):
             for payment in request.payments:
                 if payment_methods.get_by_id(payment.payment_method_id) is None:
                     raise NotFoundError(f"Payment method id={payment.payment_method_id} not found")
-                if users.get_by_id(payment.received_by_user_id) is None:
-                    raise NotFoundError(f"User id={payment.received_by_user_id} not found")
+                # if users.get_by_id(payment.received_by_user_id) is None:
+                #     raise NotFoundError(f"User id={payment.received_by_user_id} not found")
 
                 sale.add_payment(
                     SalePayment(
@@ -105,8 +111,9 @@ class CreateSaleUseCase(UseCase[CreateSaleCommand, Sale]):
             return sales.add(sale)
 
 
-class GetSaleByInvoiceNoUseCase(UseCase[str, Sale | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class GetSaleByInvoiceNoUseCase(AuthenticatedUseCase[str, Sale | None]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: str) -> Sale | None:
@@ -115,8 +122,9 @@ class GetSaleByInvoiceNoUseCase(UseCase[str, Sale | None]):
             return sales.get_by_invoice_no(request.strip())
 
 
-class ListSalesByDateRangeUseCase(UseCase[DateRangeQuery, list[Sale]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListSalesByDateRangeUseCase(AuthenticatedUseCase[DateRangeQuery, list[Sale]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: DateRangeQuery) -> list[Sale]:

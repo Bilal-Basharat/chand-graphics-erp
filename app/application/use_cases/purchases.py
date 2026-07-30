@@ -7,7 +7,6 @@ from app.application.dto.commands import (
     PurchasePaymentCommand,
 )
 from app.application.exceptions import NotFoundError
-from app.application.use_cases.base import UseCase
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_item import PurchaseItem
@@ -15,25 +14,32 @@ from app.domain.entities.purchase_payment import PurchasePayment
 from app.domain.uow import UnitOfWork
 from app.domain.enums.item_type import ItemType
 
-class CreatePurchaseUseCase(UseCase[CreatePurchaseCommand, Purchase]):
-    def __init__(self, uow: UnitOfWork) -> None:
+
+from app.application.auth.session import CurrentUserSession
+from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+
+class CreatePurchaseUseCase(AuthenticatedUseCase[CreatePurchaseCommand, Purchase]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreatePurchaseCommand) -> Purchase:
         if not request.items:
             raise ValueError("purchase must contain at least one item")
 
+        current_user_id = self.current_user_id()
+        
         with self.uow as uow:
             purchases = self.require(uow.purchases, "purchases")
             suppliers = self.require(uow.suppliers, "suppliers")
             payment_methods = self.require(uow.payment_methods, "payment_methods")
-            users = self.require(uow.users, "users")
+            # users = self.require(uow.users, "users")
 
             if request.supplier_id is not None and suppliers.get_by_id(request.supplier_id) is None:
                 raise NotFoundError(f"Supplier id={request.supplier_id} not found")
 
-            if request.created_by_user_id is not None and users.get_by_id(request.created_by_user_id) is None:
-                raise NotFoundError(f"User id={request.created_by_user_id} not found")
+            # if request.created_by_user_id is not None and users.get_by_id(request.created_by_user_id) is None:
+            #     raise NotFoundError(f"User id={request.created_by_user_id} not found")
 
             purchase = Purchase(
                 purchase_no=request.purchase_no.strip(),
@@ -41,7 +47,7 @@ class CreatePurchaseUseCase(UseCase[CreatePurchaseCommand, Purchase]):
                 reference_no=request.reference_no,
                 note=request.note,
                 discount_amount=request.discount_amount,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
 
             stock_cache: dict[tuple[str, int], object] = {}
@@ -86,8 +92,8 @@ class CreatePurchaseUseCase(UseCase[CreatePurchaseCommand, Purchase]):
             for payment in request.payments:
                 if payment_methods.get_by_id(payment.payment_method_id) is None:
                     raise NotFoundError(f"Payment method id={payment.payment_method_id} not found")
-                if users.get_by_id(payment.paid_by_user_id) is None:
-                    raise NotFoundError(f"User id={payment.paid_by_user_id} not found")
+                # if users.get_by_id(payment.paid_by_user_id) is None:
+                #     raise NotFoundError(f"User id={payment.paid_by_user_id} not found")
 
                 purchase.add_payment(
                     PurchasePayment(
@@ -105,8 +111,9 @@ class CreatePurchaseUseCase(UseCase[CreatePurchaseCommand, Purchase]):
             return purchases.add(purchase)
 
 
-class GetPurchaseByNoUseCase(UseCase[str, Purchase | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class GetPurchaseByNoUseCase(AuthenticatedUseCase[str, Purchase | None]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: str) -> Purchase | None:
@@ -115,8 +122,9 @@ class GetPurchaseByNoUseCase(UseCase[str, Purchase | None]):
             return purchases.get_by_purchase_no(request.strip())
 
 
-class ListPurchasesByDateRangeUseCase(UseCase[DateRangeQuery, list[Purchase]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListPurchasesByDateRangeUseCase(AuthenticatedUseCase[DateRangeQuery, list[Purchase]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: DateRangeQuery) -> list[Purchase]:

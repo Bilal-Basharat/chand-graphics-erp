@@ -22,3 +22,7 @@ class PurchaseRepository(Repository[Purchase], ABC):
     ) -> list[Purchase]:
         """Return purchases in a date range."""
         raise NotImplementedError
+
+    @abstractmethod
+    def search_by_term(self, term: str, limit: int = 50) -> list[Purchase]:
+        raise NotImplementedError

@@ -8,15 +8,23 @@ from app.application.use_cases.base import UseCase
 from app.domain.entities.expense import Expense
 from app.domain.uow import UnitOfWork
 
+from app.application.auth.session import CurrentUserSession
+from app.application.use_cases.authenticated_base import AuthenticatedUseCase
 
-class CreateExpenseUseCase(UseCase[CreateExpenseCommand, Expense]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class CreateExpenseUseCase(AuthenticatedUseCase[CreateExpenseCommand, Expense]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateExpenseCommand) -> Expense:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             expenses = self.require(uow.expenses, "expenses")
             categories = self.require(uow.expense_categories, "expense_categories")
+
+            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             if request.category_id is not None and categories.get_by_id(request.category_id) is None:
                 raise NotFoundError(f"Expense category id={request.category_id} not found")
@@ -37,13 +45,14 @@ class CreateExpenseUseCase(UseCase[CreateExpenseCommand, Expense]):
                 quantity=request.quantity,
                 unit_price=request.unit_price,
                 remarks=request.remarks,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
             return expenses.add(expense)
 
 
-class ListExpensesByDateRangeUseCase(UseCase[DateRangeQuery, list[Expense]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListExpensesByDateRangeUseCase(AuthenticatedUseCase[DateRangeQuery, list[Expense]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: DateRangeQuery) -> list[Expense]:

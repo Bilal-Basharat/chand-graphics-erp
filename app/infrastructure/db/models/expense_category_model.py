@@ -2,10 +2,10 @@ from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
-from app.infrastructure.db.mixins import TimestampMixin
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class ExpenseCategoryModel(Base, TimestampMixin):
+class ExpenseCategoryModel(Base, AuditMixin):
     __tablename__ = "expense_categories"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -26,4 +26,10 @@ class ExpenseCategoryModel(Base, TimestampMixin):
     #################### relationship methods ###################
     #############################################################
 
-    expenses = relationship("ExpenseModel", foreign_keys=("ExpenseModel.category_id"), back_populates="category")   
+    expenses = relationship("ExpenseModel", foreign_keys=("ExpenseModel.category_id"), back_populates="category")
+
+    created_by_user = relationship(
+        "UserModel",
+        back_populates="expense_categories",
+        foreign_keys="ExpenseCategoryModel.created_by_user_id",
+    )

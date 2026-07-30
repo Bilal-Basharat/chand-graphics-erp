@@ -3,7 +3,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.application.dto.commands import CreatePurchaseCommand, CreateSupplierCommand, PurchaseItemCommand
-from app.application.use_cases.master_data import CreateCardUseCase, CreateSupplierUseCase
+from app.application.use_cases.cards import CreateCardUseCase
+from app.application.use_cases.master_data import CreateSupplierUseCase
 from app.application.use_cases.purchases import CreatePurchaseUseCase, GetPurchaseByNoUseCase
 from app.domain.enums.item_type import ItemType
 from app.application.dto.commands import CreateCardCommand

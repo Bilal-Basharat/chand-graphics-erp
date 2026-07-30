@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.entities.expense import Expense
@@ -38,6 +38,9 @@ from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
 
 
+############################################################
+################### Expense Repository ####################
+############################################################
 class SqlAlchemyExpenseRepository(
     SQLAlchemyRepository[Expense, ExpenseModel],
     ExpenseRepositoryPort,
@@ -76,6 +79,9 @@ class SqlAlchemyExpenseRepository(
         return [ExpenseMapper.to_entity(model) for model in models]
 
 
+############################################################
+################### Purchase Repository ####################
+############################################################
 class SqlAlchemyPurchaseRepository(
     SQLAlchemyRepository[Purchase, PurchaseModel],
     PurchaseRepositoryPort,
@@ -119,7 +125,31 @@ class SqlAlchemyPurchaseRepository(
         models = self.session.execute(stmt).scalars().all()
         return [PurchaseMapper.to_entity(model) for model in models]
 
+    def search_by_term(self, term: str, limit: int = 50) -> list[Purchase]:
+        pattern = f"%{term.strip()}%"
+        stmt = (
+            select(PurchaseModel)
+            .where(
+                or_(
+                    PurchaseModel.purchase_no.ilike(pattern),
+                    PurchaseModel.reference_no.ilike(pattern),
+                    PurchaseModel.note.ilike(pattern),
+                )
+            )
+            .order_by(PurchaseModel.created_at.desc())
+            .options(
+                selectinload(PurchaseModel.items),
+                selectinload(PurchaseModel.payments),
+            )
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [PurchaseMapper.to_entity(model) for model in models]
 
+
+############################################################
+################### Sale Repository ####################
+############################################################
 class SqlAlchemySaleRepository(
     SQLAlchemyRepository[Sale, SaleModel],
     SaleRepositoryPort,
@@ -163,7 +193,31 @@ class SqlAlchemySaleRepository(
         models = self.session.execute(stmt).scalars().all()
         return [SaleMapper.to_entity(model) for model in models]
 
+    def search_by_term(self, term: str, limit: int = 50) -> list[Sale]:
+        pattern = f"%{term.strip()}%"
+        stmt = (
+            select(SaleModel)
+            .where(
+                or_(
+                    SaleModel.invoice_no.ilike(pattern),
+                    SaleModel.reference_no.ilike(pattern),
+                    SaleModel.note.ilike(pattern),
+                )
+            )
+            .order_by(SaleModel.created_at.desc())
+            .options(
+                selectinload(SaleModel.items),
+                selectinload(SaleModel.payments),
+            )
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [SaleMapper.to_entity(model) for model in models]
 
+
+############################################################
+############### Purhcase Payment Repository ################
+############################################################
 class SqlAlchemyPurchasePaymentRepository(
     SQLAlchemyRepository[PurchasePayment, PurchasePaymentModel],
     PurchasePaymentRepositoryPort,
@@ -185,6 +239,9 @@ class SqlAlchemyPurchasePaymentRepository(
         return [PurchasePaymentMapper.to_entity(model) for model in models]
 
 
+############################################################
+################### Sale Payment Repository ################
+############################################################
 class SqlAlchemySalePaymentRepository(
     SQLAlchemyRepository[SalePayment, SalePaymentModel],
     SalePaymentRepositoryPort,
@@ -206,6 +263,9 @@ class SqlAlchemySalePaymentRepository(
         return [SalePaymentMapper.to_entity(model) for model in models]
 
 
+############################################################
+############## Inventory Movement Repository ###############
+############################################################
 class SqlAlchemyInventoryMovementRepository(
     SQLAlchemyRepository[InventoryMovement, InventoryMovementModel],
     InventoryMovementRepositoryPort,

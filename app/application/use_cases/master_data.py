@@ -14,24 +14,33 @@ from app.application.dto.commands import (
 from app.application.exceptions import DuplicateEntityError, NotFoundError
 from app.application.use_cases.base import UseCase
 from app.domain.entities.cabinet import Cabinet
-from app.domain.entities.card import Card
 from app.domain.entities.company_settings import CompanySettings
 from app.domain.entities.customer import Customer
 from app.domain.entities.expense_category import ExpenseCategory
-from app.domain.entities.inventory_item import InventoryItem
 from app.domain.entities.payment_method import PaymentMethod
 from app.domain.entities.supplier import Supplier
 from app.domain.uow import UnitOfWork
 
+from app.application.auth.session import CurrentUserSession
+from app.application.use_cases.authenticated_base import AuthenticatedUseCase
 
-class CreateCabinetUseCase(UseCase[CreateCabinetCommand, Cabinet]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+################### Cabinet Use Cases ######################
+############################################################
+class CreateCabinetUseCase(AuthenticatedUseCase[CreateCabinetCommand, Cabinet]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateCabinetCommand) -> Cabinet:
+
+        current_user_id = self.current_user_id()
+        
         with self.uow as uow:
             cabinets = self.require(uow.cabinets, "cabinets")
             code = request.code.strip()
+
+            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             if cabinets.get_by_code(code) is not None:
                 raise DuplicateEntityError(f"Cabinet '{code}' already exists")
@@ -39,13 +48,14 @@ class CreateCabinetUseCase(UseCase[CreateCabinetCommand, Cabinet]):
             cabinet = Cabinet(
                 code=code,
                 description=request.description,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
             return cabinets.add(cabinet)
 
 
-class ListCabinetsUseCase(UseCase[int, list[Cabinet]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListCabinetsUseCase(AuthenticatedUseCase[int, list[Cabinet]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: int = 100) -> list[Cabinet]:
@@ -54,8 +64,9 @@ class ListCabinetsUseCase(UseCase[int, list[Cabinet]]):
             return cabinets.list(limit=request)
 
 
-class GetCabinetByCodeUseCase(UseCase[str, Cabinet | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class GetCabinetByCodeUseCase(AuthenticatedUseCase[str, Cabinet | None]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: str) -> Cabinet | None:
@@ -64,141 +75,36 @@ class GetCabinetByCodeUseCase(UseCase[str, Cabinet | None]):
             return cabinets.get_by_code(request.strip())
 
 
-class CreateCardUseCase(UseCase[CreateCardCommand, Card]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: CreateCardCommand) -> Card:
-        with self.uow as uow:
-            cards = self.require(uow.cards, "cards")
-            cabinets = self.require(uow.cabinets, "cabinets")
-
-            card_number = request.card_number.strip()
-            name = request.name.strip()
-
-            if cards.get_by_card_number(card_number) is not None:
-                raise DuplicateEntityError(f"Card '{card_number}' already exists")
-
-            if request.cabinet_id is not None and cabinets.get_by_id(request.cabinet_id) is None:
-                raise NotFoundError(f"Cabinet id={request.cabinet_id} not found")
-
-            card = Card(
-                card_number=card_number,
-                name=name,
-                purchase_price=request.purchase_price,
-                selling_price=request.selling_price,
-                current_stock=request.current_stock,
-                minimum_stock=request.minimum_stock,
-                cabinet_id=request.cabinet_id,
-                description=request.description,
-                created_by_user_id=request.created_by_user_id,
-            )
-            return cards.add(card)
-
-
-class ListCardsUseCase(UseCase[int, list[Card]]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: int = 100) -> list[Card]:
-        with self.uow as uow:
-            cards = self.require(uow.cards, "cards")
-            return cards.list(limit=request)
-
-
-class GetCardByNumberUseCase(UseCase[str, Card | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: str) -> Card | None:
-        with self.uow as uow:
-            cards = self.require(uow.cards, "cards")
-            return cards.get_by_card_number(request.strip())
-
-
-class ListLowStockCardsUseCase(UseCase[int, list[Card]]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: int = 100) -> list[Card]:
-        with self.uow as uow:
-            cards = self.require(uow.cards, "cards")
-            return cards.list_low_stock(limit=request)
-
-
-class CreateInventoryItemUseCase(UseCase[CreateInventoryItemCommand, InventoryItem]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: CreateInventoryItemCommand) -> InventoryItem:
-        with self.uow as uow:
-            items = self.require(uow.inventory_items, "inventory_items")
-
-            name = request.name.strip()
-            if items.get_by_name(name) is not None:
-                raise DuplicateEntityError(f"Inventory item '{name}' already exists")
-
-            item = InventoryItem(
-                name=name,
-                purchase_price=request.purchase_price,
-                selling_price=request.selling_price,
-                current_stock=request.current_stock,
-                minimum_stock=request.minimum_stock,
-                description=request.description,
-                created_by_user_id=request.created_by_user_id,
-            )
-            return items.add(item)
-
-
-class ListInventoryItemsUseCase(UseCase[int, list[InventoryItem]]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: int = 100) -> list[InventoryItem]:
-        with self.uow as uow:
-            items = self.require(uow.inventory_items, "inventory_items")
-            return items.list(limit=request)
-
-
-class GetInventoryItemByNameUseCase(UseCase[str, InventoryItem | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: str) -> InventoryItem | None:
-        with self.uow as uow:
-            items = self.require(uow.inventory_items, "inventory_items")
-            return items.get_by_name(request.strip())
-
-
-class ListLowStockInventoryItemsUseCase(UseCase[int, list[InventoryItem]]):
-    def __init__(self, uow: UnitOfWork) -> None:
-        self.uow = uow
-
-    def execute(self, request: int = 100) -> list[InventoryItem]:
-        with self.uow as uow:
-            items = self.require(uow.inventory_items, "inventory_items")
-            return items.list_low_stock(limit=request)
-
-
-class CreateCustomerUseCase(UseCase[CreateCustomerCommand, Customer]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+################### Customer Use Cases ######################
+############################################################
+class CreateCustomerUseCase(AuthenticatedUseCase[CreateCustomerCommand, Customer]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateCustomerCommand) -> Customer:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             customers = self.require(uow.customers, "customers")
+
+            # created_by_user_id = request.created_by_user_id or self.current_user_id()
+
             customer = Customer(
                 name=request.name.strip(),
                 phone=request.phone,
                 address=request.address,
                 notes=request.notes,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
             return customers.add(customer)
 
 
-class SearchCustomersUseCase(UseCase[str, list[Customer]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class SearchCustomersUseCase(AuthenticatedUseCase[str, list[Customer]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: str) -> list[Customer]:
@@ -207,25 +113,36 @@ class SearchCustomersUseCase(UseCase[str, list[Customer]]):
             return customers.search_by_name(request.strip())
 
 
-class CreateSupplierUseCase(UseCase[CreateSupplierCommand, Supplier]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+################### Supplier Use Cases ######################
+############################################################
+class CreateSupplierUseCase(AuthenticatedUseCase[CreateSupplierCommand, Supplier]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateSupplierCommand) -> Supplier:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             suppliers = self.require(uow.suppliers, "suppliers")
+
+            # created_by_user_id = request.created_by_user_id or self.current_user_id()
+
             supplier = Supplier(
                 name=request.name.strip(),
                 phone=request.phone,
                 address=request.address,
                 notes=request.notes,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
             return suppliers.add(supplier)
 
 
-class SearchSuppliersUseCase(UseCase[str, list[Supplier]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class SearchSuppliersUseCase(AuthenticatedUseCase[str, list[Supplier]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: str) -> list[Supplier]:
@@ -234,11 +151,18 @@ class SearchSuppliersUseCase(UseCase[str, list[Supplier]]):
             return suppliers.search_by_name(request.strip())
 
 
-class CreatePaymentMethodUseCase(UseCase[CreatePaymentMethodCommand, PaymentMethod]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+################ Payment Method Use Cases ##################
+############################################################
+class CreatePaymentMethodUseCase(AuthenticatedUseCase[CreatePaymentMethodCommand, PaymentMethod]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreatePaymentMethodCommand) -> PaymentMethod:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             payment_methods = self.require(uow.payment_methods, "payment_methods")
             name = request.name.strip()
@@ -246,12 +170,13 @@ class CreatePaymentMethodUseCase(UseCase[CreatePaymentMethodCommand, PaymentMeth
             if payment_methods.get_by_name(name) is not None:
                 raise DuplicateEntityError(f"Payment method '{name}' already exists")
 
-            payment_method = PaymentMethod(name=name)
+            payment_method = PaymentMethod(name=name, created_by_user_id=current_user_id)
             return payment_methods.add(payment_method)
 
 
-class ListPaymentMethodsUseCase(UseCase[int, list[PaymentMethod]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListPaymentMethodsUseCase(AuthenticatedUseCase[int, list[PaymentMethod]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: int = 100) -> list[PaymentMethod]:
@@ -260,14 +185,22 @@ class ListPaymentMethodsUseCase(UseCase[int, list[PaymentMethod]]):
             return payment_methods.list(limit=request)
 
 
-class CreateExpenseCategoryUseCase(UseCase[CreateExpenseCategoryCommand, ExpenseCategory]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+################### Expense Use Cases ######################
+############################################################
+class CreateExpenseCategoryUseCase(AuthenticatedUseCase[CreateExpenseCategoryCommand, ExpenseCategory]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateExpenseCategoryCommand) -> ExpenseCategory:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             categories = self.require(uow.expense_categories, "expense_categories")
             name = request.name.strip()
+
 
             if categories.get_by_name(name) is not None:
                 raise DuplicateEntityError(f"Expense category '{name}' already exists")
@@ -275,12 +208,14 @@ class CreateExpenseCategoryUseCase(UseCase[CreateExpenseCategoryCommand, Expense
             category = ExpenseCategory(
                 name=name,
                 description=request.description,
+                created_by_user_id=current_user_id
             )
             return categories.add(category)
 
 
-class ListExpenseCategoriesUseCase(UseCase[int, list[ExpenseCategory]]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class ListExpenseCategoriesUseCase(AuthenticatedUseCase[int, list[ExpenseCategory]]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: int = 100) -> list[ExpenseCategory]:
@@ -289,13 +224,21 @@ class ListExpenseCategoriesUseCase(UseCase[int, list[ExpenseCategory]]):
             return categories.list(limit=request)
 
 
-class CreateCompanySettingsUseCase(UseCase[CreateCompanySettingsCommand, CompanySettings]):
-    def __init__(self, uow: UnitOfWork) -> None:
+############################################################
+############### Company Settings Use Cases #################
+############################################################
+class CreateCompanySettingsUseCase(AuthenticatedUseCase[CreateCompanySettingsCommand, CompanySettings]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: CreateCompanySettingsCommand) -> CompanySettings:
+
+        current_user_id = self.current_user_id()
+
         with self.uow as uow:
             settings_repo = self.require(uow.company_settings, "company_settings")
+
 
             if settings_repo.get_current() is not None:
                 raise DuplicateEntityError("Company settings already exist for this database")
@@ -308,13 +251,14 @@ class CreateCompanySettingsUseCase(UseCase[CreateCompanySettingsCommand, Company
                 currency=request.currency,
                 logo_path=request.logo_path,
                 invoice_footer=request.invoice_footer,
-                created_by_user_id=request.created_by_user_id,
+                created_by_user_id=current_user_id,
             )
             return settings_repo.add(settings)
 
 
-class GetCompanySettingsUseCase(UseCase[None, CompanySettings | None]):
-    def __init__(self, uow: UnitOfWork) -> None:
+class GetCompanySettingsUseCase(AuthenticatedUseCase[None, CompanySettings | None]):
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
         self.uow = uow
 
     def execute(self, request: None = None) -> CompanySettings | None:

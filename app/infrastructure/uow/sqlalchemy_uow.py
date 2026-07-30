@@ -25,7 +25,7 @@ from app.infrastructure.repositories.transaction_repositories import (
     SqlAlchemySalePaymentRepository,
     SqlAlchemySaleRepository,
 )
-
+from app.infrastructure.repositories.login_audit_repository import SqlAlchemyLoginAuditRepository
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
     """
@@ -54,7 +54,8 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.sale_payments: SqlAlchemySalePaymentRepository | None = None
         self.expenses: SqlAlchemyExpenseRepository | None = None
         self.inventory_movements: SqlAlchemyInventoryMovementRepository | None = None
-
+        self.login_audits = None
+        
     def __enter__(self) -> SqlAlchemyUnitOfWork:
         self.session = self._session_factory()
         self._initialize_repositories()
@@ -67,6 +68,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         if self.session is None:
             raise RuntimeError("UnitOfWork session is not initialized")
 
+        self.login_audits = SqlAlchemyLoginAuditRepository(self.session)
         self.cards = SqlAlchemyCardRepository(self.session)
         self.inventory_items = SqlAlchemyInventoryItemRepository(self.session)
         self.cabinets = SqlAlchemyCabinetRepository(self.session)

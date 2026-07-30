@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.entities.cabinet import Cabinet
@@ -50,6 +50,9 @@ from app.infrastructure.mappers.user_mapper import UserMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
 
 
+############################################################
+################### Card Repository ######################
+############################################################
 class SqlAlchemyCardRepository(
     SQLAlchemyRepository[Card, CardModel],
     CardRepositoryPort,
@@ -74,7 +77,27 @@ class SqlAlchemyCardRepository(
         models = self.session.execute(stmt).scalars().all()
         return [CardMapper.to_entity(model) for model in models]
 
+    def search_by_term(self, term: str, limit: int = 50) -> list[Card]:
+        pattern = f"%{term.strip()}%"
+        stmt = (
+            select(CardModel)
+            .where(
+                or_(
+                    CardModel.card_number.ilike(pattern),
+                    CardModel.name.ilike(pattern),
+                    CardModel.description.ilike(pattern),
+                )
+            )
+            .order_by(CardModel.card_number.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [CardMapper.to_entity(model) for model in models]
 
+
+############################################################
+############### Inventory Items Repository #################
+############################################################
 class SqlAlchemyInventoryItemRepository(
     SQLAlchemyRepository[InventoryItem, InventoryItemModel],
     InventoryItemRepositoryPort,
@@ -99,7 +122,26 @@ class SqlAlchemyInventoryItemRepository(
         models = self.session.execute(stmt).scalars().all()
         return [InventoryItemMapper.to_entity(model) for model in models]
 
+    def search_by_term(self, term: str, limit: int = 50) -> list[InventoryItem]:
+        pattern = f"%{term.strip()}%"
+        stmt = (
+            select(InventoryItemModel)
+            .where(
+                or_(
+                    InventoryItemModel.name.ilike(pattern),
+                    InventoryItemModel.description.ilike(pattern),
+                )
+            )
+            .order_by(InventoryItemModel.name.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [InventoryItemMapper.to_entity(model) for model in models]
 
+
+############################################################
+################### Cabinet Repository #####################
+############################################################
 class SqlAlchemyCabinetRepository(
     SQLAlchemyRepository[Cabinet, CabinetModel],
     CabinetRepositoryPort,
@@ -115,6 +157,9 @@ class SqlAlchemyCabinetRepository(
         return self.find_one_by("code", code)
 
 
+############################################################
+################### Customer Repository ####################
+############################################################
 class SqlAlchemyCustomerRepository(
     SQLAlchemyRepository[Customer, CustomerModel],
     CustomerRepositoryPort,
@@ -137,6 +182,9 @@ class SqlAlchemyCustomerRepository(
         return [CustomerMapper.to_entity(model) for model in models]
 
 
+############################################################
+################### Supplier Repository ####################
+############################################################
 class SqlAlchemySupplierRepository(
     SQLAlchemyRepository[Supplier, SupplierModel],
     SupplierRepositoryPort,
@@ -159,6 +207,9 @@ class SqlAlchemySupplierRepository(
         return [SupplierMapper.to_entity(model) for model in models]
 
 
+############################################################
+################ Payment Method Repository #################
+############################################################
 class SqlAlchemyPaymentMethodRepository(
     SQLAlchemyRepository[PaymentMethod, PaymentMethodModel],
     PaymentMethodRepositoryPort,
@@ -174,6 +225,9 @@ class SqlAlchemyPaymentMethodRepository(
         return self.find_one_by("name", name)
 
 
+############################################################
+##################### User Repository ######################
+############################################################
 class SqlAlchemyUserRepository(
     SQLAlchemyRepository[User, UserModel],
     UserRepositoryPort,
@@ -189,6 +243,10 @@ class SqlAlchemyUserRepository(
         return self.find_one_by("email", email)
 
 
+
+############################################################
+############### Expense Category Repository ################
+############################################################
 class SqlAlchemyExpenseCategoryRepository(
     SQLAlchemyRepository[ExpenseCategory, ExpenseCategoryModel],
     ExpenseCategoryRepositoryPort,
@@ -204,6 +262,9 @@ class SqlAlchemyExpenseCategoryRepository(
         return self.find_one_by("name", name)
 
 
+############################################################
+############### Company Settings Repository ################
+############################################################
 class SqlAlchemyCompanySettingsRepository(
     SQLAlchemyRepository[CompanySettings, CompanySettingsModel],
     CompanySettingsRepositoryPort,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.application.dto.commands import CreateCardCommand, InventoryMovementCommand
 from app.application.use_cases.cards import CreateCardUseCase, GetCardByNumberUseCase
-from app.application.use_cases.inventory import RecordInventoryMovementUseCase
+from app.application.use_cases.inventory_movements import RecordInventoryMovementUseCase
 from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from decimal import Decimal
