@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
+from collections.abc import Callable
 
 from app.domain.uow import UnitOfWork
 from app.infrastructure.db.session import SessionLocal

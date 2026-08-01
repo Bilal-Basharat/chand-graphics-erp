@@ -9,22 +9,33 @@ from app.domain.entities.expense import Expense
 from app.domain.uow import UnitOfWork
 
 from app.application.auth.session import CurrentUserSession
+from app.application.auth.authorization import AuthorizationService
+from app.application.auth.permissions import Permission
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+from app.application.use_cases.authorized_base import AuthorizedUseCase
 
-class CreateExpenseUseCase(AuthenticatedUseCase[CreateExpenseCommand, Expense]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateExpenseUseCase(AuthorizedUseCase[CreateExpenseCommand, Expense]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateExpenseCommand) -> Expense:
+        self.require_permission(Permission.MANAGE_EXPENSES)
 
         current_user_id = self.current_user_id()
 
         with self.uow as uow:
             expenses = self.require(uow.expenses, "expenses")
             categories = self.require(uow.expense_categories, "expense_categories")
-
-            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             if request.category_id is not None and categories.get_by_id(request.category_id) is None:
                 raise NotFoundError(f"Expense category id={request.category_id} not found")

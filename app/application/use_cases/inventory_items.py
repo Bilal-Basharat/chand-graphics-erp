@@ -10,21 +10,32 @@ from app.domain.uow import UnitOfWork
 from app.application.exceptions import DuplicateEntityError, NotFoundError
 
 from app.application.auth.session import CurrentUserSession
+from app.application.auth.authorization import AuthorizationService
+from app.application.auth.permissions import Permission
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+from app.application.use_cases.authorized_base import AuthorizedUseCase
 
-class CreateInventoryItemUseCase(AuthenticatedUseCase[CreateInventoryItemCommand, InventoryItem]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateInventoryItemUseCase(AuthorizedUseCase[CreateInventoryItemCommand, InventoryItem]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateInventoryItemCommand) -> InventoryItem:
+        self.require_permission(Permission.MANAGE_MASTER_DATA)
 
         current_user_id = self.current_user_id()
 
         with self.uow as uow:
             items = self.require(uow.inventory_items, "inventory_items")
-
-            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             name = request.name.strip()
             if items.get_by_name(name) is not None:

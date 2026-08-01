@@ -7,12 +7,12 @@ from app.application.use_cases.cards import CreateCardUseCase, GetCardByNumberUs
 from app.application.use_cases.master_data import CreateCabinetUseCase
 
 
-def test_create_cabinet_and_card(uow):
-    cabinet = CreateCabinetUseCase(uow).execute(
+def test_create_cabinet_and_card(uow, admin_session):
+    cabinet = CreateCabinetUseCase(uow, admin_session).execute(
         CreateCabinetCommand(code="A-01", description="Main cabinet")
     )
 
-    card = CreateCardUseCase(uow).execute(
+    card = CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
@@ -35,8 +35,8 @@ def test_create_cabinet_and_card(uow):
     assert found.cabinet_id == cabinet.id
 
 
-def test_list_low_stock_cards(uow):
-    CreateCardUseCase(uow).execute(
+def test_list_low_stock_cards(uow, admin_session):
+    CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
@@ -47,7 +47,7 @@ def test_list_low_stock_cards(uow):
         )
     )
 
-    CreateCardUseCase(uow).execute(
+    CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="2667",
             name="2667 Card",

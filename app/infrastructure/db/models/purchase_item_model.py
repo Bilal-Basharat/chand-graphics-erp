@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -11,6 +11,14 @@ from app.infrastructure.db.mixins import TimestampMixin
 class PurchaseItemModel(Base, TimestampMixin):
     __tablename__ = "purchase_items"
 
+    __table_args__ = (
+        CheckConstraint(
+            "(card_id IS NOT NULL AND inventory_item_id IS NULL) OR "
+            "(card_id IS NULL AND inventory_item_id IS NOT NULL)",
+            name="ck_purchase_items_exclusive_target",
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
 
     purchase_id: Mapped[int] = mapped_column(
@@ -20,7 +28,7 @@ class PurchaseItemModel(Base, TimestampMixin):
     )
 
     item_type: Mapped[str] = mapped_column(
-        Enum(ItemType),
+        Enum(ItemType, name="item_type_enum_purchase_items", native_enum=False),
         nullable=False,
         index=True,
     )

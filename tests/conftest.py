@@ -73,3 +73,21 @@ def uow(session_factory):
     UnitOfWork bound to the isolated test database.
     """
     return SqlAlchemyUnitOfWork(session_factory=session_factory)
+
+
+@pytest.fixture()
+def admin_session(uow):
+    """
+    A signed-in admin CurrentUserSession for use cases that require authentication/authorization.
+    """
+    from app.application.auth.session import CurrentUserSession
+    from app.domain.entities.user import User
+
+    with uow as u:
+        user = u.users.add(
+            User(email="admin@test.local", password_hash="x", full_name="Test Admin", role="admin")
+        )
+
+    session = CurrentUserSession()
+    session.set_user(user)
+    return session

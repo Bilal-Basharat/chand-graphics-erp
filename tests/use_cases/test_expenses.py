@@ -7,12 +7,12 @@ from app.application.use_cases.expenses import CreateExpenseUseCase
 from app.application.use_cases.master_data import CreateExpenseCategoryUseCase
 
 
-def test_create_expense(uow):
-    category = CreateExpenseCategoryUseCase(uow).execute(
+def test_create_expense(uow, admin_session):
+    category = CreateExpenseCategoryUseCase(uow, admin_session).execute(
         CreateExpenseCategoryCommand(name="Fuel", description="Transport and fuel")
     )
 
-    expense = CreateExpenseUseCase(uow).execute(
+    expense = CreateExpenseUseCase(uow, admin_session).execute(
         CreateExpenseCommand(
             expense_name="Fuel for delivery",
             category_id=category.id,

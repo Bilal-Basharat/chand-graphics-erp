@@ -20,8 +20,9 @@ class SaleItem(TimestampEntity):
 
     previous_stock: int | None = None
     resulting_stock: int | None = None
-    
+
     note: str | None = None
+    id: int | None = None
 
 
     def __post_init__(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from decimal import Decimal
 
 from app.domain.entities.purchase import Purchase
 from app.domain.repositories.base import Repository
@@ -25,4 +26,9 @@ class PurchaseRepository(Repository[Purchase], ABC):
 
     @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[Purchase]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def sum_by_supplier(self, supplier_id: int) -> Decimal:
+        """Return total grand_total of all purchases from a supplier."""
         raise NotImplementedError

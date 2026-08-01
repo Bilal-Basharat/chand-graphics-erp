@@ -2,10 +2,10 @@ from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
-from app.infrastructure.db.mixins import TimestampMixin
+from app.infrastructure.db.mixins import AuditMixin
 
 
-class PaymentMethodModel(Base, TimestampMixin):
+class PaymentMethodModel(Base, AuditMixin):
     __tablename__ = "payment_methods"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -20,6 +20,8 @@ class PaymentMethodModel(Base, TimestampMixin):
 #############################################################
 #################### relationship methods ###################
 #############################################################
+
+    created_by_user = relationship("UserModel", back_populates="payment_methods", foreign_keys="PaymentMethodModel.created_by_user_id")
 
     sale_payments = relationship(
     "SalePaymentModel",

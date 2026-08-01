@@ -94,6 +94,16 @@ class SqlAlchemyCardRepository(
         models = self.session.execute(stmt).scalars().all()
         return [CardMapper.to_entity(model) for model in models]
 
+    def list_by_cabinet_id(self, cabinet_id: int, limit: int = 200) -> list[Card]:
+        stmt = (
+            select(CardModel)
+            .where(CardModel.cabinet_id == cabinet_id)
+            .order_by(CardModel.card_number.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [CardMapper.to_entity(model) for model in models]
+
 
 ############################################################
 ############### Inventory Items Repository #################

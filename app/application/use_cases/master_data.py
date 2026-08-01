@@ -22,25 +22,36 @@ from app.domain.entities.supplier import Supplier
 from app.domain.uow import UnitOfWork
 
 from app.application.auth.session import CurrentUserSession
+from app.application.auth.authorization import AuthorizationService
+from app.application.auth.permissions import Permission
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+from app.application.use_cases.authorized_base import AuthorizedUseCase
 
 ############################################################
 ################### Cabinet Use Cases ######################
 ############################################################
-class CreateCabinetUseCase(AuthenticatedUseCase[CreateCabinetCommand, Cabinet]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateCabinetUseCase(AuthorizedUseCase[CreateCabinetCommand, Cabinet]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateCabinetCommand) -> Cabinet:
+        self.require_permission(Permission.MANAGE_MASTER_DATA)
 
         current_user_id = self.current_user_id()
         
         with self.uow as uow:
             cabinets = self.require(uow.cabinets, "cabinets")
             code = request.code.strip()
-
-            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             if cabinets.get_by_code(code) is not None:
                 raise DuplicateEntityError(f"Cabinet '{code}' already exists")
@@ -78,19 +89,27 @@ class GetCabinetByCodeUseCase(AuthenticatedUseCase[str, Cabinet | None]):
 ############################################################
 ################### Customer Use Cases ######################
 ############################################################
-class CreateCustomerUseCase(AuthenticatedUseCase[CreateCustomerCommand, Customer]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateCustomerUseCase(AuthorizedUseCase[CreateCustomerCommand, Customer]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateCustomerCommand) -> Customer:
+        self.require_permission(Permission.MANAGE_MASTER_DATA)
 
         current_user_id = self.current_user_id()
 
         with self.uow as uow:
             customers = self.require(uow.customers, "customers")
-
-            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             customer = Customer(
                 name=request.name.strip(),
@@ -116,19 +135,27 @@ class SearchCustomersUseCase(AuthenticatedUseCase[str, list[Customer]]):
 ############################################################
 ################### Supplier Use Cases ######################
 ############################################################
-class CreateSupplierUseCase(AuthenticatedUseCase[CreateSupplierCommand, Supplier]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateSupplierUseCase(AuthorizedUseCase[CreateSupplierCommand, Supplier]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateSupplierCommand) -> Supplier:
+        self.require_permission(Permission.MANAGE_MASTER_DATA)
 
         current_user_id = self.current_user_id()
 
         with self.uow as uow:
             suppliers = self.require(uow.suppliers, "suppliers")
-
-            # created_by_user_id = request.created_by_user_id or self.current_user_id()
 
             supplier = Supplier(
                 name=request.name.strip(),
@@ -154,12 +181,22 @@ class SearchSuppliersUseCase(AuthenticatedUseCase[str, list[Supplier]]):
 ############################################################
 ################ Payment Method Use Cases ##################
 ############################################################
-class CreatePaymentMethodUseCase(AuthenticatedUseCase[CreatePaymentMethodCommand, PaymentMethod]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreatePaymentMethodUseCase(AuthorizedUseCase[CreatePaymentMethodCommand, PaymentMethod]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreatePaymentMethodCommand) -> PaymentMethod:
+        self.require_permission(Permission.MANAGE_SETTINGS)
 
         current_user_id = self.current_user_id()
 
@@ -188,12 +225,22 @@ class ListPaymentMethodsUseCase(AuthenticatedUseCase[int, list[PaymentMethod]]):
 ############################################################
 ################### Expense Use Cases ######################
 ############################################################
-class CreateExpenseCategoryUseCase(AuthenticatedUseCase[CreateExpenseCategoryCommand, ExpenseCategory]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateExpenseCategoryUseCase(AuthorizedUseCase[CreateExpenseCategoryCommand, ExpenseCategory]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateExpenseCategoryCommand) -> ExpenseCategory:
+        self.require_permission(Permission.MANAGE_EXPENSES)
 
         current_user_id = self.current_user_id()
 
@@ -227,12 +274,22 @@ class ListExpenseCategoriesUseCase(AuthenticatedUseCase[int, list[ExpenseCategor
 ############################################################
 ############### Company Settings Use Cases #################
 ############################################################
-class CreateCompanySettingsUseCase(AuthenticatedUseCase[CreateCompanySettingsCommand, CompanySettings]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+class CreateCompanySettingsUseCase(AuthorizedUseCase[CreateCompanySettingsCommand, CompanySettings]):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: CreateCompanySettingsCommand) -> CompanySettings:
+        self.require_permission(Permission.MANAGE_SETTINGS)
 
         current_user_id = self.current_user_id()
 

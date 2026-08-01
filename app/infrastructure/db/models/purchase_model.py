@@ -78,4 +78,8 @@ class PurchaseModel(Base, AuditMixin):
         cascade="all, delete-orphan",
     )
 
-    payments = relationship("PurchasePaymentModel", back_populates="purchase")
+    payments = relationship(
+        "PurchasePaymentModel",
+        back_populates="purchase",
+        cascade="all, delete-orphan",
+    )

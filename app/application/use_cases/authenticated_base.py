@@ -20,7 +20,5 @@ class AuthenticatedUseCase(UseCase[RequestT, ResponseT], ABC, Generic[RequestT, 
             current_user_session = CurrentUserSession()
         self.current_user_session = current_user_session
 
-    def current_user_id(self) -> int | None:
-        if not self.current_user_session.is_authenticated():
-            return None
+    def current_user_id(self) -> int:
         return self.current_user_session.require_user_id()

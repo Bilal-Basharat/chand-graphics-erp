@@ -7,6 +7,7 @@ from app.domain.entities.base import AuditEntity
 @dataclass(slots=True, kw_only=True)
 class InventoryItem(AuditEntity):
 
+    id: int | None = None
     name: str
     purchase_price: Decimal
     selling_price: Decimal

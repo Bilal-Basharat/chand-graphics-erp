@@ -17,6 +17,7 @@ class SalePayment(TimestampEntity):
     sale_id: int | None = None
     payment_method_id: int
     received_by_user_id: int
+    id: int | None = None
 
     def __post_init__(self) -> None:
 

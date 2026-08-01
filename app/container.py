@@ -16,7 +16,7 @@ from app.application.auth.login_audit_use_cases import RecordLoginAuditUseCase, 
 from app.application.auth.session_store import SessionStore
 from app.domain.enums.login_event_type import LoginEventType
 from app.infrastructure.auth import FileSessionStore
-from app.config.settings import APP_VERSION, SESSION_FILE_PATH
+from app.config.settings import SESSION_FILE_PATH
 from app.application.auth.throttling import LoginThrottleService
 
 @dataclass(slots=True)
@@ -72,7 +72,7 @@ class AppContainer:
         )
 
     def record_login_audit_use_case(self) -> RecordLoginAuditUseCase:
-        return RecordLoginAuditUseCase(self.create_uow(), APP_VERSION)
+        return RecordLoginAuditUseCase(self.create_uow(), self.settings.app_version)
 
     def login_history_use_case(self):
         from app.application.auth.login_audit_use_cases import ListLoginHistoryUseCase
@@ -84,3 +84,203 @@ class AppContainer:
 
     def login_throttle_service(self) -> LoginThrottleService:
         return LoginThrottleService(self.create_uow(), self.settings)
+
+    ############################################################
+    ###################### Card Use Cases #######################
+    ############################################################
+    def create_card_use_case(self):
+        from app.application.use_cases.cards import CreateCardUseCase
+        return CreateCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_card_cabinet_use_case(self):
+        from app.application.use_cases.cards import UpdateCardCabinetUseCase
+        return UpdateCardCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_cards_use_case(self):
+        from app.application.use_cases.cards import ListCardsUseCase
+        return ListCardsUseCase(self.create_uow(), self.current_user_session)
+
+    def list_cards_by_cabinet_use_case(self):
+        from app.application.use_cases.cards import ListCardsByCabinetUseCase
+        return ListCardsByCabinetUseCase(self.create_uow(), self.current_user_session)
+
+    def get_card_by_number_use_case(self):
+        from app.application.use_cases.cards import GetCardByNumberUseCase
+        return GetCardByNumberUseCase(self.create_uow(), self.current_user_session)
+
+    def list_low_stock_cards_use_case(self):
+        from app.application.use_cases.cards import ListLowStockCardsUseCase
+        return ListLowStockCardsUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ################ Inventory Item Use Cases ###################
+    ############################################################
+    def create_inventory_item_use_case(self):
+        from app.application.use_cases.inventory_items import CreateInventoryItemUseCase
+        return CreateInventoryItemUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_inventory_items_use_case(self):
+        from app.application.use_cases.inventory_items import ListInventoryItemsUseCase
+        return ListInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+
+    def get_inventory_item_by_name_use_case(self):
+        from app.application.use_cases.inventory_items import GetInventoryItemByNameUseCase
+        return GetInventoryItemByNameUseCase(self.create_uow(), self.current_user_session)
+
+    def list_low_stock_inventory_items_use_case(self):
+        from app.application.use_cases.inventory_items import ListLowStockInventoryItemsUseCase
+        return ListLowStockInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    #################### Expense Use Cases #######################
+    ############################################################
+    def create_expense_use_case(self):
+        from app.application.use_cases.expenses import CreateExpenseUseCase
+        return CreateExpenseUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_expenses_by_date_range_use_case(self):
+        from app.application.use_cases.expenses import ListExpensesByDateRangeUseCase
+        return ListExpensesByDateRangeUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    #################### Master Data Use Cases ###################
+    ############################################################
+    def create_cabinet_use_case(self):
+        from app.application.use_cases.master_data import CreateCabinetUseCase
+        return CreateCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_cabinets_use_case(self):
+        from app.application.use_cases.master_data import ListCabinetsUseCase
+        return ListCabinetsUseCase(self.create_uow(), self.current_user_session)
+
+    def get_cabinet_by_code_use_case(self):
+        from app.application.use_cases.master_data import GetCabinetByCodeUseCase
+        return GetCabinetByCodeUseCase(self.create_uow(), self.current_user_session)
+
+    def create_customer_use_case(self):
+        from app.application.use_cases.master_data import CreateCustomerUseCase
+        return CreateCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def search_customers_use_case(self):
+        from app.application.use_cases.master_data import SearchCustomersUseCase
+        return SearchCustomersUseCase(self.create_uow(), self.current_user_session)
+
+    def create_supplier_use_case(self):
+        from app.application.use_cases.master_data import CreateSupplierUseCase
+        return CreateSupplierUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def search_suppliers_use_case(self):
+        from app.application.use_cases.master_data import SearchSuppliersUseCase
+        return SearchSuppliersUseCase(self.create_uow(), self.current_user_session)
+
+    def create_payment_method_use_case(self):
+        from app.application.use_cases.master_data import CreatePaymentMethodUseCase
+        return CreatePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_payment_methods_use_case(self):
+        from app.application.use_cases.master_data import ListPaymentMethodsUseCase
+        return ListPaymentMethodsUseCase(self.create_uow(), self.current_user_session)
+
+    def create_expense_category_use_case(self):
+        from app.application.use_cases.master_data import CreateExpenseCategoryUseCase
+        return CreateExpenseCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_expense_categories_use_case(self):
+        from app.application.use_cases.master_data import ListExpenseCategoriesUseCase
+        return ListExpenseCategoriesUseCase(self.create_uow(), self.current_user_session)
+
+    def create_company_settings_use_case(self):
+        from app.application.use_cases.master_data import CreateCompanySettingsUseCase
+        return CreateCompanySettingsUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def get_company_settings_use_case(self):
+        from app.application.use_cases.master_data import GetCompanySettingsUseCase
+        return GetCompanySettingsUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    #################### Purchase Use Cases #######################
+    ############################################################
+    def create_purchase_use_case(self):
+        from app.application.use_cases.purchases import CreatePurchaseUseCase
+        return CreatePurchaseUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def record_purchase_payment_use_case(self):
+        from app.application.use_cases.purchases import RecordPurchasePaymentUseCase
+        return RecordPurchasePaymentUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def get_purchase_by_no_use_case(self):
+        from app.application.use_cases.purchases import GetPurchaseByNoUseCase
+        return GetPurchaseByNoUseCase(self.create_uow(), self.current_user_session)
+
+    def get_purchase_payment_status_use_case(self):
+        from app.application.use_cases.purchases import GetPurchasePaymentStatusUseCase
+        return GetPurchasePaymentStatusUseCase(self.create_uow(), self.current_user_session)
+
+    def list_purchases_by_date_range_use_case(self):
+        from app.application.use_cases.purchases import ListPurchasesByDateRangeUseCase
+        return ListPurchasesByDateRangeUseCase(self.create_uow(), self.current_user_session)
+
+    def get_supplier_purchase_total_use_case(self):
+        from app.application.use_cases.purchases import GetSupplierPurchaseTotalUseCase
+        return GetSupplierPurchaseTotalUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ###################### Sale Use Cases #########################
+    ############################################################
+    def create_sale_use_case(self):
+        from app.application.use_cases.sales import CreateSaleUseCase
+        return CreateSaleUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def record_sale_payment_use_case(self):
+        from app.application.use_cases.sales import RecordSalePaymentUseCase
+        return RecordSalePaymentUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def get_sale_by_invoice_no_use_case(self):
+        from app.application.use_cases.sales import GetSaleByInvoiceNoUseCase
+        return GetSaleByInvoiceNoUseCase(self.create_uow(), self.current_user_session)
+
+    def get_sale_payment_status_use_case(self):
+        from app.application.use_cases.sales import GetSalePaymentStatusUseCase
+        return GetSalePaymentStatusUseCase(self.create_uow(), self.current_user_session)
+
+    def list_sales_by_date_range_use_case(self):
+        from app.application.use_cases.sales import ListSalesByDateRangeUseCase
+        return ListSalesByDateRangeUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ############### Inventory Movement Use Cases ###################
+    ############################################################
+    def record_inventory_movement_use_case(self):
+        from app.application.use_cases.inventory_movements import RecordInventoryMovementUseCase
+        return RecordInventoryMovementUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_inventory_movements_by_source_document_use_case(self):
+        from app.application.use_cases.inventory_movements import ListInventoryMovementsBySourceDocumentUseCase
+        return ListInventoryMovementsBySourceDocumentUseCase(self.create_uow(), self.current_user_session)
+
+    def list_inventory_movements_by_card_use_case(self):
+        from app.application.use_cases.inventory_movements import ListInventoryMovementsByCardUseCase
+        return ListInventoryMovementsByCardUseCase(self.create_uow(), self.current_user_session)
+
+    def list_inventory_movements_by_inventory_item_use_case(self):
+        from app.application.use_cases.inventory_movements import ListInventoryMovementsByInventoryItemUseCase
+        return ListInventoryMovementsByInventoryItemUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ###################### Search Use Cases ########################
+    ############################################################
+    def search_cards_use_case(self):
+        from app.application.use_cases.search import SearchCardsUseCase
+        return SearchCardsUseCase(self.create_uow(), self.current_user_session)
+
+    def search_inventory_items_use_case(self):
+        from app.application.use_cases.search import SearchInventoryItemsUseCase
+        return SearchInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+
+    def search_purchases_use_case(self):
+        from app.application.use_cases.search import SearchPurchasesUseCase
+        return SearchPurchasesUseCase(self.create_uow(), self.current_user_session)
+
+    def search_sales_use_case(self):
+        from app.application.use_cases.search import SearchSalesUseCase
+        return SearchSalesUseCase(self.create_uow(), self.current_user_session)

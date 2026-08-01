@@ -110,3 +110,6 @@ class UserModel(Base, AuditMixin):
         back_populates="created_by_user",
         foreign_keys="InventoryMovementModel.created_by_user_id",
     )
+
+    payment_methods = relationship("PaymentMethodModel", back_populates="created_by_user",
+            foreign_keys="PaymentMethodModel.created_by_user_id",)

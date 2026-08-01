@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from app.domain.entities.base import AuditEntity
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class Card(AuditEntity):
 
     card_number: str
-    name: str
+    name: str | None = None
 
     purchase_price: Decimal
     selling_price: Decimal
@@ -24,8 +24,8 @@ class Card(AuditEntity):
 
         if not self.card_number.strip():
             raise ValueError("card_number cannot be empty")
-        if not self.name.strip():
-            raise ValueError("name cannot be empty")
+        if self.name is not None and not self.name.strip():
+            raise ValueError("name cannot be blank if provided")
         if self.purchase_price < 0:
             raise ValueError("purchase_price cannot be negative")
         if self.selling_price < 0:

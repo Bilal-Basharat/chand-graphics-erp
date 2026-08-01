@@ -9,6 +9,7 @@ class TimestampMixin:
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
+        index=True,
     )
 
     updated_at: Mapped[datetime | None] = mapped_column(

@@ -18,6 +18,7 @@ class PurchasePayment(TimestampEntity):
     purchase_id: int | None = None
     paid_by_user_id: int
     payment_method_id: int
+    id: int | None = None
 
     def __post_init__(self) -> None:
         if self.amount <= 0:

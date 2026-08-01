@@ -77,11 +77,9 @@ class CardModel(Base, AuditMixin):
     purchase_items = relationship(
         "PurchaseItemModel",
         back_populates="card",
-        cascade="all, delete-orphan",
     )
 
     sale_items = relationship(
         "SaleItemModel",
         back_populates="card",
-        cascade="all, delete-orphan",
     )

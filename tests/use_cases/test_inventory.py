@@ -8,8 +8,8 @@ from app.domain.enums.movement_type import MovementType
 from decimal import Decimal
 
 
-def test_record_inventory_adjustment(uow):
-    card = CreateCardUseCase(uow).execute(
+def test_record_inventory_adjustment(uow, admin_session):
+    card = CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
@@ -20,7 +20,7 @@ def test_record_inventory_adjustment(uow):
         )
     )
 
-    movement = RecordInventoryMovementUseCase(uow).execute(
+    movement = RecordInventoryMovementUseCase(uow, admin_session).execute(
         InventoryMovementCommand(
             movement_type=MovementType.ADJUSTMENT,
             item_type=ItemType.CARD,

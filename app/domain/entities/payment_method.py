@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
-from app.domain.entities.base import TimestampEntity
+from app.domain.entities.base import AuditEntity
 
 
 @dataclass(slots=True)
-class PaymentMethod(TimestampEntity):
+class PaymentMethod(AuditEntity):
 
     name: str
     id: int | None = None

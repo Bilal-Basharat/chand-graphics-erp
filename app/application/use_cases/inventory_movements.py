@@ -5,12 +5,16 @@ from app.application.exceptions import NotFoundError
 from app.application.use_cases.base import UseCase
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
 from app.domain.entities.inventory_movement import InventoryMovement
+from app.domain.enums.movement_type import MovementType
 from app.domain.uow import UnitOfWork
 
 from app.application.auth.session import CurrentUserSession
+from app.application.auth.authorization import AuthorizationService
+from app.application.auth.permissions import Permission
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
+from app.application.use_cases.authorized_base import AuthorizedUseCase
 
-class RecordInventoryMovementUseCase(AuthenticatedUseCase[InventoryMovementCommand, InventoryMovement]):
+class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand, InventoryMovement]):
     """
     Handles exceptional stock changes only:
     adjustment, damage, return, transfer.
@@ -18,22 +22,52 @@ class RecordInventoryMovementUseCase(AuthenticatedUseCase[InventoryMovementComma
     Normal purchase/sale stock changes are stored in purchase_items/sale_items.
     """
 
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession | None = None,
+        authorization_service: AuthorizationService | None = None,
+    ) -> None:
+        if current_user_session is None:
+            current_user_session = CurrentUserSession()
+        if authorization_service is None:
+            authorization_service = AuthorizationService(current_user_session)
+        super().__init__(current_user_session, authorization_service)
         self.uow = uow
 
     def execute(self, request: InventoryMovementCommand) -> InventoryMovement:
+        self.require_permission(Permission.MANAGE_MASTER_DATA)
+
         if request.quantity_change == 0:
             raise ValueError("quantity_change cannot be zero")
+
+        if request.movement_type == MovementType.DAMAGE and request.quantity_change > 0:
+            raise ValueError("DAMAGE movements can only decrease stock")
+
+        if request.movement_type in (MovementType.DAMAGE, MovementType.ADJUSTMENT) and not (
+            request.reason and request.reason.strip()
+        ):
+            raise ValueError(f"reason is required for {request.movement_type.value} movements")
 
         current_user_id = self.current_user_id()
 
         with self.uow as uow:
             movements = self.require(uow.inventory_movements, "inventory_movements")
-            # users = self.require(uow.users, "users")
+            users = self.require(uow.users, "users")
 
             if request.created_by_user_id is not None and users.get_by_id(request.created_by_user_id) is None:
                 raise NotFoundError(f"User id={request.created_by_user_id} not found")
+
+            if request.source_document_id is not None and request.source_document_type is not None:
+                doc_type = request.source_document_type.strip().upper()
+                if doc_type == "PURCHASE":
+                    purchases = self.require(uow.purchases, "purchases")
+                    if purchases.get_by_id(request.source_document_id) is None:
+                        raise NotFoundError(f"Purchase id={request.source_document_id} not found")
+                elif doc_type == "SALE":
+                    sales = self.require(uow.sales, "sales")
+                    if sales.get_by_id(request.source_document_id) is None:
+                        raise NotFoundError(f"Sale id={request.source_document_id} not found")
 
             target = load_stock_target(
                 uow=uow,
@@ -87,3 +121,33 @@ class ListInventoryMovementsBySourceDocumentUseCase(AuthenticatedUseCase[tuple[s
                 source_document_type=source_document_type,
                 source_document_id=source_document_id,
             )
+
+
+class ListInventoryMovementsByCardUseCase(AuthenticatedUseCase[int, list[InventoryMovement]]):
+    """
+    Movement audit trail for a single card.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: int) -> list[InventoryMovement]:
+        with self.uow as uow:
+            movements = self.require(uow.inventory_movements, "inventory_movements")
+            return movements.list_by_card_id(request)
+
+
+class ListInventoryMovementsByInventoryItemUseCase(AuthenticatedUseCase[int, list[InventoryMovement]]):
+    """
+    Movement audit trail for a single inventory item.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: int) -> list[InventoryMovement]:
+        with self.uow as uow:
+            movements = self.require(uow.inventory_movements, "inventory_movements")
+            return movements.list_by_inventory_item_id(request)

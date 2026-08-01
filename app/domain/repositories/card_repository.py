@@ -18,5 +18,10 @@ class CardRepository(Repository[Card], ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def list_by_cabinet_id(self, cabinet_id: int, limit: int = 200) -> list[Card]:
+        """Return cards stored in a given cabinet."""
+        raise NotImplementedError
+
+    @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[Card]:
         raise NotImplementedError

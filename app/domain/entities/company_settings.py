@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from app.domain.entities.base import AuditEntity
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class CompanySettings(AuditEntity):
 
     company_name: str
@@ -13,3 +13,4 @@ class CompanySettings(AuditEntity):
     currency: str = "PKR"
     invoice_footer: str | None = None
     logo_path: str | None = None
+    id: int | None = None

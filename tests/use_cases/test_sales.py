@@ -8,8 +8,8 @@ from app.application.use_cases.sales import CreateSaleUseCase, GetSaleByInvoiceN
 from app.domain.enums.item_type import ItemType
 
 
-def test_create_sale_decreases_card_stock_and_stores_snapshots(uow):
-    card = CreateCardUseCase(uow).execute(
+def test_create_sale_decreases_card_stock_and_stores_snapshots(uow, admin_session):
+    card = CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
@@ -20,7 +20,7 @@ def test_create_sale_decreases_card_stock_and_stores_snapshots(uow):
         )
     )
 
-    sale = CreateSaleUseCase(uow).execute(
+    sale = CreateSaleUseCase(uow, admin_session).execute(
         CreateSaleCommand(
             invoice_no="INV-0001",
             discount_amount=Decimal("0.00"),

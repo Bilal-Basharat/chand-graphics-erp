@@ -81,16 +81,3 @@ class AppSettings:
             max_login_attempts=_optional_int("MAX_LOGIN_ATTEMPTS", 5),
             login_lockout_minutes=_optional_int("LOGIN_LOCKOUT_MINUTES", 15),
         )
-
-    def _required(name: str) -> str:
-        """
-        Read a required environment variable.
-
-        Raises:
-            RuntimeError:
-                If the environment variable does not exist.
-        """
-        value = os.getenv(name)
-        if value is None or value.strip() == "":
-            raise RuntimeError(f"Missing required environment variable: {name}")
-        return value.strip()

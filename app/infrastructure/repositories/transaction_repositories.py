@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.entities.expense import Expense
@@ -93,6 +94,18 @@ class SqlAlchemyPurchaseRepository(
     def __init__(self, session: Session) -> None:
         super().__init__(session, PurchaseModel, PurchaseMapper)
 
+    def get_by_id(self, entity_id: int) -> Purchase | None:
+        stmt = (
+            select(PurchaseModel)
+            .where(PurchaseModel.id == entity_id)
+            .options(
+                selectinload(PurchaseModel.items),
+                selectinload(PurchaseModel.payments),
+            )
+        )
+        model = self.session.execute(stmt).scalar_one_or_none()
+        return None if model is None else PurchaseMapper.to_entity(model)
+
     def get_by_purchase_no(self, purchase_no: str) -> Purchase | None:
         stmt = (
             select(PurchaseModel)
@@ -146,6 +159,13 @@ class SqlAlchemyPurchaseRepository(
         models = self.session.execute(stmt).scalars().all()
         return [PurchaseMapper.to_entity(model) for model in models]
 
+    def sum_by_supplier(self, supplier_id: int) -> Decimal:
+        stmt = select(func.coalesce(func.sum(PurchaseModel.grand_total), 0)).where(
+            PurchaseModel.supplier_id == supplier_id
+        )
+        total = self.session.execute(stmt).scalar_one()
+        return Decimal(total)
+
 
 ############################################################
 ################### Sale Repository ####################
@@ -160,6 +180,18 @@ class SqlAlchemySaleRepository(
 
     def __init__(self, session: Session) -> None:
         super().__init__(session, SaleModel, SaleMapper)
+
+    def get_by_id(self, entity_id: int) -> Sale | None:
+        stmt = (
+            select(SaleModel)
+            .where(SaleModel.id == entity_id)
+            .options(
+                selectinload(SaleModel.items),
+                selectinload(SaleModel.payments),
+            )
+        )
+        model = self.session.execute(stmt).scalar_one_or_none()
+        return None if model is None else SaleMapper.to_entity(model)
 
     def get_by_invoice_no(self, invoice_no: str) -> Sale | None:
         stmt = (
@@ -238,6 +270,13 @@ class SqlAlchemyPurchasePaymentRepository(
         models = self.session.execute(stmt).scalars().all()
         return [PurchasePaymentMapper.to_entity(model) for model in models]
 
+    def sum_by_purchase_id(self, purchase_id: int) -> Decimal:
+        stmt = select(func.coalesce(func.sum(PurchasePaymentModel.amount), 0)).where(
+            PurchasePaymentModel.purchase_id == purchase_id
+        )
+        total = self.session.execute(stmt).scalar_one()
+        return Decimal(total)
+
 
 ############################################################
 ################### Sale Payment Repository ################
@@ -261,6 +300,13 @@ class SqlAlchemySalePaymentRepository(
         )
         models = self.session.execute(stmt).scalars().all()
         return [SalePaymentMapper.to_entity(model) for model in models]
+
+    def sum_by_sale_id(self, sale_id: int) -> Decimal:
+        stmt = select(func.coalesce(func.sum(SalePaymentModel.amount), 0)).where(
+            SalePaymentModel.sale_id == sale_id
+        )
+        total = self.session.execute(stmt).scalar_one()
+        return Decimal(total)
 
 
 ############################################################
@@ -288,6 +334,26 @@ class SqlAlchemyInventoryMovementRepository(
             select(InventoryMovementModel)
             .where(InventoryMovementModel.source_document_type == source_document_type)
             .where(InventoryMovementModel.source_document_id == source_document_id)
+            .order_by(InventoryMovementModel.occurred_at.desc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [InventoryMovementMapper.to_entity(model) for model in models]
+
+    def list_by_card_id(self, card_id: int, limit: int = 200) -> list[InventoryMovement]:
+        stmt = (
+            select(InventoryMovementModel)
+            .where(InventoryMovementModel.card_id == card_id)
+            .order_by(InventoryMovementModel.occurred_at.desc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [InventoryMovementMapper.to_entity(model) for model in models]
+
+    def list_by_inventory_item_id(self, inventory_item_id: int, limit: int = 200) -> list[InventoryMovement]:
+        stmt = (
+            select(InventoryMovementModel)
+            .where(InventoryMovementModel.inventory_item_id == inventory_item_id)
             .order_by(InventoryMovementModel.occurred_at.desc())
             .limit(limit)
         )

@@ -60,11 +60,9 @@ class InventoryItemModel(Base, AuditMixin):
     purchase_items = relationship(
         "PurchaseItemModel",
         back_populates="inventory_item",
-        cascade="all, delete-orphan",
     )
 
     sale_items = relationship(
         "SaleItemModel",
         back_populates="inventory_item",
-        cascade="all, delete-orphan",
     )

@@ -10,12 +10,12 @@ from app.domain.enums.item_type import ItemType
 from app.application.dto.commands import CreateCardCommand
 
 
-def test_create_purchase_increases_card_stock_and_stores_snapshots(uow):
-    supplier = CreateSupplierUseCase(uow).execute(
+def test_create_purchase_increases_card_stock_and_stores_snapshots(uow, admin_session):
+    supplier = CreateSupplierUseCase(uow, admin_session).execute(
         CreateSupplierCommand(name="Main Branch")
     )
 
-    card = CreateCardUseCase(uow).execute(
+    card = CreateCardUseCase(uow, admin_session).execute(
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
@@ -26,7 +26,7 @@ def test_create_purchase_increases_card_stock_and_stores_snapshots(uow):
         )
     )
 
-    purchase = CreatePurchaseUseCase(uow).execute(
+    purchase = CreatePurchaseUseCase(uow, admin_session).execute(
         CreatePurchaseCommand(
             purchase_no="PUR-0001",
             supplier_id=supplier.id,
