@@ -1,0 +1,293 @@
+"""
+Application shell: full-width header, sidebar, content stack, status bar.
+
+Composes every screen's ViewModel from the container and injects it into
+the matching View — Views never see the container directly.
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import QGridLayout, QMainWindow, QStackedWidget, QWidget
+
+from app.container import AppContainer
+from app.presentation.dialogs.change_password_dialog import ChangePasswordDialog
+from app.presentation.navigation.routes import Route
+from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
+from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
+from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
+from app.presentation.viewmodels.session_viewmodel import SessionViewModel
+from app.presentation.viewmodels.master_data_viewmodels import (
+    cabinets_view_model,
+    customers_view_model,
+    expense_categories_view_model,
+    inventory_items_view_model,
+    payment_methods_view_model,
+    suppliers_view_model,
+)
+from app.presentation.viewmodels.wedding_cards_viewmodel import WeddingCardsViewModel
+from app.presentation.views.collection_view import CollectionView
+from app.presentation.views.company_settings_view import CompanySettingsView
+from app.presentation.views.dashboard_view import DashboardView
+from app.presentation.views.master_data_views import (
+    CabinetsView,
+    CustomersView,
+    ExpenseCategoriesView,
+    InventoryItemsView,
+    PaymentMethodsView,
+    SuppliersView,
+)
+from app.presentation.views.expenses_view import ExpensesView, expenses_view_model
+from app.presentation.views.inventory_movement_view import (
+    InventoryMovementView,
+    InventoryMovementViewModel,
+)
+from app.presentation.views.payments_view import (
+    PURCHASE_PAYMENTS_PAGE,
+    SALE_PAYMENTS_PAGE,
+    PaymentsView,
+    PurchasePaymentsViewModel,
+    SalePaymentsViewModel,
+)
+from app.presentation.views.profile_view import ProfileView
+from app.presentation.views.purchases_view import PurchasesView, PurchasesViewModel
+from app.presentation.views.reports_view import ReportsView, ReportsViewModel
+from app.presentation.views.sales_view import SalesView
+from app.presentation.views.wedding_cards_view import WeddingCardsView
+from app.presentation.widgets.period_selector import PeriodSelection
+from app.presentation.widgets.sidebar import Sidebar
+from app.presentation.widgets.status_bar import AppStatusBar
+from app.presentation.widgets.topbar import TopBar
+
+
+
+class MainWindow(QMainWindow):
+    # Handled by SessionController, which owns the login/shell lifecycle —
+    # the shell can't tear itself down while its own code is running.
+    signOutRequested = Signal()
+
+    def __init__(
+        self,
+        container: AppContainer,
+        session_view_model: SessionViewModel,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._container = container
+        self._session_view_model = session_view_model
+        self._pages: dict[Route, QWidget] = {}
+        self._page_titles: dict[Route, str] = {}
+        self._current_route = Route.DASHBOARD
+
+        self.setWindowTitle("Chand Graphics — Printing Press ERP")
+        self.resize(1400, 900)
+
+        central = QWidget()
+        grid = QGridLayout(central)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
+
+        self._sidebar = Sidebar()
+        self._topbar = TopBar()
+        self._status_bar = AppStatusBar()
+        self._stack = QStackedWidget()
+        self._stack.setObjectName("Content")
+
+        grid.addWidget(self._topbar, 0, 0, 1, 2)
+        grid.addWidget(self._sidebar, 1, 0)
+        grid.addWidget(self._stack, 1, 1)
+        grid.addWidget(self._status_bar, 2, 0, 1, 2)
+        grid.setRowStretch(1, 1)
+        grid.setColumnStretch(1, 1)
+
+        self.setCentralWidget(central)
+
+        self._register_views()
+
+        self._sidebar.navigationRequested.connect(self.navigate)
+        self._sidebar.collapsedChanged.connect(self._on_sidebar_collapsed)
+        self._topbar.newSaleRequested.connect(lambda: self.navigate(Route.SALES))
+        self._topbar.newPurchaseRequested.connect(lambda: self.navigate(Route.PURCHASES))
+        self._topbar.searchSubmitted.connect(self._on_global_search)
+        self._topbar.profileRequested.connect(lambda: self.navigate(Route.PROFILE))
+        self._topbar.changePasswordRequested.connect(self._open_change_password)
+        self._topbar.signOutRequested.connect(self.signOutRequested.emit)
+
+        # The status bar advertised this shortcut but nothing implemented it.
+        QShortcut(QKeySequence.StandardKey.Find, self, activated=self._focus_search)
+
+        current_user = self._session_view_model.current_user()
+        if current_user is not None:
+            self._topbar.set_user(current_user.full_name, current_user.role)
+
+        self.navigate(Route.DASHBOARD)
+
+    def _register_views(self) -> None:
+        dashboard_vm = DashboardViewModel(self._container)
+        self._add_page(Route.DASHBOARD, DashboardView(dashboard_vm), "Dashboard")
+
+        wedding_cards_vm = WeddingCardsViewModel(self._container)
+        self._wedding_cards_view = WeddingCardsView(wedding_cards_vm)
+        self._add_page(Route.WEDDING_CARDS, self._wedding_cards_view, "Wedding cards")
+
+        settings_vm = CompanySettingsViewModel(self._container)
+        self._add_page(Route.COMPANY_SETTINGS, CompanySettingsView(settings_vm), "Company settings")
+
+        self._add_page(
+            Route.INVENTORY_ITEMS,
+            InventoryItemsView(inventory_items_view_model(self._container)),
+            "Inventory items",
+        )
+        self._add_page(
+            Route.CABINETS,
+            CabinetsView(cabinets_view_model(self._container)),
+            "Cabinets",
+        )
+        self._add_page(
+            Route.CUSTOMERS,
+            CustomersView(customers_view_model(self._container)),
+            "Customers",
+        )
+        self._add_page(
+            Route.SUPPLIERS,
+            SuppliersView(suppliers_view_model(self._container)),
+            "Suppliers",
+        )
+        self._add_page(
+            Route.PAYMENT_METHODS,
+            PaymentMethodsView(payment_methods_view_model(self._container)),
+            "Payment methods",
+        )
+        self._add_page(
+            Route.EXPENSE_CATEGORIES,
+            ExpenseCategoriesView(expense_categories_view_model(self._container)),
+            "Expense categories",
+        )
+
+        # Each period-filtered screen owns its own selection, so switching
+        # to "Last month" on expenses doesn't silently retarget purchases.
+        sales_period = PeriodSelection()
+        self._add_page(
+            Route.SALES,
+            SalesView(
+                SalesViewModel(self._container, sales_period),
+                sales_period,
+                self._current_user_id,
+            ),
+            "Sales",
+        )
+
+        purchases_period = PeriodSelection()
+        self._add_page(
+            Route.PURCHASES,
+            PurchasesView(
+                PurchasesViewModel(self._container, purchases_period),
+                purchases_period,
+                self._current_user_id,
+            ),
+            "Purchases",
+        )
+
+        sale_payments_period = PeriodSelection()
+        self._add_page(
+            Route.SALE_PAYMENTS,
+            PaymentsView(
+                SALE_PAYMENTS_PAGE,
+                SalePaymentsViewModel(self._container, sale_payments_period),
+                sale_payments_period,
+            ),
+            "Sale payments",
+        )
+
+        purchase_payments_period = PeriodSelection()
+        self._add_page(
+            Route.PURCHASE_PAYMENTS,
+            PaymentsView(
+                PURCHASE_PAYMENTS_PAGE,
+                PurchasePaymentsViewModel(self._container, purchase_payments_period),
+                purchase_payments_period,
+            ),
+            "Purchase payments",
+        )
+
+        expenses_period = PeriodSelection()
+        self._add_page(
+            Route.EXPENSES,
+            ExpensesView(
+                expenses_view_model(self._container, expenses_period),
+                expenses_period,
+                expense_categories_view_model(self._container),
+            ),
+            "Expenses",
+        )
+
+        self._add_page(
+            Route.INVENTORY_MOVEMENT,
+            InventoryMovementView(InventoryMovementViewModel(self._container)),
+            "Inventory movement",
+        )
+
+        reports_period = PeriodSelection()
+        self._add_page(
+            Route.REPORTS,
+            ReportsView(ReportsViewModel(self._container, reports_period), reports_period),
+            "Reports",
+        )
+
+        self._add_page(
+            Route.PROFILE,
+            ProfileView(self._session_view_model),
+            "My profile",
+        )
+
+    def _open_change_password(self) -> None:
+        ChangePasswordDialog(self._session_view_model, parent=self).exec()
+
+    def _current_user_id(self) -> int | None:
+        user = self._session_view_model.current_user()
+        return user.user_id if user is not None else None
+
+    def _add_page(self, route: Route, widget: QWidget, title: str) -> None:
+        self._pages[route] = widget
+        self._page_titles[route] = title
+        self._stack.addWidget(widget)
+
+    def navigate(self, route: Route) -> None:
+        widget = self._pages.get(route)
+        if widget is None:
+            return
+        self._current_route = route
+        self._stack.setCurrentWidget(widget)
+        self._sidebar.set_active(route)
+        hint = "Ctrl+F to search this list" if self._searchable_page() else ""
+        self._status_bar.set_page(self._page_titles.get(route, ""), hint)
+
+    def _on_sidebar_collapsed(self, _collapsed: bool) -> None:
+        self._topbar.set_brand_width(self._sidebar.width())
+
+    def _searchable_page(self) -> CollectionView | None:
+        """The current screen, if it has a search box of its own."""
+        widget = self._pages.get(self._current_route)
+        if isinstance(widget, CollectionView) and widget.supports_search:
+            return widget
+        return None
+
+    def _focus_search(self) -> None:
+        page = self._searchable_page()
+        if page is not None:
+            page.focus_search()
+        else:
+            self._topbar.focus_search()
+
+    def _on_global_search(self, term: str) -> None:
+        # Search the screen the user is actually on, when that screen can
+        # be searched. Otherwise fall back to the card catalogue, which is
+        # the app's largest searchable dataset.
+        if not term:
+            return
+        page = self._searchable_page()
+        if page is not None:
+            page.apply_search(term)
+            return
+        self.navigate(Route.WEDDING_CARDS)
+        self._wedding_cards_view.apply_search(term)
