@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.application.auth.session import CurrentUserSession
+from app.domain.notifications.email_sender import EmailSender
 from app.domain.security.password_hasher import PasswordHasher
+from app.infrastructure.notifications.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.security.bcrypt_password_hasher import BcryptPasswordHasher
 from app.infrastructure.uow import SqlAlchemyUnitOfWork
 from app.application.auth.initial_admin import EnsureInitialAdminUserUseCase
@@ -59,6 +61,28 @@ class AppContainer:
     def change_password_use_case(self):
         from app.application.auth.use_cases import ChangePasswordUseCase
         return ChangePasswordUseCase(self.create_uow(), self.password_hasher, self.current_user_session)
+
+    def change_email_use_case(self):
+        from app.application.auth.use_cases import ChangeEmailUseCase
+        return ChangeEmailUseCase(
+            self.create_uow(),
+            self.password_hasher,
+            self.current_user_session,
+            self.record_login_audit_use_case(),
+        )
+
+    def email_sender(self) -> EmailSender:
+        return SmtpEmailSender(self.settings.smtp)
+
+    def request_password_reset_use_case(self):
+        from app.application.auth.password_reset import RequestPasswordResetUseCase
+        return RequestPasswordResetUseCase(
+            self.create_uow(),
+            self.password_hasher,
+            self.email_sender(),
+            self.record_login_audit_use_case(),
+            self.settings.app_name,
+        )
 
     def ensure_initial_admin_use_case(self) -> EnsureInitialAdminUserUseCase:
         return EnsureInitialAdminUserUseCase(self.create_uow(), self.password_hasher)

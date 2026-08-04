@@ -8,3 +8,5 @@ class LoginEventType(StrEnum):
     SIGN_IN_FAILURE = "sign_in_failure"
     SIGN_OUT = "sign_out"
     SESSION_RESTORED = "session_restored"
+    EMAIL_CHANGED = "email_changed"
+    PASSWORD_RESET = "password_reset"

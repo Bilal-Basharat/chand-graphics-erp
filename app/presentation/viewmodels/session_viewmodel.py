@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 
-from app.application.auth.commands import ChangePasswordCommand, LoginHistoryQuery, SignInCommand
+from app.application.auth.commands import (
+    ChangeEmailCommand,
+    ChangePasswordCommand,
+    LoginHistoryQuery,
+    PasswordResetCommand,
+    SignInCommand,
+)
 from app.application.auth.permissions import ROLE_PERMISSIONS, Permission
 from app.application.auth.session import CurrentUser
 from app.config.settings import SIGN_IN_PREFERENCES_PATH
@@ -23,6 +29,8 @@ class SessionViewModel(BaseViewModel):
     signedIn = Signal(object)          # SignInResult
     signedOut = Signal()
     passwordChanged = Signal()
+    emailChanged = Signal(str)         # the new address
+    passwordResetSent = Signal(str)    # the address it went to
     loginHistoryLoaded = Signal(list)  # list[LoginAudit]
 
     def __init__(
@@ -58,6 +66,12 @@ class SessionViewModel(BaseViewModel):
     def can_save_passwords(self) -> bool:
         """False when this machine exposes no OS credential vault."""
         return self._credentials.passwords_supported
+
+    @property
+    def can_send_email(self) -> bool:
+        """False when no mail server is configured, so the screens that
+        would offer to email something can say why instead of failing."""
+        return self._container.email_sender().is_available
 
     def remembered_credentials(self) -> RememberedCredentials:
         return self._credentials.load()
@@ -111,6 +125,36 @@ class SessionViewModel(BaseViewModel):
             if remembered.has_email and user is not None and remembered.email == user.email:
                 self._credentials.remember(user.email, new_password)
             self.passwordChanged.emit()
+
+        self.run_async(lambda: use_case.execute(command), on_success=_on_success)
+
+    def change_email(self, new_email: str, current_password: str) -> None:
+        use_case = self._container.change_email_use_case()
+        command = ChangeEmailCommand(new_email=new_email, current_password=current_password)
+
+        def _on_success(email: str) -> None:
+            # The remembered email is what prefills the sign-in form, so
+            # leaving the old one there would autofill an address that no
+            # longer signs in.
+            remembered = self._credentials.load()
+            if remembered.has_email:
+                self._credentials.remember(email, current_password)
+            self.emailChanged.emit(email)
+
+        self.run_async(lambda: use_case.execute(command), on_success=_on_success)
+
+    def request_password_reset(self, email: str) -> None:
+        """Email a temporary password to an account that has lost its own."""
+        use_case = self._container.request_password_reset_use_case()
+        command = PasswordResetCommand(email=email)
+
+        def _on_success(result) -> None:
+            # Whatever this machine had saved for that address is now dead;
+            # keeping it would silently prefill a password that fails.
+            remembered = self._credentials.load()
+            if remembered.email == result.email:
+                self._credentials.forget()
+            self.passwordResetSent.emit(result.email)
 
         self.run_async(lambda: use_case.execute(command), on_success=_on_success)
 

@@ -24,6 +24,23 @@ class ChangePasswordCommand:
 
 
 @dataclass(slots=True)
+class ChangeEmailCommand:
+    new_email: str
+    current_password: str
+    """
+    The address is what you sign in with, so changing it is a change of
+    identity, not of a contact detail. The password is asked for the same
+    reason it is asked to change a password: to prove the person at the
+    keyboard is the account holder and not whoever they left logged in.
+    """
+
+
+@dataclass(slots=True)
+class PasswordResetCommand:
+    email: str
+
+
+@dataclass(slots=True)
 class EnsureInitialAdminUserCommand:
     email: str
     password: str

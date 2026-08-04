@@ -29,3 +29,18 @@ class LoginAuditRepository(Repository[LoginAudit], ABC):
     @abstractmethod
     def count_recent_failed_sign_ins(self, email: str, since: datetime) -> int:
         raise NotImplementedError
+
+    @abstractmethod
+    def count_recent_events(
+        self,
+        email: str,
+        event_type: LoginEventType,
+        since: datetime,
+    ) -> int:
+        """How many of one kind of event this address has had lately.
+
+        Separate from the failed-sign-in count above, which also filters on
+        the outcome: an event that only ever succeeds needs the count of
+        the event itself.
+        """
+        raise NotImplementedError

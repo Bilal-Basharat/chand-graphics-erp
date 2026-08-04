@@ -13,6 +13,15 @@ class NotFoundError(ApplicationError):
     """Raised when a required record does not exist."""
 
 
+class EmailDeliveryError(ApplicationError):
+    """Raised when a message could not be sent.
+
+    Covers both "no mail server is configured" and "the server refused
+    it": from the caller's side both mean the same thing — nothing was
+    delivered, so nothing else should be treated as done either.
+    """
+
+
 class EntityInUseError(ApplicationError):
     """Raised when a record cannot be deleted because documents reference it.
 

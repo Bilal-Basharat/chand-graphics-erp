@@ -12,6 +12,9 @@ Two separate opt-ins, because they are genuinely different promises:
 Errors appear inline rather than in a message box. A wrong password is an
 ordinary, expected event during sign-in, and a modal that has to be
 dismissed before you can correct the field is the wrong weight for it.
+The same block reports a sent password reset, in green — the user's next
+move is to type the temporary password into the form already in front of
+them, and a message box would stand between them and it.
 """
 from __future__ import annotations
 
@@ -23,12 +26,23 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from app.presentation.dialogs.forgot_password_dialog import ForgotPasswordDialog
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
+from app.presentation.widgets.qss import repolish
+
+_NO_MAIL_SERVER = (
+    "Email is not set up on this computer, so a temporary password cannot "
+    "be sent.\n\n"
+    "To turn this on, fill in SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD in "
+    "the .env file next to the application, then start it again.\n\n"
+    "Until then, ask an administrator to reset the password for you."
+)
 
 
 class LoginView(QWidget):
@@ -48,6 +62,7 @@ class LoginView(QWidget):
         view_model.signedIn.connect(self._on_signed_in)
         view_model.errorOccurred.connect(self._on_error)
         view_model.busyChanged.connect(self._on_busy_changed)
+        view_model.passwordResetSent.connect(self._on_reset_sent)
 
     # ---------------- construction ----------------
 
@@ -78,6 +93,7 @@ class LoginView(QWidget):
         # card jump and shift the button out from under the cursor.
         self._error = QLabel("")
         self._error.setObjectName("FormError")
+        self._error.setProperty("tone", "error")
         self._error.setWordWrap(True)
         self._error.setVisible(False)
         layout.addWidget(self._error)
@@ -93,6 +109,7 @@ class LoginView(QWidget):
         self._password.returnPressed.connect(self._submit)
         layout.addLayout(self._labelled("Password", self._build_password_row()))
 
+        layout.addLayout(self._build_forgot_row())
         layout.addSpacing(4)
 
         self._remember_me = QCheckBox("Keep me signed in")
@@ -135,6 +152,23 @@ class LoginView(QWidget):
         block.addWidget(label)
         block.addWidget(field)
         return block
+
+    def _build_forgot_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+
+        self._forgot_btn = QPushButton("Forgot password?")
+        self._forgot_btn.setProperty("variant", "link")
+        self._forgot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._forgot_btn.clicked.connect(self._open_forgot_password)
+        # Always clickable, even with no mail server configured — which is
+        # how it ships. A disabled button hides its reason in a tooltip the
+        # user has no cause to hover, so someone who has genuinely
+        # forgotten their password meets a dead control and no way out.
+        # Clicking it explains instead.
+        row.addWidget(self._forgot_btn)
+        return row
 
     def _build_password_row(self) -> QWidget:
         row = QWidget()
@@ -185,6 +219,14 @@ class LoginView(QWidget):
         )
         self._reveal_btn.setText("Hide" if revealed else "Show")
 
+    def _open_forgot_password(self) -> None:
+        if not self._view_model.can_send_email:
+            QMessageBox.information(self, "Forgot password", _NO_MAIL_SERVER)
+            return
+        # Carries whatever is already typed, so the common case — the email
+        # is right, the password isn't — needs no retyping.
+        ForgotPasswordDialog(self._view_model, self._email.text().strip(), parent=self).exec()
+
     def _submit(self) -> None:
         email = self._email.text().strip()
         password = self._password.text()
@@ -221,10 +263,27 @@ class LoginView(QWidget):
         self._show_error(message, self._password)
         self._password.selectAll()
 
+    def _on_reset_sent(self, email: str) -> None:
+        self._email.setText(email)
+        self._password.clear()
+        self._set_message(
+            f"A temporary password has been sent to {email}. "
+            "Sign in with it, then change it from My profile.",
+            tone="success",
+        )
+        self._password.setFocus()
+
     def _show_error(self, message: str, field: QWidget) -> None:
-        self._error.setText(message)
-        self._error.setVisible(True)
+        self._set_message(message, tone="error")
         field.setFocus()
+
+    def _set_message(self, message: str, *, tone: str) -> None:
+        self._error.setText(message)
+        self._error.setProperty("tone", tone)
+        # The tone selector is resolved at polish time, not when the
+        # property is set — see qss.repolish.
+        repolish(self._error)
+        self._error.setVisible(True)
 
     def _clear_error(self) -> None:
         self._error.clear()

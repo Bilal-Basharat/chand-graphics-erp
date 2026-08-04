@@ -66,3 +66,13 @@ class SqlAlchemyLoginAuditRepository(
             .where(LoginAuditModel.created_at >= since)
         )
         return int(self.session.execute(stmt).scalar_one())
+
+    def count_recent_events(self, email: str, event_type: LoginEventType, since) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(LoginAuditModel)
+            .where(LoginAuditModel.email == email.strip().lower())
+            .where(LoginAuditModel.event_type == str(event_type))
+            .where(LoginAuditModel.created_at >= since)
+        )
+        return int(self.session.execute(stmt).scalar_one())

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from app.application.auth.permissions import Permission
 from app.domain.enums.login_event_type import LoginEventType
+from app.presentation.dialogs.change_email_dialog import ChangeEmailDialog
 from app.presentation.dialogs.change_password_dialog import ChangePasswordDialog
 from app.presentation.formatting import date_time, or_dash
 from app.presentation.theme import tokens as t
@@ -48,6 +49,8 @@ _EVENT_LABELS: dict[LoginEventType, str] = {
     LoginEventType.SIGN_IN_FAILURE: "Failed sign-in",
     LoginEventType.SIGN_OUT: "Signed out",
     LoginEventType.SESSION_RESTORED: "Session resumed",
+    LoginEventType.EMAIL_CHANGED: "Email changed",
+    LoginEventType.PASSWORD_RESET: "Password reset",
 }
 
 
@@ -86,6 +89,7 @@ class ProfileView(QWidget):
             "My profile",
             "Your account, what your role allows, and how you've signed in recently.",
         )
+        self._header.add_action("Change email", self._open_change_email, variant="outline")
         self._header.add_action("Change password", self._open_change_password, variant="primary")
         outer.addWidget(self._header)
 
@@ -99,6 +103,7 @@ class ProfileView(QWidget):
 
         view_model.loginHistoryLoaded.connect(self._on_history_loaded)
         view_model.passwordChanged.connect(self._on_password_changed)
+        view_model.emailChanged.connect(self._on_email_changed)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
@@ -278,6 +283,18 @@ class ProfileView(QWidget):
         self._history_note.setText("1 event" if len(rows) == 1 else f"{len(rows)} events")
 
     # ---------------- actions ----------------
+
+    def _open_change_email(self) -> None:
+        ChangeEmailDialog(self._view_model, parent=self).exec()
+
+    def _on_email_changed(self, email: str) -> None:
+        if self.isVisible():
+            QMessageBox.information(
+                self,
+                "Change email address",
+                f"You now sign in as {email}.",
+            )
+            self.refresh()
 
     def _open_change_password(self) -> None:
         ChangePasswordDialog(self._view_model, parent=self).exec()

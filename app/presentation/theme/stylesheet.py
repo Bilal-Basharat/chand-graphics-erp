@@ -229,6 +229,24 @@ def build_stylesheet() -> str:
         background: #c11f1f;
         border-color: #c11f1f;
     }}
+    /* A button that reads as text: for the secondary way out of a screen
+       ("Forgot password?"), where a bordered button would compete with
+       the one action the screen is actually for. */
+    QPushButton[variant="link"] {{
+        background: transparent;
+        color: {t.PRIMARY};
+        border: none;
+        padding: 2px 0;
+        font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QPushButton[variant="link"]:hover {{
+        color: {t.PRIMARY_HOVER};
+        text-decoration: underline;
+    }}
+    QPushButton[variant="link"]:disabled {{
+        color: {t.MUTED};
+        text-decoration: none;
+    }}
 
     /* ---------------- Inputs ---------------- */
     QLineEdit, QComboBox, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox {{
@@ -239,6 +257,12 @@ def build_stylesheet() -> str:
         font-size: 13.5px;
         color: {t.INK};
         selection-background-color: {t.PRIMARY_TINT};
+    }}
+    /* A field you cannot type into should not invite you to try. After
+       the rule above, so it wins on a plain QLineEdit. */
+    QLineEdit:read-only {{
+        background: {t.CANVAS};
+        color: {t.MUTED};
     }}
     QLineEdit:hover, QComboBox:hover, QTextEdit:hover, QPlainTextEdit:hover,
     QSpinBox:hover, QDoubleSpinBox:hover {{
@@ -351,6 +375,14 @@ def build_stylesheet() -> str:
         padding: 8px 10px;
         font-size: 12.5px;
         font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    /* Same block, same place in the form, recoloured — so a success
+       message and a failure message never shift the layout between
+       them. Set via the "tone" property; see qss.repolish. */
+    QLabel#FormError[tone="success"] {{
+        background: {t.SUCCESS_TINT};
+        color: {t.SUCCESS};
+        border-color: {t.SUCCESS};
     }}
 
     /* ---------------- Checkboxes ---------------- */

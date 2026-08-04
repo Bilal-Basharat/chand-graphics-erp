@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.application.auth.commands import ChangePasswordCommand, SignInCommand
+from app.application.auth.commands import ChangeEmailCommand, ChangePasswordCommand, SignInCommand
+from app.application.auth.email_address import normalize_email
 from app.application.auth.exceptions import (InactiveAccountError, InvalidCredentialsError, LoginThrottledError)
 from app.application.auth.session import CurrentUser, CurrentUserSession
+from app.application.exceptions import DuplicateEntityError
 from app.application.use_cases.base import UseCase
 from app.domain.entities.user import User
 from app.domain.repositories.user_repository import UserRepository
@@ -240,6 +242,78 @@ class ChangePasswordUseCase(UseCase[ChangePasswordCommand, None]):
 
             user.password_hash = self.password_hasher.hash(request.new_password)
             users.update(user)
+
+
+class ChangeEmailUseCase(UseCase[ChangeEmailCommand, str]):
+    """
+    Change the sign-in email of the currently signed-in user.
+
+    The database is seeded with a placeholder address so somebody can get
+    in on day one; this is how the person who actually uses the account
+    replaces it with their own.
+    """
+
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        password_hasher: PasswordHasher,
+        current_user_session: CurrentUserSession,
+        record_login_audit_use_case: RecordLoginAuditUseCase,
+    ) -> None:
+        self.uow = uow
+        self.password_hasher = password_hasher
+        self.current_user_session = current_user_session
+        self.record_login_audit_use_case = record_login_audit_use_case
+
+    def execute(self, request: ChangeEmailCommand) -> str:
+        current_user = self.current_user_session.require_user()
+        new_email = normalize_email(request.new_email)
+
+        if not request.current_password:
+            raise ValueError("Enter your current password to confirm the change.")
+
+        with self.uow as uow:
+            users = self.require(uow.users, "users")
+            user = users.get_by_id(current_user.user_id)
+
+            if user is None:
+                raise InvalidCredentialsError("Current user no longer exists")
+
+            if not self.password_hasher.verify(request.current_password, user.password_hash):
+                raise InvalidCredentialsError("That password is incorrect")
+
+            if new_email == user.email:
+                raise ValueError("That is already your email address.")
+
+            existing = users.get_by_email(new_email)
+            if existing is not None and existing.id != user.id:
+                raise DuplicateEntityError(f"Another account already uses '{new_email}'.")
+
+            previous_email = user.email
+            user.email = new_email
+            users.update(user)
+            user_id = user.id
+
+            # The session carries the email onto the profile screen and into
+            # every audit record written from here on, so it has to follow
+            # the change rather than wait for the next sign-in.
+            self.current_user_session.set_user(user)
+
+        # After the transaction, not inside it: the audit use case opens a
+        # second connection, and SQLite refuses it while this one still
+        # holds the write lock taken by the update above.
+        _safe_record_audit(
+            self.record_login_audit_use_case,
+            RecordLoginAuditCommand(
+                email=new_email,
+                user_id=user_id,
+                event_type=LoginEventType.EMAIL_CHANGED,
+                success=True,
+                message=f"Email changed from {previous_email}",
+            ),
+        )
+
+        return new_email
 
 
 class RestoreSessionUseCase(UseCase[None, CurrentUser | None]):
