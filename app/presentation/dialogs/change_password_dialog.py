@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QLineEdit, QWidget
 
+# The rule itself lives with the use case that enforces it; this dialog
+# only repeats it early so the user hears it before a round trip.
+from app.application.auth.use_cases import MINIMUM_PASSWORD_LENGTH
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
-
-MINIMUM_PASSWORD_LENGTH = 8
 
 
 class ChangePasswordDialog(FormDialog):

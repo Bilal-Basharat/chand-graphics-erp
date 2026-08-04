@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
+from app.presentation.widgets.page_scroll import page_scroll
 
 
 class CompanySettingsView(QWidget):
@@ -26,7 +27,9 @@ class CompanySettingsView(QWidget):
         self._view_model = view_model
         self._existing_id: int | None = None
 
-        outer = QVBoxLayout(self)
+        # Two tall form panels — the tallest screen in the app, and well
+        # past a 768px laptop screen, so it scrolls.
+        outer = QVBoxLayout(page_scroll(self))
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(0)
 

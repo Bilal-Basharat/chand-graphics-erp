@@ -26,6 +26,11 @@ from app.domain.enums.login_event_type import LoginEventType
 
 logger = logging.getLogger(__name__)
 
+MINIMUM_PASSWORD_LENGTH = 8
+"""Enforced where the password is actually set, not only in the dialog:
+a rule that lives solely in the UI isn't a rule, just a suggestion to
+anyone driving the use cases directly."""
+
 
 def _safe_record_audit(
     recorder: RecordLoginAuditUseCase,
@@ -229,6 +234,11 @@ class ChangePasswordUseCase(UseCase[ChangePasswordCommand, None]):
 
         if not request.current_password or not request.new_password:
             raise ValueError("Both current and new passwords are required")
+
+        if len(request.new_password) < MINIMUM_PASSWORD_LENGTH:
+            raise ValueError(
+                f"The new password must be at least {MINIMUM_PASSWORD_LENGTH} characters."
+            )
 
         with self.uow as uow:
             users = self.require(uow.users, "users")

@@ -8,21 +8,20 @@ carrying their own idea of "when" is how a dashboard stops being a single
 answer: the tiles used to report a month, the chart a year and the lists
 everything ever, so no two of them described the same trading.
 
-This is the one screen whose content is taller than the window rather than
-a single table that stretches to fit, so it owns a page scroller. Without
-it the last panel — recent documents — was simply cut off by the bottom of
-the window, and the rows it did show sat behind a scrollbar of their own.
+Its content is a stack of panels at their natural heights rather than one
+table that stretches to fit, so it sits in a page scroller — see
+widgets/page_scroll.py. Without it the last panel was simply cut off by
+the bottom of the window.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -37,9 +36,11 @@ from app.presentation.formatting import (
     counted,
     date_only,
     money,
+    pkr,
 )
 from app.presentation.widgets.activity_list import ActivityList
 from app.presentation.widgets.data_table import DataTable
+from app.presentation.widgets.page_scroll import page_scroll
 from app.presentation.widgets.period_bars import PeriodBars
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.stat_tile import StatTile
@@ -73,21 +74,7 @@ class DashboardView(QWidget):
         self._period = period
         self._loaded_once = False
 
-        scroll = QScrollArea(self)
-        scroll.setObjectName("PageScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        body = QWidget()
-        body.setObjectName("PageScrollBody")
-        scroll.setWidget(body)
-
-        frame = QVBoxLayout(self)
-        frame.setContentsMargins(0, 0, 0, 0)
-        frame.addWidget(scroll)
-
-        outer = QVBoxLayout(body)
+        outer = QVBoxLayout(page_scroll(self))
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(0)
 
@@ -235,10 +222,10 @@ class DashboardView(QWidget):
         # otherwise label one period's numbers with another's name.
         period = data.period_label.lower()
         self._sales_tile.set_label(f"Sales • {period}")
-        self._sales_tile.set_value(f"PKR {data.sales_total:,.0f}")
+        self._sales_tile.set_value(pkr(data.sales_total))
         self._sales_tile.set_note(f"{counted(data.sales_count, 'invoice')} issued")
         self._purchases_tile.set_label(f"Purchases • {period}")
-        self._purchases_tile.set_value(f"PKR {data.purchases_total:,.0f}")
+        self._purchases_tile.set_value(pkr(data.purchases_total))
         self._purchases_tile.set_note(counted(data.purchases_count, "purchase order"))
         self._low_stock_tile.set_value(str(data.low_stock_count))
         self._render_balance(data, period)
@@ -260,11 +247,11 @@ class DashboardView(QWidget):
         outstanding = data.receivable + data.payable
 
         self._balance_tile.set_label(f"Unpaid balances • {period}")
-        self._balance_tile.set_value(f"PKR {outstanding:,.0f}")
+        self._balance_tile.set_value(pkr(outstanding))
         if outstanding:
             self._balance_tile.set_note(
-                f"PKR {data.receivable:,.0f} {TO_COLLECT_SHORT}"
-                f"   •   PKR {data.payable:,.0f} {TO_PAY_SHORT}"
+                f"{pkr(data.receivable)} {TO_COLLECT_SHORT}"
+                f"   •   {pkr(data.payable)} {TO_PAY_SHORT}"
             )
         else:
             self._balance_tile.set_note(SETTLED)

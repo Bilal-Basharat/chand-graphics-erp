@@ -32,6 +32,7 @@ from app.presentation.formatting import TO_COLLECT, TO_PAY, counted, date_only, 
 from app.presentation.viewmodels.base import BaseViewModel
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_header import PageHeader
+from app.presentation.widgets.page_scroll import page_scroll
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.stat_tile import StatTile
 from app.presentation.widgets.table_model import Column
@@ -132,7 +133,9 @@ class ReportsView(QWidget):
         # Denominator for the share column; set when a summary lands.
         self._expenses_total = _ZERO
 
-        outer = QVBoxLayout(self)
+        # Six tiles over two rows plus a table — taller than a 768px
+        # laptop screen, so it scrolls.
+        outer = QVBoxLayout(page_scroll(self))
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(16)
 

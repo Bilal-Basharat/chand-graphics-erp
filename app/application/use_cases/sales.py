@@ -8,7 +8,7 @@ from app.application.dto.commands import (
     SalePaymentCommand,
 )
 from app.application.dto.queries import SalePaymentStatus
-from app.application.exceptions import NotFoundError
+from app.application.exceptions import DuplicateEntityError, NotFoundError
 from app.application.use_cases.base import UseCase
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
 from app.domain.entities.sale import Sale
@@ -54,6 +54,15 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
 
             if request.customer_id is not None and customers.get_by_id(request.customer_id) is None:
                 raise NotFoundError(f"Customer id={request.customer_id} not found")
+
+            # Checked here rather than left to the unique index: the index
+            # refuses too, but as a driver error the UI can only report as
+            # "something went wrong". The number is editable on the form,
+            # so colliding with an existing document is an ordinary
+            # mistake deserving an ordinary message.
+            invoice_no = request.invoice_no.strip()
+            if sales.get_by_invoice_no(invoice_no) is not None:
+                raise DuplicateEntityError(f"Invoice '{invoice_no}' already exists.")
 
             sale = Sale(
                 invoice_no=request.invoice_no.strip(),

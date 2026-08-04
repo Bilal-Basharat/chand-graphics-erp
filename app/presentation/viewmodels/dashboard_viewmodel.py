@@ -16,6 +16,7 @@ from PySide6.QtCore import Signal
 from app.application.dto.commands import DateRangeQuery
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
+from app.presentation.formatting import pkr
 from app.presentation.navigation.routes import Route
 from app.presentation.viewmodels.base import BaseViewModel
 from app.presentation.widgets.period_selector import PeriodSelection
@@ -137,7 +138,7 @@ class DashboardViewModel(BaseViewModel):
             activity.append(
                 ActivityRow(
                     title=f"Invoice {sale.invoice_no} created",
-                    meta=f"{party} • PKR {sale.grand_total:,.0f}",
+                    meta=f"{party} • {pkr(sale.grand_total)}",
                     when=sale.created_at,
                     route=Route.SALES,
                     reference=sale.invoice_no,
@@ -170,7 +171,7 @@ class DashboardViewModel(BaseViewModel):
             activity.append(
                 ActivityRow(
                     title=f"Purchase {purchase.purchase_no} recorded",
-                    meta=f"{party} • PKR {purchase.grand_total:,.0f}",
+                    meta=f"{party} • {pkr(purchase.grand_total)}",
                     when=purchase.created_at,
                     route=Route.PURCHASES,
                     reference=purchase.purchase_no,
@@ -328,7 +329,7 @@ def _payment_activity(
         rows.append(
             ActivityRow(
                 title=title,
-                meta=f"{party} • PKR {payment.amount:,.0f}",
+                meta=f"{party} • {pkr(payment.amount)}",
                 when=when,
                 route=route,
                 reference=reference,

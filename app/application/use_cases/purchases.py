@@ -10,7 +10,7 @@ from app.application.dto.commands import (
     RecordPurchasePaymentCommand,
 )
 from app.application.dto.queries import PurchasePaymentStatus
-from app.application.exceptions import NotFoundError
+from app.application.exceptions import DuplicateEntityError, NotFoundError
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_item import PurchaseItem
@@ -55,6 +55,12 @@ class CreatePurchaseUseCase(AuthorizedUseCase[CreatePurchaseCommand, Purchase]):
 
             if request.supplier_id is not None and suppliers.get_by_id(request.supplier_id) is None:
                 raise NotFoundError(f"Supplier id={request.supplier_id} not found")
+
+            # Same reasoning as CreateSaleUseCase: the unique index would
+            # refuse this too, but as an unreadable driver error.
+            purchase_no = request.purchase_no.strip()
+            if purchases.get_by_purchase_no(purchase_no) is not None:
+                raise DuplicateEntityError(f"Purchase '{purchase_no}' already exists.")
 
             purchase = Purchase(
                 purchase_no=request.purchase_no.strip(),

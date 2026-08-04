@@ -46,6 +46,17 @@ def money(value: Decimal | int | float | None) -> str:
     return f"{Decimal(value):,.2f}"
 
 
+def pkr(value: Decimal | int | float) -> str:
+    """A headline figure: "PKR 12,500".
+
+    Whole rupees with the currency named — for tiles and summaries, where
+    the number stands alone and paisa would be noise. Table cells keep
+    `money()`: there the column heading carries the currency and the
+    decimals line up down the column.
+    """
+    return f"PKR {Decimal(value):,.0f}"
+
+
 def date_time(value: datetime | None) -> str:
     if value is None:
         return DASH

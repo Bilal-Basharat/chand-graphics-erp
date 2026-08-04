@@ -31,6 +31,7 @@ from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_header import PageHeader
+from app.presentation.widgets.page_scroll import page_scroll
 from app.presentation.widgets.table_model import Column
 
 # What each permission means in the user's language, not the codebase's.
@@ -80,7 +81,9 @@ class ProfileView(QWidget):
         super().__init__(parent)
         self._view_model = view_model
 
-        outer = QVBoxLayout(self)
+        # Panels at their natural heights, not one stretching table —
+        # taller than a 768px laptop screen, so it scrolls.
+        outer = QVBoxLayout(page_scroll(self))
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(16)
 
