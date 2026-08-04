@@ -31,9 +31,10 @@ htmlcov/
 .env.*
 !.env.example
 
-# Local database files
+# Local database files, and the copies taken before a schema migration
 data/*.db
 data/*.sqlite3
+data/*.backup
 *.db
 *.sqlite3
 

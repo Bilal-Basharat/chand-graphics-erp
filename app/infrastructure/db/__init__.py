@@ -48,7 +48,19 @@ from app.infrastructure.db.models.sale_payment_model import SalePaymentModel  # 
 from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
 from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
 from app.infrastructure.db.models.login_audit_model import LoginAuditModel  # noqa: F401
+from app.infrastructure.db.upgrade import adopt_previous_installation, migrate
 
 def init_db() -> None:
+    """Make the database on disk match what this build expects.
+
+    Order matters. An earlier installation's data is claimed first, so
+    everything below runs against the customer's real file rather than a
+    new empty one beside it. `create_all` then adds tables this build
+    introduced — the only thing it can do to an existing database — and
+    `migrate` changes the ones already there, which `create_all` never
+    touches.
+    """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    adopt_previous_installation()
     Base.metadata.create_all(bind=engine)
+    migrate(engine)

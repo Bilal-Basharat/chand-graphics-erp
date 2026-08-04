@@ -95,20 +95,50 @@ pip install -r requirements.txt
 ```
 
 ### 5. Configure environment
-Create a `.env` file or update your config file with values such as:
+Create a `.env` file. Every value below is required except the last two,
+which fall back to the defaults shown:
 
 ```env
-APP_NAME=Chand Graphics ERP
-APP_ENV=development
-DATABASE_URL=sqlite:///data/chand_graphics.db
-TENANT_MODE=single
-LOG_LEVEL=INFO
+APP_NAME=Printing Press ERP
+COMPANY_NAME=Chand Graphics
+APP_VERSION=1.0.0
+DEVELOPED_BY=Alvi-Devs
+
+INITIAL_ADMIN_EMAIL=admin@localhost
+INITIAL_ADMIN_PASSWORD=change-me
+INITIAL_ADMIN_FULL_NAME=Administrator
+INITIAL_ADMIN_ROLE=admin
+
+MAX_LOGIN_ATTEMPTS=5
+LOGIN_LOCKOUT_MINUTES=15
+
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+SMTP_USE_TLS=true
 ```
 
-### 6. Run database migrations
-```bash
-alembic upgrade head
-```
+`APP_VERSION` and `DEVELOPED_BY` are shown in the application's footer.
+
+The `SMTP_*` block is optional and powers "Forgot password" on the sign-in
+screen, which emails a temporary password. Leave `SMTP_HOST` blank and the
+button explains what to fill in rather than failing. `SMTP_FROM` defaults
+to `SMTP_USERNAME`.
+
+### 6. Where the data lives
+
+Run from source, the database is `data/erp.db` in this checkout.
+
+Installed, it is `%LOCALAPPDATA%\ChandGraphicsERP\erp.db` — deliberately
+not beside the executable, because replacing the application folder is
+exactly what an upgrade does. Set `ERP_DATA_DIR` to override either.
+
+Migrations run by themselves at startup; there is no separate command.
+The database records how far it has come in SQLite's `user_version`, and
+the first launch of a build with pending changes copies the file to
+`erp.v<n>.backup` alongside it before touching anything.
 
 ### 7. Start the application
 ```bash
@@ -123,6 +153,17 @@ python -m app.main
 - Write tests for every use case and repository
 - Avoid calling ORM objects directly from UI code
 - Use dependency injection through `bootstrap.py`
+
+### Changing the database schema
+
+`create_all()` only ever adds tables that are missing. It will not add a
+column to a table that already exists, and it will not remove one — so a
+model change alone never reaches a customer's database.
+
+Any change to an existing table needs a step appended to `_STEPS` in
+`app/infrastructure/db/upgrade.py`. Write it so running it twice is
+harmless, and never reorder or remove an existing step: its position in
+that list is the version number recorded in every database in the field.
 
 ## Testing
 

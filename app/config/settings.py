@@ -1,13 +1,56 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+APP_FOLDER_NAME = "ChandGraphicsERP"
+
+
+def _resolve_data_dir() -> Path:
+    """Where this installation keeps the customer's database.
+
+    Running from source it is the repository's own `data/`, so a checkout
+    stays self-contained.
+
+    Installed, it is the per-user application data folder — never beside
+    the executable. Data written next to the program is data an installer
+    deletes: replacing the application folder is exactly what an upgrade
+    does, and a shop that has been trading for a fortnight would lose all
+    of it. The folder here outlives uninstalls, and needs no
+    administrator rights to write to, which `C:\\Program Files` does.
+    """
+    override = os.getenv("ERP_DATA_DIR")
+    if override and override.strip():
+        return Path(override.strip()).expanduser()
+
+    if getattr(sys, "frozen", False):
+        local_app_data = os.getenv("LOCALAPPDATA")
+        root = Path(local_app_data) if local_app_data else Path.home() / ".local" / "share"
+        return root / APP_FOLDER_NAME
+
+    return BASE_DIR / "data"
+
+
+def legacy_data_dirs() -> tuple[Path, ...]:
+    """Where earlier builds put the database, newest guess first.
+
+    Those builds derived the folder from the module path, which inside a
+    bundle lands beside the packaged code — or beside the executable,
+    depending on how it was packaged. Both are checked so an existing
+    installation is found and carried over rather than silently starting
+    empty.
+    """
+    if not getattr(sys, "frozen", False):
+        return ()
+    return (BASE_DIR / "data", Path(sys.executable).resolve().parent / "data")
+
+
+DATA_DIR = _resolve_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE_PATH = DATA_DIR / "erp.db"
 
@@ -39,6 +82,18 @@ def _required(name: str) -> str:
     return value.strip()
 
 
+def _optional(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    return default if value is None else value.strip()
+
+
+def _optional_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _optional_int(name: str, default: int) -> int:
     value = os.getenv(name)
     if value is None or value.strip() == "":
@@ -53,6 +108,41 @@ def _optional_int(name: str, default: int) -> int:
 
 
 @dataclass(slots=True, frozen=True)
+class SmtpSettings:
+    """
+    Outgoing mail server, used to send password resets.
+
+    Optional as a whole: a shop that never configures it simply has no
+    password-reset button that works, and is told so plainly rather than
+    meeting a crash. `is_configured` is what callers check.
+    """
+
+    host: str
+    port: int
+    username: str
+    password: str
+    sender: str
+    use_tls: bool
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.host and self.sender)
+
+    @classmethod
+    def from_env(cls) -> "SmtpSettings":
+        return cls(
+            host=_optional("SMTP_HOST"),
+            port=_optional_int("SMTP_PORT", 587),
+            username=_optional("SMTP_USERNAME"),
+            password=_optional("SMTP_PASSWORD"),
+            # Falls back to the account being authenticated with, which is
+            # what it is for most providers.
+            sender=_optional("SMTP_FROM") or _optional("SMTP_USERNAME"),
+            use_tls=_optional_flag("SMTP_USE_TLS", True),
+        )
+
+
+@dataclass(slots=True, frozen=True)
 class AppSettings:
     """
     Immutable application configuration.
@@ -62,6 +152,7 @@ class AppSettings:
     app_name: str
     company_name: str
     app_version: str
+    developed_by: str
 
     initial_admin_email: str
     initial_admin_password: str
@@ -71,12 +162,19 @@ class AppSettings:
     max_login_attempts: int
     login_lockout_minutes: int
 
+    smtp: SmtpSettings = field(default_factory=SmtpSettings.from_env)
+
     @classmethod
     def from_env(cls) -> "AppSettings":
         return cls(
             app_name=_required("APP_NAME"),
             company_name=_required("COMPANY_NAME"),
             app_version=_required("APP_VERSION"),
+            # Optional, unlike the values around it: a customer upgrading
+            # keeps the .env file they were shipped, and making this
+            # required would stop the new build starting at all on every
+            # installation that predates it.
+            developed_by=_optional("DEVELOPED_BY", "Alvi-Devs"),
 
             initial_admin_email=_required("INITIAL_ADMIN_EMAIL"),
             initial_admin_password=_required("INITIAL_ADMIN_PASSWORD"),
@@ -85,4 +183,6 @@ class AppSettings:
 
             max_login_attempts=_optional_int("MAX_LOGIN_ATTEMPTS", 5),
             login_lockout_minutes=_optional_int("LOGIN_LOCKOUT_MINUTES", 15),
+
+            smtp=SmtpSettings.from_env(),
         )
