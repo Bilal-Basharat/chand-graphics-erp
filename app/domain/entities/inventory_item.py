@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from app.domain.entities.base import AuditEntity
 
 @dataclass(slots=True, kw_only=True)
 class InventoryItem(AuditEntity):
+    """
+    Non-card inventory catalog record (paper, ink, etc.).
+
+    Deliberately carries no price — see Card for why: price is only
+    meaningful per transaction (PurchaseItem/SaleItem.unit_price), not as
+    a single mutable "current price" on the catalog record.
+    """
 
     id: int | None = None
     name: str
-    purchase_price: Decimal
-    selling_price: Decimal
     current_stock: int = 0
     minimum_stock: int = 0
     description: str | None = None
@@ -19,10 +23,6 @@ class InventoryItem(AuditEntity):
 
         if not self.name.strip():
             raise ValueError("name cannot be empty")
-        if self.purchase_price < 0:
-            raise ValueError("purchase_price cannot be negative")
-        if self.selling_price < 0:
-            raise ValueError("selling_price cannot be negative")
         if self.current_stock < 0:
             raise ValueError("current_stock cannot be negative")
         if self.minimum_stock < 0:

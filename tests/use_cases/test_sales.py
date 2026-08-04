@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.application.dto.commands import CreateCardCommand, CreateSaleCommand, SaleItemCommand
+from app.application.dto.commands import (
+    CreateCardCommand,
+    CreatePurchaseCommand,
+    CreateSaleCommand,
+    PurchaseItemCommand,
+    SaleItemCommand,
+)
 from app.application.use_cases.cards import CreateCardUseCase, GetCardByNumberUseCase
+from app.application.use_cases.purchases import CreatePurchaseUseCase
 from app.application.use_cases.sales import CreateSaleUseCase, GetSaleByInvoiceNoUseCase
 from app.domain.enums.item_type import ItemType
 
@@ -13,10 +20,24 @@ def test_create_sale_decreases_card_stock_and_stores_snapshots(uow, admin_sessio
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
-            purchase_price=Decimal("10.00"),
-            selling_price=Decimal("20.00"),
-            current_stock=100,
+            current_stock=0,
             minimum_stock=20,
+        )
+    )
+
+    # cards start at zero stock; bring stock to 100 via a purchase before selling from it
+    CreatePurchaseUseCase(uow, admin_session).execute(
+        CreatePurchaseCommand(
+            purchase_no="PUR-SETUP",
+            items=[
+                PurchaseItemCommand(
+                    item_type=ItemType.CARD,
+                    card_id=card.id,
+                    quantity=100,
+                    unit_price=Decimal("10.00"),
+                )
+            ],
+            payments=[],
         )
     )
 

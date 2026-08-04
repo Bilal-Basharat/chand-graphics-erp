@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 from app.domain.entities.sale import Sale
+from app.domain.enums.item_type import ItemType
 from app.domain.repositories.base import Repository
 
 
@@ -25,4 +26,24 @@ class SaleRepository(Repository[Sale], ABC):
 
     @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[Sale]:
+        """Match on invoice number, customer name or note.
+
+        The customer is included because people remember who they sold to
+        far more readily than which invoice number it was.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_by_item(self, item_type: ItemType, item_id: int) -> int:
+        """How many sales have sold one card or inventory item."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_by_payment_method(self, payment_method_id: int) -> int:
+        """How many sale payments were taken through one method."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_by_customer(self, customer_id: int) -> int:
+        """How many sales are recorded against one customer."""
         raise NotImplementedError

@@ -21,10 +21,15 @@ class CreateCabinetCommand:
 
 
 @dataclass(slots=True)
+class UpdateCabinetCommand:
+    id: int
+    code: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
 class CreateCardCommand:
     card_number: str
-    purchase_price: Decimal
-    selling_price: Decimal
     name: str | None = None
     minimum_stock: int = 0
     current_stock: int = 0
@@ -39,17 +44,49 @@ class UpdateCardCabinetCommand:
 
 
 @dataclass(slots=True)
+class UpdateCardCommand:
+    """Corrections to a card's catalogue details.
+
+    Stock is absent on purpose: it moves through purchases, sales and
+    stock adjustments, and a field that silently overwrote it here would
+    be a second, untracked way to change the same number.
+    """
+
+    id: int
+    card_number: str
+    name: str | None = None
+    minimum_stock: int = 0
+    cabinet_id: int | None = None
+    description: str | None = None
+
+
+@dataclass(slots=True)
 class CreateInventoryItemCommand:
     name: str
-    purchase_price: Decimal
-    selling_price: Decimal
     minimum_stock: int = 0
     current_stock: int = 0
     description: str | None = None
 
 
 @dataclass(slots=True)
+class UpdateInventoryItemCommand:
+    id: int
+    name: str
+    minimum_stock: int = 0
+    description: str | None = None
+
+
+@dataclass(slots=True)
 class CreateCustomerCommand:
+    name: str
+    phone: str | None = None
+    address: str | None = None
+    notes: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateCustomerCommand:
+    id: int
     name: str
     phone: str | None = None
     address: str | None = None
@@ -65,7 +102,22 @@ class CreateSupplierCommand:
 
 
 @dataclass(slots=True)
+class UpdateSupplierCommand:
+    id: int
+    name: str
+    phone: str | None = None
+    address: str | None = None
+    notes: str | None = None
+
+
+@dataclass(slots=True)
 class CreatePaymentMethodCommand:
+    name: str
+
+
+@dataclass(slots=True)
+class UpdatePaymentMethodCommand:
+    id: int
     name: str
 
 
@@ -76,7 +128,26 @@ class CreateExpenseCategoryCommand:
 
 
 @dataclass(slots=True)
+class UpdateExpenseCategoryCommand:
+    id: int
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
 class CreateCompanySettingsCommand:
+    company_name: str
+    phone: str | None = None
+    email: str | None = None
+    address: str | None = None
+    currency: str = "PKR"
+    logo_path: str | None = None
+    invoice_footer: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateCompanySettingsCommand:
+    id: int
     company_name: str
     phone: str | None = None
     email: str | None = None

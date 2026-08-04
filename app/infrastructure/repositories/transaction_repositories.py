@@ -12,6 +12,7 @@ from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_payment import PurchasePayment
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_payment import SalePayment
+from app.domain.enums.item_type import ItemType
 from app.domain.repositories.expense_repository import ExpenseRepository as ExpenseRepositoryPort
 from app.domain.repositories.inventory_movement_repository import (
     InventoryMovementRepository as InventoryMovementRepositoryPort,
@@ -26,10 +27,14 @@ from app.domain.repositories.sale_payment_repository import (
 from app.domain.repositories.sale_repository import SaleRepository as SaleRepositoryPort
 from app.infrastructure.db.models.expense_model import ExpenseModel
 from app.infrastructure.db.models.inventory_movement_model import InventoryMovementModel
+from app.infrastructure.db.models.customer_model import CustomerModel
+from app.infrastructure.db.models.purchase_item_model import PurchaseItemModel
 from app.infrastructure.db.models.purchase_model import PurchaseModel
 from app.infrastructure.db.models.purchase_payment_model import PurchasePaymentModel
+from app.infrastructure.db.models.sale_item_model import SaleItemModel
 from app.infrastructure.db.models.sale_model import SaleModel
 from app.infrastructure.db.models.sale_payment_model import SalePaymentModel
+from app.infrastructure.db.models.supplier_model import SupplierModel
 from app.infrastructure.mappers.expense_mapper import ExpenseMapper
 from app.infrastructure.mappers.inventory_movement_mapper import InventoryMovementMapper
 from app.infrastructure.mappers.purchase_mapper import PurchaseMapper
@@ -37,6 +42,26 @@ from app.infrastructure.mappers.purchase_payment_mapper import PurchasePaymentMa
 from app.infrastructure.mappers.sale_mapper import SaleMapper
 from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
+
+
+def _count_documents_holding_item(
+    session: Session,
+    line_model,
+    document_column,
+    item_type: ItemType,
+    item_id: int,
+) -> int:
+    """How many documents have a line pointing at one card or inventory item.
+
+    Sale lines and purchase lines are the same shape, so the query is
+    written once. Documents rather than lines: a card listed twice on one
+    invoice is still one invoice standing in the way of deleting it.
+    """
+    column = (
+        line_model.card_id if item_type is ItemType.CARD else line_model.inventory_item_id
+    )
+    stmt = select(func.count(func.distinct(document_column))).where(column == item_id)
+    return int(session.execute(stmt).scalar_one())
 
 
 ############################################################
@@ -78,6 +103,12 @@ class SqlAlchemyExpenseRepository(
         )
         models = self.session.execute(stmt).scalars().all()
         return [ExpenseMapper.to_entity(model) for model in models]
+
+    def count_by_category(self, category_id: int) -> int:
+        stmt = select(func.count(ExpenseModel.id)).where(
+            ExpenseModel.category_id == category_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
 
 
 ############################################################
@@ -142,9 +173,13 @@ class SqlAlchemyPurchaseRepository(
         pattern = f"%{term.strip()}%"
         stmt = (
             select(PurchaseModel)
+            # Outer join: a purchase with no supplier still has to be
+            # findable by its own number.
+            .outerjoin(SupplierModel, PurchaseModel.supplier_id == SupplierModel.id)
             .where(
                 or_(
                     PurchaseModel.purchase_no.ilike(pattern),
+                    SupplierModel.name.ilike(pattern),
                     PurchaseModel.reference_no.ilike(pattern),
                     PurchaseModel.note.ilike(pattern),
                 )
@@ -165,6 +200,23 @@ class SqlAlchemyPurchaseRepository(
         )
         total = self.session.execute(stmt).scalar_one()
         return Decimal(total)
+
+    def count_by_item(self, item_type: ItemType, item_id: int) -> int:
+        return _count_documents_holding_item(
+            self.session, PurchaseItemModel, PurchaseItemModel.purchase_id, item_type, item_id
+        )
+
+    def count_by_payment_method(self, payment_method_id: int) -> int:
+        stmt = select(func.count(PurchasePaymentModel.id)).where(
+            PurchasePaymentModel.payment_method_id == payment_method_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
+
+    def count_by_supplier(self, supplier_id: int) -> int:
+        stmt = select(func.count(PurchaseModel.id)).where(
+            PurchaseModel.supplier_id == supplier_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
 
 
 ############################################################
@@ -229,10 +281,13 @@ class SqlAlchemySaleRepository(
         pattern = f"%{term.strip()}%"
         stmt = (
             select(SaleModel)
+            # Outer join: a walk-in sale has no customer and still has to
+            # be findable by its invoice number.
+            .outerjoin(CustomerModel, SaleModel.customer_id == CustomerModel.id)
             .where(
                 or_(
                     SaleModel.invoice_no.ilike(pattern),
-                    SaleModel.reference_no.ilike(pattern),
+                    CustomerModel.name.ilike(pattern),
                     SaleModel.note.ilike(pattern),
                 )
             )
@@ -245,6 +300,21 @@ class SqlAlchemySaleRepository(
         )
         models = self.session.execute(stmt).scalars().all()
         return [SaleMapper.to_entity(model) for model in models]
+
+    def count_by_item(self, item_type: ItemType, item_id: int) -> int:
+        return _count_documents_holding_item(
+            self.session, SaleItemModel, SaleItemModel.sale_id, item_type, item_id
+        )
+
+    def count_by_payment_method(self, payment_method_id: int) -> int:
+        stmt = select(func.count(SalePaymentModel.id)).where(
+            SalePaymentModel.payment_method_id == payment_method_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
+
+    def count_by_customer(self, customer_id: int) -> int:
+        stmt = select(func.count(SaleModel.id)).where(SaleModel.customer_id == customer_id)
+        return int(self.session.execute(stmt).scalar_one())
 
 
 ############################################################

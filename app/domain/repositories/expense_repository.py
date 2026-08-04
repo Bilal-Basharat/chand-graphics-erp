@@ -22,3 +22,8 @@ class ExpenseRepository(Repository[Expense], ABC):
     def list_by_category(self, category_id: int, limit: int = 200) -> list[Expense]:
         """Return expenses for one category."""
         raise NotImplementedError
+
+    @abstractmethod
+    def count_by_category(self, category_id: int) -> int:
+        """How many expenses are booked to one category."""
+        raise NotImplementedError

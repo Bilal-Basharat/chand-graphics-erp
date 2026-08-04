@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.domain.entities.cabinet import Cabinet
@@ -103,6 +103,14 @@ class SqlAlchemyCardRepository(
         )
         models = self.session.execute(stmt).scalars().all()
         return [CardMapper.to_entity(model) for model in models]
+
+    def clear_cabinet_id(self, cabinet_id: int) -> int:
+        stmt = (
+            update(CardModel)
+            .where(CardModel.cabinet_id == cabinet_id)
+            .values(cabinet_id=None)
+        )
+        return int(self.session.execute(stmt).rowcount)
 
 
 ############################################################

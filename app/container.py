@@ -96,6 +96,14 @@ class AppContainer:
         from app.application.use_cases.cards import UpdateCardCabinetUseCase
         return UpdateCardCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
+    def update_card_use_case(self):
+        from app.application.use_cases.cards import UpdateCardUseCase
+        return UpdateCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_card_use_case(self):
+        from app.application.use_cases.cards import DeleteCardUseCase
+        return DeleteCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
     def list_cards_use_case(self):
         from app.application.use_cases.cards import ListCardsUseCase
         return ListCardsUseCase(self.create_uow(), self.current_user_session)
@@ -118,6 +126,14 @@ class AppContainer:
     def create_inventory_item_use_case(self):
         from app.application.use_cases.inventory_items import CreateInventoryItemUseCase
         return CreateInventoryItemUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_inventory_item_use_case(self):
+        from app.application.use_cases.inventory_items import UpdateInventoryItemUseCase
+        return UpdateInventoryItemUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_inventory_item_use_case(self):
+        from app.application.use_cases.inventory_items import DeleteInventoryItemUseCase
+        return DeleteInventoryItemUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
     def list_inventory_items_use_case(self):
         from app.application.use_cases.inventory_items import ListInventoryItemsUseCase
@@ -157,6 +173,14 @@ class AppContainer:
         from app.application.use_cases.master_data import GetCabinetByCodeUseCase
         return GetCabinetByCodeUseCase(self.create_uow(), self.current_user_session)
 
+    def update_cabinet_use_case(self):
+        from app.application.use_cases.master_data import UpdateCabinetUseCase
+        return UpdateCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_cabinet_use_case(self):
+        from app.application.use_cases.master_data import DeleteCabinetUseCase
+        return DeleteCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
     def create_customer_use_case(self):
         from app.application.use_cases.master_data import CreateCustomerUseCase
         return CreateCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
@@ -164,6 +188,14 @@ class AppContainer:
     def search_customers_use_case(self):
         from app.application.use_cases.master_data import SearchCustomersUseCase
         return SearchCustomersUseCase(self.create_uow(), self.current_user_session)
+
+    def update_customer_use_case(self):
+        from app.application.use_cases.master_data import UpdateCustomerUseCase
+        return UpdateCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_customer_use_case(self):
+        from app.application.use_cases.master_data import DeleteCustomerUseCase
+        return DeleteCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
     def create_supplier_use_case(self):
         from app.application.use_cases.master_data import CreateSupplierUseCase
@@ -173,6 +205,14 @@ class AppContainer:
         from app.application.use_cases.master_data import SearchSuppliersUseCase
         return SearchSuppliersUseCase(self.create_uow(), self.current_user_session)
 
+    def update_supplier_use_case(self):
+        from app.application.use_cases.master_data import UpdateSupplierUseCase
+        return UpdateSupplierUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_supplier_use_case(self):
+        from app.application.use_cases.master_data import DeleteSupplierUseCase
+        return DeleteSupplierUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
     def create_payment_method_use_case(self):
         from app.application.use_cases.master_data import CreatePaymentMethodUseCase
         return CreatePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
@@ -180,6 +220,14 @@ class AppContainer:
     def list_payment_methods_use_case(self):
         from app.application.use_cases.master_data import ListPaymentMethodsUseCase
         return ListPaymentMethodsUseCase(self.create_uow(), self.current_user_session)
+
+    def update_payment_method_use_case(self):
+        from app.application.use_cases.master_data import UpdatePaymentMethodUseCase
+        return UpdatePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_payment_method_use_case(self):
+        from app.application.use_cases.master_data import DeletePaymentMethodUseCase
+        return DeletePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
     def create_expense_category_use_case(self):
         from app.application.use_cases.master_data import CreateExpenseCategoryUseCase
@@ -189,6 +237,14 @@ class AppContainer:
         from app.application.use_cases.master_data import ListExpenseCategoriesUseCase
         return ListExpenseCategoriesUseCase(self.create_uow(), self.current_user_session)
 
+    def update_expense_category_use_case(self):
+        from app.application.use_cases.master_data import UpdateExpenseCategoryUseCase
+        return UpdateExpenseCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_expense_category_use_case(self):
+        from app.application.use_cases.master_data import DeleteExpenseCategoryUseCase
+        return DeleteExpenseCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
     def create_company_settings_use_case(self):
         from app.application.use_cases.master_data import CreateCompanySettingsUseCase
         return CreateCompanySettingsUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
@@ -196,6 +252,10 @@ class AppContainer:
     def get_company_settings_use_case(self):
         from app.application.use_cases.master_data import GetCompanySettingsUseCase
         return GetCompanySettingsUseCase(self.create_uow(), self.current_user_session)
+
+    def update_company_settings_use_case(self):
+        from app.application.use_cases.master_data import UpdateCompanySettingsUseCase
+        return UpdateCompanySettingsUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
     ############################################################
     #################### Purchase Use Cases #######################

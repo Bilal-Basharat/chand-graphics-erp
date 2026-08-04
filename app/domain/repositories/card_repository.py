@@ -23,5 +23,14 @@ class CardRepository(Repository[Card], ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def clear_cabinet_id(self, cabinet_id: int) -> int:
+        """Unfile every card in a cabinet, and return how many.
+
+        A cabinet is where a card is kept, not what it is, so removing the
+        cabinet leaves the cards themselves untouched and merely unfiled.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[Card]:
         raise NotImplementedError

@@ -75,6 +75,10 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                         if stock_cache[key] is None:
                             raise NotFoundError(f"Card id={item.card_id} not found")
                     card = stock_cache[key]
+                    if card.is_low_stock:
+                        raise ValueError(
+                            f"Card '{card.card_number}' is low/out of stock and cannot be sold."
+                        )
                     previous_stock, resulting_stock = decrease_stock(card, item.quantity)
                     stock_cache[key] = self.require(uow.cards, "cards").update(card)
                 else:
@@ -86,6 +90,10 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                         if stock_cache[key] is None:
                             raise NotFoundError(f"Inventory item id={item.inventory_item_id} not found")
                     inv_item = stock_cache[key]
+                    if inv_item.is_low_stock:
+                        raise ValueError(
+                            f"Inventory item '{inv_item.name}' is low/out of stock and cannot be sold."
+                        )
                     previous_stock, resulting_stock = decrease_stock(inv_item, item.quantity)
                     stock_cache[key] = self.require(uow.inventory_items, "inventory_items").update(inv_item)
 

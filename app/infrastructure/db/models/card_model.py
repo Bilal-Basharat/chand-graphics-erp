@@ -1,5 +1,4 @@
-from decimal import Decimal
-from sqlalchemy import ForeignKey, Integer, String, Numeric
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -7,6 +6,11 @@ from app.infrastructure.db.mixins import AuditMixin
 
 
 class CardModel(Base, AuditMixin):
+    """
+    No price columns here on purpose — purchase/selling price lives on
+    PurchaseItemModel/SaleItemModel.unit_price, per transaction.
+    """
+
     __tablename__ = "cards"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -21,18 +25,6 @@ class CardModel(Base, AuditMixin):
     name: Mapped[str] = mapped_column(
         String(150),
         nullable=True,
-    )
-
-    purchase_price: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-        default=0,
-    )
-
-    selling_price: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-        default=0,
     )
 
     current_stock: Mapped[int] = mapped_column(

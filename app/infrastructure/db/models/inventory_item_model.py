@@ -1,6 +1,4 @@
-from decimal import Decimal
-
-from sqlalchemy import Integer, Numeric, String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -8,6 +6,11 @@ from app.infrastructure.db.mixins import AuditMixin
 
 
 class InventoryItemModel(Base, AuditMixin):
+    """
+    No price columns here on purpose — purchase/selling price lives on
+    PurchaseItemModel/SaleItemModel.unit_price, per transaction.
+    """
+
     __tablename__ = "inventory_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -16,18 +19,6 @@ class InventoryItemModel(Base, AuditMixin):
         String(150),
         nullable=False,
         index=True,
-    )
-
-    purchase_price: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-        default=0,
-    )
-
-    selling_price: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-        default=0,
     )
 
     current_stock: Mapped[int] = mapped_column(

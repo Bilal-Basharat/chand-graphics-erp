@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from app.domain.entities.base import AuditEntity
 
 @dataclass(slots=True, kw_only=True)
 class Card(AuditEntity):
+    """
+    Wedding card catalog record.
+
+    Deliberately carries no price: purchase/selling price is only
+    meaningful per transaction (PurchaseItem.unit_price /
+    SaleItem.unit_price), since the same card is bought and sold at
+    different prices over time. A single "current price" field here would
+    silently overwrite that history every time a new price was recorded.
+    """
 
     card_number: str
     name: str | None = None
-
-    purchase_price: Decimal
-    selling_price: Decimal
 
     current_stock: int = 0
     minimum_stock: int = 0
@@ -26,10 +31,6 @@ class Card(AuditEntity):
             raise ValueError("card_number cannot be empty")
         if self.name is not None and not self.name.strip():
             raise ValueError("name cannot be blank if provided")
-        if self.purchase_price < 0:
-            raise ValueError("purchase_price cannot be negative")
-        if self.selling_price < 0:
-            raise ValueError("selling_price cannot be negative")
         if self.current_stock < 0:
             raise ValueError("current_stock cannot be negative")
         if self.minimum_stock < 0:

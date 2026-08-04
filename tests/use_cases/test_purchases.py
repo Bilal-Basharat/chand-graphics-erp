@@ -19,9 +19,7 @@ def test_create_purchase_increases_card_stock_and_stores_snapshots(uow, admin_se
         CreateCardCommand(
             card_number="1111",
             name="1111 Card",
-            purchase_price=Decimal("10.00"),
-            selling_price=Decimal("15.00"),
-            current_stock=100,
+            current_stock=0,
             minimum_stock=20,
         )
     )
@@ -50,12 +48,13 @@ def test_create_purchase_increases_card_stock_and_stores_snapshots(uow, admin_se
     assert purchase.balance_amount == Decimal("250.00")
 
     assert len(purchase.items) == 1
-    assert purchase.items[0].previous_stock == 100
-    assert purchase.items[0].resulting_stock == 125
+    assert purchase.items[0].previous_stock == 0
+    assert purchase.items[0].resulting_stock == 25
 
     fresh_card = CreateCardUseCase(uow).uow.cards.get_by_card_number("1111")
     assert fresh_card is not None
-    assert fresh_card.current_stock == 125
+    assert fresh_card.current_stock == 25
+    assert purchase.items[0].unit_price == Decimal("10.00")  # price lives on the purchase line, not the card
 
     loaded_purchase = GetPurchaseByNoUseCase(uow).execute("PUR-0001")
     assert loaded_purchase is not None
