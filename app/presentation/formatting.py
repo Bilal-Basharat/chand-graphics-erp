@@ -13,6 +13,22 @@ from decimal import Decimal
 
 DASH = "—"
 
+TO_COLLECT = "To collect from customers"
+TO_PAY = "To pay suppliers"
+
+TO_COLLECT_SHORT = "to collect"
+TO_PAY_SHORT = "to pay"
+"""The same two things, for where they sit beside their own figure and
+the full phrase would not fit."""
+
+SETTLED = "Nothing outstanding"
+"""The two directions money can still be owed in, and neither.
+
+Shared so the dashboard and the reports screen name the same thing the
+same way. Written as what is left to do rather than as "owes" — the
+person reading it wants to know who has to act, and on which side.
+"""
+
 WALK_IN = "Walk-in customer"
 NO_SUPPLIER = "No supplier"
 """What a document with no party attached says instead of nothing.
@@ -40,6 +56,17 @@ def date_only(value: datetime | None) -> str:
     if value is None:
         return DASH
     return f"{value:%d %b %Y}"
+
+
+def counted(count: int, singular: str, plural: str | None = None) -> str:
+    """"3 invoices", "1 invoice".
+
+    Only the regular -s plural is derived; an irregular one names itself.
+    Worth the helper because narrow periods routinely produce a count of
+    one, and "1 invoices" reads as a bug in the figure beside it.
+    """
+    word = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {word}"
 
 
 def or_dash(value) -> str:

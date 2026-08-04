@@ -1,10 +1,14 @@
 """
-Sales against purchases, month by month.
+Sales, purchases and expenses, bucket by bucket.
 
-Two bars per month rather than two lines: the question the dashboard is
-answering is "how did this month compare", and a bar is a quantity you can
-put a finger on. Lines would imply a continuous reading that monthly
-totals do not have.
+Bars rather than lines: the question the dashboard is answering is "how
+did this stretch compare", and a bar is a quantity you can put a finger
+on. Lines would imply a continuous reading that period totals do not
+have.
+
+The widget draws whatever buckets it is handed — days, months or years —
+and never works out which; that follows from the period being shown and
+belongs with the view model that resolves it.
 
 Built on QtCharts, which ships with PySide6 — no new dependency, and the
 same painting engine as the rest of the app so the type and colours match.
@@ -22,15 +26,24 @@ from app.presentation.theme import tokens as t
 
 SALES_COLOR = t.PRIMARY
 PURCHASES_COLOR = t.INK_SOFT
-"""Money in and money out. Deliberately not the success/warning pair: those
-already mean "paid" and "part paid" on every list in the app, and a
-purchase is neither."""
+EXPENSES_COLOR = t.WARNING
+"""Money in, money out on stock, money out on everything else.
 
-_EMPTY_MESSAGE = "No sales or purchases in the last 12 months."
+Sales and purchases are deliberately not the success/danger pair: those
+already mean "paid" and "unpaid" on every list in the app, and neither a
+sale nor a purchase is either. Expenses take the remaining warm colour,
+which is also the one that reads as "watch this".
+"""
+
+_EMPTY_MESSAGE = "Nothing recorded in this period."
+
+_CROWDED_BUCKETS = 14
+"""Past this many columns the category labels overlap, so they are turned
+on their side rather than left to collide."""
 
 
-class MonthlyBars(QWidget):
-    """A grouped bar chart of monthly sales and purchases."""
+class PeriodBars(QWidget):
+    """A grouped bar chart of sales and purchases, one pair per bucket."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,33 +59,42 @@ class MonthlyBars(QWidget):
         self._view.setFrameShape(QChartView.Shape.NoFrame)
 
         # A chart with nothing in it draws an empty grid, which reads as a
-        # component that failed rather than as a quiet year.
+        # component that failed rather than as a quiet period.
         self._empty = QLabel(_EMPTY_MESSAGE)
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty.setStyleSheet(f"color: {t.MUTED}; font-size: 13px;")
 
         self._layout.addWidget(self._view)
         self._layout.addWidget(self._empty)
-        self.set_months([])
+        self.set_buckets([])
 
-    def set_months(self, months: Sequence) -> None:
-        """Render `MonthTotals`, oldest first."""
-        if not months or not any(month.sales or month.purchases for month in months):
+    def set_buckets(self, buckets: Sequence) -> None:
+        """Render `BucketTotals`, oldest first."""
+        if not buckets or not any(
+            b.sales or b.purchases or b.expenses for b in buckets
+        ):
             self._layout.setCurrentWidget(self._empty)
             return
 
         sales = QBarSet("Sales")
         purchases = QBarSet("Purchases")
-        for month in months:
-            sales.append(float(month.sales))
-            purchases.append(float(month.purchases))
+        expenses = QBarSet("Expenses")
+        for bucket in buckets:
+            sales.append(float(bucket.sales))
+            purchases.append(float(bucket.purchases))
+            expenses.append(float(bucket.expenses))
         _paint(sales, SALES_COLOR)
         _paint(purchases, PURCHASES_COLOR)
+        _paint(expenses, EXPENSES_COLOR)
 
         series = QBarSeries()
         series.append(sales)
         series.append(purchases)
-        series.setBarWidth(0.75)
+        series.append(expenses)
+        # Width is a share of the column, so a period with one or two
+        # columns — "Today" most of all — otherwise draws slabs across the
+        # whole plot. Narrower keeps them reading as bars.
+        series.setBarWidth(0.75 if len(buckets) > 2 else 0.3)
 
         chart = QChart()
         chart.addSeries(series)
@@ -85,7 +107,9 @@ class MonthlyBars(QWidget):
         chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
 
         categories = QBarCategoryAxis()
-        categories.append([month.label for month in months])
+        categories.append([bucket.label for bucket in buckets])
+        if len(buckets) > _CROWDED_BUCKETS:
+            categories.setLabelsAngle(-60)
         _style_axis(categories)
         chart.addAxis(categories, Qt.AlignmentFlag.AlignBottom)
         series.attachAxis(categories)

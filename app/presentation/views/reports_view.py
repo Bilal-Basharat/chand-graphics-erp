@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.container import AppContainer
-from app.presentation.formatting import date_only, money
+from app.presentation.formatting import TO_COLLECT, TO_PAY, counted, date_only, money
 from app.presentation.viewmodels.base import BaseViewModel
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_header import PageHeader
@@ -174,8 +174,8 @@ class ReportsView(QWidget):
             "purchases": StatTile("Purchases", money(_ZERO), "0 purchases"),
             "expenses": StatTile("Expenses", money(_ZERO), "0 expenses"),
             "net": StatTile("Net movement", money(_ZERO), "Sales less purchases and expenses"),
-            "receivable": StatTile("Customers owe you", money(_ZERO), "Unpaid on sales"),
-            "payable": StatTile("You owe suppliers", money(_ZERO), "Unpaid on purchases"),
+            "receivable": StatTile(TO_COLLECT, money(_ZERO), "Unpaid on sales"),
+            "payable": StatTile(TO_PAY, money(_ZERO), "Unpaid on purchases"),
         }
         for index, tile in enumerate(self._tiles.values()):
             grid.addWidget(tile, index // 3, index % 3)
@@ -226,23 +226,19 @@ class ReportsView(QWidget):
         )
 
         self._tiles["sales"].set_value(money(summary.sales_total))
-        self._tiles["sales"].set_note(_plural(summary.sales_count, "invoice"))
+        self._tiles["sales"].set_note(counted(summary.sales_count, "invoice"))
         self._tiles["purchases"].set_value(money(summary.purchases_total))
-        self._tiles["purchases"].set_note(_plural(summary.purchases_count, "purchase"))
+        self._tiles["purchases"].set_note(counted(summary.purchases_count, "purchase"))
         self._tiles["expenses"].set_value(money(summary.expenses_total))
-        self._tiles["expenses"].set_note(_plural(summary.expenses_count, "expense"))
+        self._tiles["expenses"].set_note(counted(summary.expenses_count, "expense"))
         self._tiles["net"].set_value(money(summary.gross_profit))
         self._tiles["receivable"].set_value(money(summary.receivable))
         self._tiles["payable"].set_value(money(summary.payable))
 
         self._breakdown.set_rows(summary.expense_breakdown)
-        self._breakdown_note.setText(_plural(len(summary.expense_breakdown), "category", "categories"))
+        self._breakdown_note.setText(
+            counted(len(summary.expense_breakdown), "category", "categories")
+        )
 
     def _on_error(self, message: str) -> None:
         QMessageBox.warning(self, "Reports", message)
-
-
-def _plural(count: int, singular: str, plural: str | None = None) -> str:
-    if count == 1:
-        return f"1 {singular}"
-    return f"{count} {plural or singular + 's'}"

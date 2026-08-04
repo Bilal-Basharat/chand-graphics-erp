@@ -89,7 +89,9 @@ class MainWindow(QMainWindow):
 
         self._sidebar = Sidebar()
         self._topbar = TopBar()
-        self._status_bar = AppStatusBar()
+        self._status_bar = AppStatusBar(
+            container.settings.app_version, container.settings.developed_by
+        )
         self._stack = QStackedWidget()
         self._stack.setObjectName("Content")
 
@@ -123,8 +125,12 @@ class MainWindow(QMainWindow):
         self.navigate(Route.DASHBOARD)
 
     def _register_views(self) -> None:
-        dashboard_vm = DashboardViewModel(self._container)
-        self._add_page(Route.DASHBOARD, DashboardView(dashboard_vm), "Dashboard")
+        dashboard_period = PeriodSelection()
+        dashboard = DashboardView(
+            DashboardViewModel(self._container, dashboard_period), dashboard_period
+        )
+        dashboard.recordRequested.connect(self._open_record)
+        self._add_page(Route.DASHBOARD, dashboard, "Dashboard")
 
         wedding_cards_vm = WeddingCardsViewModel(self._container)
         self._wedding_cards_view = WeddingCardsView(wedding_cards_vm)
@@ -261,6 +267,19 @@ class MainWindow(QMainWindow):
         self._sidebar.set_active(route)
         hint = "Ctrl+F to search this list" if self._searchable_page() else ""
         self._status_bar.set_page(self._page_titles.get(route, ""), hint)
+
+    def _open_record(self, route: Route, reference: str) -> None:
+        """Open the screen a record lives on, narrowed to that record.
+
+        Searching rather than selecting a row: the target screen filters by
+        period, and the document being opened may well be older than
+        whatever period that screen is currently showing. Its search runs
+        against the whole table, so it finds the record either way.
+        """
+        self.navigate(route)
+        page = self._pages.get(route)
+        if isinstance(page, CollectionView) and page.supports_search:
+            page.apply_search(reference)
 
     def _on_sidebar_collapsed(self, _collapsed: bool) -> None:
         self._topbar.set_brand_width(self._sidebar.width())

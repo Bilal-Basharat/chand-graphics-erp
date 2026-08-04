@@ -1,6 +1,10 @@
 """
-Shared date-range filter for the screens that list by period (purchases,
-expenses, reports).
+Shared date-range filter for the screens that read by period — the
+dashboard, sales, purchases, both payment lists, expenses and reports.
+
+One list of presets, used everywhere: "this month" has to mean the same
+month on every screen, and a screen that grew its own copy would be the
+one that drifted.
 
 `PeriodSelection` is a small mutable holder rather than state inside the
 view: a view model's query callable needs to read the current period, and
@@ -25,6 +29,20 @@ _EPOCH = datetime(1970, 1, 1)
 
 def _month_start(moment: datetime) -> datetime:
     return moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _day_start(moment: datetime) -> datetime:
+    return moment.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _today(now: datetime) -> tuple[datetime, datetime]:
+    return _day_start(now), now
+
+
+def _this_week(now: datetime) -> tuple[datetime, datetime]:
+    # From Monday, which is where the working week starts here — not a
+    # rolling seven days, which would answer a different question.
+    return _day_start(now) - timedelta(days=now.weekday()), now
 
 
 def _this_month(now: datetime) -> tuple[datetime, datetime]:
@@ -53,6 +71,8 @@ def _all_time(now: datetime) -> tuple[datetime, datetime]:
 
 
 _PRESETS: list[tuple[str, Callable[[datetime], tuple[datetime, datetime]]]] = [
+    ("Today", _today),
+    ("This week", _this_week),
     ("This month", _this_month),
     ("Last month", _last_month),
     ("Last 3 months", _last_three_months),
@@ -60,7 +80,13 @@ _PRESETS: list[tuple[str, Callable[[datetime], tuple[datetime, datetime]]]] = [
     ("All time", _all_time),
 ]
 
-DEFAULT_PRESET_INDEX = 0
+DEFAULT_PRESET_LABEL = "This month"
+"""What every screen opens on. A month is the period the shop already
+thinks in — its bills, its stock runs and its balances all land there."""
+
+DEFAULT_PRESET_INDEX = next(
+    index for index, (label, _) in enumerate(_PRESETS) if label == DEFAULT_PRESET_LABEL
+)
 
 
 class PeriodSelection:
