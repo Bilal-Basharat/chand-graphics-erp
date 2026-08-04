@@ -37,6 +37,15 @@ data/*.sqlite3
 *.db
 *.sqlite3
 
+# Local session / sign-in state. sign_in.json holds the remembered email
+# address, so it is personal data and must not be committed. (The matching
+# password lives in the OS credential vault, never in the project.)
+data/session.json
+data/sign_in.json
+
+# UI assets generated at runtime (see presentation/theme/assets.py)
+data/ui/
+
 # Logs
 logs/
 *.log
