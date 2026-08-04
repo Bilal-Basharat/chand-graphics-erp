@@ -15,6 +15,11 @@ DATABASE_URL = f"sqlite:///{DATABASE_PATH.as_posix()}"
 
 SESSION_FILE_PATH = DATA_DIR / "session.json"
 
+# Non-secret sign-in preferences (the remembered email address). The
+# password that pairs with it lives in the OS credential vault, never
+# here — see presentation/services/credential_store.py.
+SIGN_IN_PREFERENCES_PATH = DATA_DIR / "sign_in.json"
+
 
 def _required(name: str) -> str:
     """

@@ -67,7 +67,7 @@ def test_sign_in_saves_session_and_restore_loads_it(uow, tmp_path):
         RecordLoginAuditUseCase(uow, "test"),
     )
     result = sign_in.execute(
-        SignInCommand(email="admin@example.com", password="secret123")
+        SignInCommand(email="admin@example.com", password="secret123", remember_me=True)
     )
 
     assert result.email == "admin@example.com"
@@ -85,6 +85,55 @@ def test_sign_in_saves_session_and_restore_loads_it(uow, tmp_path):
     assert restored is not None
     assert restored.email == "admin@example.com"
     assert restored.role == "admin"
+
+
+def test_sign_in_without_remember_me_leaves_no_restorable_session(uow, session_factory, tmp_path):
+    bundle = build_auth_bundle(session_factory, tmp_path)
+    seed_user(uow, bundle.hasher)
+
+    sign_in = SignInUseCase(
+        uow,
+        bundle.hasher,
+        CurrentUserSession(),
+        bundle.session_store,
+        RecordLoginAuditUseCase(uow, "test"),
+    )
+    sign_in.execute(SignInCommand(email="admin@example.com", password="secret123"))
+
+    assert bundle.session_store.load_user_id() is None
+
+    restore = RestoreSessionUseCase(
+        uow,
+        CurrentUserSession(),
+        bundle.session_store,
+        RecordLoginAuditUseCase(uow, "test"),
+    )
+    assert restore.execute() is None
+
+
+def test_sign_in_without_remember_me_clears_a_previously_remembered_session(
+    uow, session_factory, tmp_path
+):
+    """Opting out once must not leave the earlier session restorable."""
+    bundle = build_auth_bundle(session_factory, tmp_path)
+    seed_user(uow, bundle.hasher)
+
+    sign_in = SignInUseCase(
+        uow,
+        bundle.hasher,
+        CurrentUserSession(),
+        bundle.session_store,
+        RecordLoginAuditUseCase(uow, "test"),
+    )
+    sign_in.execute(
+        SignInCommand(email="admin@example.com", password="secret123", remember_me=True)
+    )
+    assert bundle.session_store.load_user_id() is not None
+
+    sign_in.execute(
+        SignInCommand(email="admin@example.com", password="secret123", remember_me=False)
+    )
+    assert bundle.session_store.load_user_id() is None
 
 
 def test_restore_clears_invalid_session(uow, tmp_path):

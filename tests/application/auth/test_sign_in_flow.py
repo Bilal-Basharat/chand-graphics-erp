@@ -25,12 +25,14 @@ def test_sign_in_success_sets_session_and_writes_audit(uow, session_factory, tmp
     )
 
     result = use_case.execute(
-        SignInCommand(email="admin@example.com", password="secret123")
+        SignInCommand(email="admin@example.com", password="secret123", remember_me=True)
     )
 
     assert result.email == "admin@example.com"
     assert result.role == "admin"
     assert bundle.current_user_session.is_authenticated() is True
+    # Only persisted because remember_me was asked for — see
+    # test_session_restore for the opt-out behaviour.
     assert bundle.session_store.load_user_id() == result.user_id
 
     with uow as tx:

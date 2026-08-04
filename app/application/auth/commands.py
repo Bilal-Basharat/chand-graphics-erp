@@ -8,6 +8,13 @@ from dataclasses import dataclass
 class SignInCommand:
     email: str
     password: str
+    remember_me: bool = False
+    """
+    Persist the session so the next launch signs in automatically.
+
+    Defaults to off: a shared shop terminal should not silently keep the
+    last person signed in. The sign-in screen asks explicitly.
+    """
 
 
 @dataclass(slots=True)

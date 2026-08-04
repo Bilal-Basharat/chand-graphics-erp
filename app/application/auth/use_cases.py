@@ -137,7 +137,14 @@ class SignInUseCase(UseCase[SignInCommand, SignInResult]):
                 raise InvalidCredentialsError("Invalid email or password")
 
             self.current_user_session.set_user(user)
-            self.session_store.save_user_id(user.id)  # type: ignore[arg-type]
+
+            if request.remember_me:
+                self.session_store.save_user_id(user.id)  # type: ignore[arg-type]
+            else:
+                # Clear any session persisted by an earlier "remember me"
+                # sign-in, otherwise opting out once would still leave the
+                # previous user auto-restored on the next launch.
+                self.session_store.clear()
 
             _safe_record_audit(
             self.record_login_audit_use_case,
