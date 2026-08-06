@@ -16,18 +16,26 @@ from decimal import Decimal, InvalidOperation
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QTextEdit, QWidget
+from PySide6.QtWidgets import QLabel, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import RecordPurchasePaymentCommand, RecordSalePaymentCommand
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.dialogs.form_dialog import FormDialog
-from app.presentation.formatting import DASH, NO_SUPPLIER, WALK_IN, date_time, money
+from app.presentation.formatting import (
+    DASH,
+    NO_SUPPLIER,
+    WALK_IN,
+    date_time,
+    money,
+    payment_method_name,
+)
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.views.collection_view import CollectionPage, CollectionView
 from app.presentation.views.document_lists import NOT_FULLY_PAID, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
+from app.presentation.widgets.payment_method_combo import PaymentMethodCombo
 from app.presentation.widgets.payment_status import payment_status_color, payment_status_text
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.table_model import Column, detail_columns
@@ -126,7 +134,7 @@ class PaymentsViewModel(CollectionViewModelBase):
         lines: list[PaymentLine] = []
         for position, payment in enumerate(payments, start=1):
             balance -= payment.amount
-            method = self._method_names.get(payment.payment_method_id, DASH)
+            method = payment_method_name(self._method_names.get(payment.payment_method_id))
             lines.append(
                 PaymentLine(
                     when=self.payment_date(payment),
@@ -187,7 +195,7 @@ class PaymentsViewModel(CollectionViewModelBase):
         self,
         document_id: int,
         amount: Decimal,
-        payment_method_id: int,
+        payment_method_id: int | None,
         reference_no: str | None,
         note: str | None,
     ) -> None:
@@ -465,12 +473,6 @@ class PaymentsView(CollectionView):
                 f"That {self._payments_page.document_noun} is fully paid — nothing left to record."
             )
             return
-        if not self._payment_methods:
-            self._payments_view_model.errorOccurred.emit(
-                "Add a payment method first — every payment is recorded against one."
-            )
-            return
-
         RecordPaymentDialog(
             self._payments_view_model,
             page=self._payments_page,
@@ -514,9 +516,8 @@ class RecordPaymentDialog(FormDialog):
         self._amount = QLineEdit(f"{self._balance:.2f}")
         self.add_row(page.amount_caption, self._amount, required=True)
 
-        self._method = QComboBox()
-        for method in payment_methods:
-            self._method.addItem(method.name, method.id)
+        self._method = PaymentMethodCombo()
+        self._method.set_methods(payment_methods)
         self.add_row("Payment method", self._method)
 
         self._reference = self.add_row("Reference", QLineEdit())
@@ -543,16 +544,13 @@ class RecordPaymentDialog(FormDialog):
                 self._amount,
             )
             return None
-        if self._method.currentData() is None:
-            self.reject_with("Choose a payment method.", self._method)
-            return None
         if self._view_model.current_user_id() is None:
             self.reject_with("Your session has ended. Sign in again to record a payment.")
             return None
 
         return (
             amount,
-            self._method.currentData(),
+            self._method.method_id,
             self._reference.text().strip() or None,
             self._note.toPlainText().strip() or None,
         )

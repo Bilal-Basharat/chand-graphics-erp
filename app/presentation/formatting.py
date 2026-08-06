@@ -38,6 +38,16 @@ These are facts about the document: nobody was named, because nobody
 needed to be.
 """
 
+CASH = "Cash"
+"""How a payment reads when it names no method.
+
+Money over the counter is the default in this shop, and it is what a
+payment with nothing recorded against it was. Naming it here rather than
+seeding a row means an installation starts with an empty methods list and
+still records payments correctly — the ones the owner adds are for the
+exceptions.
+"""
+
 
 def money(value: Decimal | int | float | None) -> str:
     """Thousands-separated, always two decimals. `None` renders as a dash."""
@@ -82,6 +92,16 @@ def counted(count: int, singular: str, plural: str | None = None) -> str:
 
 def or_dash(value) -> str:
     return str(value) if value not in (None, "") else DASH
+
+
+def payment_method_name(name: str | None) -> str:
+    """How a payment was settled, for a name that may not be there.
+
+    Covers both ways that happens: nothing was chosen when the payment was
+    recorded, and the method it named was deleted afterwards. Neither is
+    missing data, so neither renders as a dash.
+    """
+    return name or CASH
 
 
 def card_label(card) -> str:

@@ -17,13 +17,15 @@ class PurchasePayment(TimestampEntity):
 
     purchase_id: int | None = None
     paid_by_user_id: int
-    payment_method_id: int
     id: int | None = None
+
+    payment_method_id: int | None = None
+    """Optional, for the same reasons as SalePayment.payment_method_id."""
 
     def __post_init__(self) -> None:
         if self.amount <= 0:
             raise ValueError("amount must be greater than zero")
-        if self.payment_method_id <= 0:
+        if self.payment_method_id is not None and self.payment_method_id <= 0:
             raise ValueError("payment_method_id must be valid")
         if self.paid_by_user_id <= 0:
             raise ValueError("paid_by_user_id must be valid")

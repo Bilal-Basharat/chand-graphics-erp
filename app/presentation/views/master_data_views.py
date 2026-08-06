@@ -99,9 +99,9 @@ class PaymentMethodsView(EditableCollectionView):
             CollectionPage(
                 crumb=("Operations", "Payment methods"),
                 title="Payment methods",
-                subtitle="The ways money moves in and out — offered on every sale and purchase.",
+                subtitle="Ways money moves in and out besides cash — offered on every sale and purchase.",
                 panel_title="Method list",
-                empty_message="No payment methods yet. Add one so payments can be recorded.",
+                empty_message="No payment methods yet. Payments record as cash until you add one.",
                 unit="method",
                 create_label="Add method",
             ),
@@ -110,8 +110,14 @@ class PaymentMethodsView(EditableCollectionView):
             parent,
         )
 
+    def delete_warning(self, row) -> str:
+        return (
+            "Payments already recorded through it are kept, and read as cash.\n\n"
+            "This cannot be undone."
+        )
+
     def quick_add_fields(self):
-        self._new_method = line_edit("e.g. Cash, Bank transfer, EasyPaisa")
+        self._new_method = line_edit("e.g. Bank transfer, EasyPaisa, HBL")
         return (QuickAddField(self._new_method, 1),)
 
     def build_quick_add(self) -> CreatePaymentMethodCommand | None:

@@ -206,12 +206,6 @@ class SqlAlchemyPurchaseRepository(
             self.session, PurchaseItemModel, PurchaseItemModel.purchase_id, item_type, item_id
         )
 
-    def count_by_payment_method(self, payment_method_id: int) -> int:
-        stmt = select(func.count(PurchasePaymentModel.id)).where(
-            PurchasePaymentModel.payment_method_id == payment_method_id
-        )
-        return int(self.session.execute(stmt).scalar_one())
-
     def count_by_supplier(self, supplier_id: int) -> int:
         stmt = select(func.count(PurchaseModel.id)).where(
             PurchaseModel.supplier_id == supplier_id
@@ -305,12 +299,6 @@ class SqlAlchemySaleRepository(
         return _count_documents_holding_item(
             self.session, SaleItemModel, SaleItemModel.sale_id, item_type, item_id
         )
-
-    def count_by_payment_method(self, payment_method_id: int) -> int:
-        stmt = select(func.count(SalePaymentModel.id)).where(
-            SalePaymentModel.payment_method_id == payment_method_id
-        )
-        return int(self.session.execute(stmt).scalar_one())
 
     def count_by_customer(self, customer_id: int) -> int:
         stmt = select(func.count(SaleModel.id)).where(SaleModel.customer_id == customer_id)

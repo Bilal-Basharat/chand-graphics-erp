@@ -39,11 +39,6 @@ class SaleRepository(Repository[Sale], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def count_by_payment_method(self, payment_method_id: int) -> int:
-        """How many sale payments were taken through one method."""
-        raise NotImplementedError
-
-    @abstractmethod
     def count_by_customer(self, customer_id: int) -> int:
         """How many sales are recorded against one customer."""
         raise NotImplementedError

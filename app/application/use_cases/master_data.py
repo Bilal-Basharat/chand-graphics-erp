@@ -428,10 +428,14 @@ class UpdatePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[UpdatePaymentMethod
 
 
 class DeletePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
-    """Remove a payment method, unless money has been recorded through it.
+    """Remove a payment method. Payments made through it are kept.
 
-    Every payment names the method it came through; deleting the method
-    would leave those payments unable to say how they were settled.
+    Unlike a card or a customer, this is not refused while it is in use.
+    A method is a label on how money moved, not part of the money itself,
+    and a shop that stops taking cheques should be able to say so without
+    its old cheque payments standing in the way. Those payments keep their
+    amount, their date and their document, and read as cash — the column
+    on them is cleared rather than pointing at a row that has gone.
     """
 
     def execute(self, request: int) -> None:
@@ -439,20 +443,9 @@ class DeletePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
 
         with self.uow as uow:
             payment_methods = self.require(uow.payment_methods, "payment_methods")
-            sales = self.require(uow.sales, "sales")
-            purchases = self.require(uow.purchases, "purchases")
 
-            method = payment_methods.get_by_id(request)
-            if method is None:
+            if payment_methods.get_by_id(request) is None:
                 raise NotFoundError(f"Payment method id={request} not found")
-
-            ensure_not_in_use(
-                method.name,
-                {
-                    "sale payment": sales.count_by_payment_method(request),
-                    "purchase payment": purchases.count_by_payment_method(request),
-                },
-            )
 
             payment_methods.delete(request)
 

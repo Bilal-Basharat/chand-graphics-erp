@@ -86,8 +86,71 @@ def _drop_catalogue_prices(connection: Connection) -> None:
         _drop_columns(connection, table, ("purchase_price", "selling_price"))
 
 
+def _relax_payment_method_links(connection: Connection) -> None:
+    """Payment method became optional on a payment.
+
+    Two changes to the same column, neither of which SQLite can make in
+    place: it stops being NOT NULL, and it gains ON DELETE SET NULL so a
+    method that is deleted leaves the payments it settled intact rather
+    than being undeletable. SQLite's own answer to both is to rebuild the
+    table, which is what this does.
+
+    Safe to rerun: a database already rebuilt has a nullable column and is
+    skipped.
+    """
+    for table, document_column, document_table, user_column, timestamp in (
+        ("sale_payments", "sale_id", "sales", "received_by_user_id", "received_at"),
+        ("purchase_payments", "purchase_id", "purchases", "paid_by_user_id", "paid_at"),
+    ):
+        if _is_nullable(connection, table, "payment_method_id"):
+            continue
+
+        logger.info("Rebuilding %s so its payment method is optional", table)
+        columns = (
+            f"id, {document_column}, payment_method_id, amount, reference_no, note, "
+            f"{user_column}, {timestamp}, created_at, updated_at"
+        )
+        connection.exec_driver_sql(
+            f"""
+            CREATE TABLE {table}_rebuilt (
+                id INTEGER NOT NULL,
+                {document_column} INTEGER NOT NULL,
+                payment_method_id INTEGER,
+                amount NUMERIC(12, 2) NOT NULL,
+                reference_no VARCHAR(100),
+                note VARCHAR(500),
+                {user_column} INTEGER NOT NULL,
+                {timestamp} DATETIME NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME,
+                PRIMARY KEY (id),
+                FOREIGN KEY({document_column}) REFERENCES {document_table} (id),
+                FOREIGN KEY(payment_method_id) REFERENCES payment_methods (id) ON DELETE SET NULL,
+                FOREIGN KEY({user_column}) REFERENCES users (id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            f"INSERT INTO {table}_rebuilt ({columns}) SELECT {columns} FROM {table}"
+        )
+        connection.exec_driver_sql(f"DROP TABLE {table}")
+        connection.exec_driver_sql(f"ALTER TABLE {table}_rebuilt RENAME TO {table}")
+        # The indexes belonged to the table that was just dropped, so they
+        # went with it and are recreated here rather than left missing.
+        for column in (document_column, "payment_method_id", user_column, "created_at"):
+            connection.exec_driver_sql(
+                f"CREATE INDEX ix_{table}_{column} ON {table} ({column})"
+            )
+
+
+def _is_nullable(connection: Connection, table: str, column: str) -> bool:
+    rows = connection.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+    return any(row[1] == column and not row[3] for row in rows)
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
+    _relax_payment_method_links,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

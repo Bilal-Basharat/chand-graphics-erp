@@ -111,7 +111,11 @@ class CreatePurchaseUseCase(AuthorizedUseCase[CreatePurchaseCommand, Purchase]):
                 )
 
             for payment in request.payments:
-                if payment_methods.get_by_id(payment.payment_method_id) is None:
+                # Optional — see CreateSaleUseCase.
+                if (
+                    payment.payment_method_id is not None
+                    and payment_methods.get_by_id(payment.payment_method_id) is None
+                ):
                     raise NotFoundError(f"Payment method id={payment.payment_method_id} not found")
                 if users.get_by_id(payment.paid_by_user_id) is None:
                     raise NotFoundError(f"User id={payment.paid_by_user_id} not found")
@@ -162,7 +166,10 @@ class RecordPurchasePaymentUseCase(AuthorizedUseCase[RecordPurchasePaymentComman
             if purchase is None:
                 raise NotFoundError(f"Purchase id={request.purchase_id} not found")
 
-            if payment_methods.get_by_id(request.payment_method_id) is None:
+            if (
+                request.payment_method_id is not None
+                and payment_methods.get_by_id(request.payment_method_id) is None
+            ):
                 raise NotFoundError(f"Payment method id={request.payment_method_id} not found")
 
             if users.get_by_id(request.paid_by_user_id) is None:

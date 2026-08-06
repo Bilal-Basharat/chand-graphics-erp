@@ -287,10 +287,6 @@ class DocumentDialog(QDialog):
             return
 
         totals = self._totals.render(self._lines)
-        if totals.paid > ZERO and self._totals.payment_method_id is None:
-            self.warn("Choose a payment method for the amount paid now.")
-            self._totals.focus_paid()
-            return
         if totals.paid > totals.grand_total:
             self.warn("Paid now is more than the total. Reduce it or add a discount.")
             self._totals.focus_paid()

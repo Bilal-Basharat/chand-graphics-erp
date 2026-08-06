@@ -41,11 +41,6 @@ class PurchaseRepository(Repository[Purchase], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def count_by_payment_method(self, payment_method_id: int) -> int:
-        """How many purchase payments were made through one method."""
-        raise NotImplementedError
-
-    @abstractmethod
     def count_by_supplier(self, supplier_id: int) -> int:
         """How many purchases are recorded against one supplier."""
         raise NotImplementedError

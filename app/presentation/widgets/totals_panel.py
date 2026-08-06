@@ -12,7 +12,6 @@ from decimal import Decimal
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -30,8 +29,7 @@ from app.presentation.widgets.document_lines import (
     compute_totals,
     parse_amount_or_zero,
 )
-
-NO_PAYMENT_METHOD = "— Not paid now —"
+from app.presentation.widgets.payment_method_combo import PaymentMethodCombo
 
 _RIGHT = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
@@ -57,8 +55,7 @@ class TotalsPanel(QWidget):
         # updating as the user types.
         self._discount.textChanged.connect(lambda _text: self.changed.emit())
 
-        self._payment_method = QComboBox()
-        self._payment_method.addItem(NO_PAYMENT_METHOD, None)
+        self._payment_method = PaymentMethodCombo()
 
         self._paid = QLineEdit("0")
         self._paid.setPlaceholderText("0.00")
@@ -110,13 +107,7 @@ class TotalsPanel(QWidget):
     # ---------------- inputs ----------------
 
     def set_payment_methods(self, methods: list) -> None:
-        previous = self._payment_method.currentData()
-        self._payment_method.clear()
-        self._payment_method.addItem(NO_PAYMENT_METHOD, None)
-        for method in methods:
-            self._payment_method.addItem(method.name, method.id)
-        index = self._payment_method.findData(previous)
-        self._payment_method.setCurrentIndex(max(index, 0))
+        self._payment_method.set_methods(methods)
 
     @property
     def discount(self) -> Decimal:
@@ -128,7 +119,7 @@ class TotalsPanel(QWidget):
 
     @property
     def payment_method_id(self) -> int | None:
-        return self._payment_method.currentData()
+        return self._payment_method.method_id
 
     def focus_discount(self) -> None:
         self._discount.setFocus()
@@ -137,11 +128,6 @@ class TotalsPanel(QWidget):
     def focus_paid(self) -> None:
         self._paid.setFocus()
         self._paid.selectAll()
-
-    def reset(self) -> None:
-        self._discount.setText("0")
-        self._paid.setText("0")
-        self._payment_method.setCurrentIndex(0)
 
     # ---------------- output ----------------
 

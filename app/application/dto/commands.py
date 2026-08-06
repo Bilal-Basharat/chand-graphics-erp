@@ -180,8 +180,8 @@ class PurchaseItemCommand:
 @dataclass(slots=True)
 class PurchasePaymentCommand:
     amount: Decimal
-    payment_method_id: int
     paid_by_user_id: int
+    payment_method_id: int | None = None
     reference_no: str | None = None
     note: str | None = None
 
@@ -190,8 +190,8 @@ class PurchasePaymentCommand:
 class RecordPurchasePaymentCommand:
     purchase_id: int
     amount: Decimal
-    payment_method_id: int
     paid_by_user_id: int
+    payment_method_id: int | None = None
     reference_no: str | None = None
     note: str | None = None
 
@@ -220,8 +220,8 @@ class SaleItemCommand:
 @dataclass(slots=True)
 class SalePaymentCommand:
     amount: Decimal
-    payment_method_id: int
     received_by_user_id: int
+    payment_method_id: int | None = None
     reference_no: str | None = None
     note: str | None = None
 
@@ -230,8 +230,8 @@ class SalePaymentCommand:
 class RecordSalePaymentCommand:
     sale_id: int
     amount: Decimal
-    payment_method_id: int
     received_by_user_id: int
+    payment_method_id: int | None = None
     reference_no: str | None = None
     note: str | None = None
 

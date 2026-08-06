@@ -19,9 +19,12 @@ class SalePaymentModel(Base, TimestampMixin):
         index=True,
     )
 
-    payment_method_id: Mapped[int] = mapped_column(
-        ForeignKey("payment_methods.id"),
-        nullable=False,
+    # Optional, and cleared rather than blocking when the method it names
+    # is deleted: a payment that was made is a fact, and it should not be
+    # undeletable master data that keeps it on the books.
+    payment_method_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_methods.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
