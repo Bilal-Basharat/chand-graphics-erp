@@ -19,13 +19,28 @@ from app.application.dto.commands import CreatePurchaseCommand
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.dialogs.new_purchase_dialog import NewPurchaseDialog
-from app.presentation.formatting import DASH, NO_SUPPLIER, date_time, money, or_dash
+from app.presentation.formatting import (
+    DASH,
+    NO_SUPPLIER,
+    date_time,
+    money,
+    or_dash,
+    payment_method_name,
+)
+from app.presentation.records.builders import purchase_card
+from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
-from app.presentation.viewmodels.document_items import DocumentItemLine, ItemCatalogue
-from app.presentation.views.collection_view import CollectionPage, CollectionView
+from app.presentation.viewmodels.document_items import (
+    DocumentItemLine,
+    ItemCatalogue,
+    PaymentLine,
+    payment_lines,
+)
+from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import created_at, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
+from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
 _REFERENCE_LIMIT = 500
@@ -45,11 +60,20 @@ class PurchasesViewModel(CollectionViewModelBase):
         super().__init__()
         self._container = container
         self._period = period
+        self._method_names: dict[int, str] = {}
         self._catalogue = ItemCatalogue()
 
     def item_lines(self, purchase) -> list[DocumentItemLine]:
         """What was bought on one purchase, ready to read underneath it."""
         return self._catalogue.lines_of(purchase)
+
+    def payment_lines(self, purchase) -> list[PaymentLine]:
+        """What has been paid against one purchase, oldest first."""
+        return payment_lines(
+            purchase,
+            dated=lambda payment: payment.paid_at or payment.created_at,
+            method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
+        )
 
     def load(self) -> None:
         use_case = self._container.list_purchases_by_date_range_use_case()
@@ -85,6 +109,7 @@ class PurchasesViewModel(CollectionViewModelBase):
             }
 
         def _on_success(reference: dict) -> None:
+            self._method_names = {m.id: m.name for m in reference["payment_methods"]}
             self._catalogue.set_products(reference["cards"], reference["inventory_items"])
             self.referenceLoaded.emit(reference)
 
@@ -191,6 +216,17 @@ class PurchasesView(CollectionView):
             ),
             children_of=self._purchases_view_model.item_lines,
             placeholder="No purchases in this period.",
+        )
+
+    def row_actions(self) -> Sequence[RowAction]:
+        return (VIEW_ACTION,)
+
+    def record_card(self, row) -> RecordCard:
+        return purchase_card(
+            row,
+            supplier=self._supplier_label(row),
+            items=self._purchases_view_model.item_lines(row),
+            payments=self._purchases_view_model.payment_lines(row),
         )
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)

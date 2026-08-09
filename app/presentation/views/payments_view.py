@@ -18,7 +18,10 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QLabel, QLineEdit, QTextEdit, QWidget
 
-from app.application.dto.commands import RecordPurchasePaymentCommand, RecordSalePaymentCommand
+from app.application.dto.commands import (
+    RecordPurchasePaymentCommand,
+    RecordSalePaymentCommand,
+)
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.dialogs.form_dialog import FormDialog
@@ -30,33 +33,26 @@ from app.presentation.formatting import (
     money,
     payment_method_name,
 )
+from app.presentation.records.builders import purchase_card, sale_card
+from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
-from app.presentation.views.collection_view import CollectionPage, CollectionView
+from app.presentation.viewmodels.document_items import (
+    ItemCatalogue,
+    PaymentLine,
+    payment_lines,
+)
+from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import NOT_FULLY_PAID, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.payment_method_combo import PaymentMethodCombo
 from app.presentation.widgets.payment_status import payment_status_color, payment_status_text
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
+from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
 _REFERENCE_LIMIT = 500
 _ZERO = Decimal("0.00")
-
-
-@dataclass(frozen=True, slots=True)
-class PaymentLine:
-    """One instalment, as it reads underneath the document it settles."""
-
-    when: datetime | None
-    sequence: str
-    """e.g. "Payment 2 of 3" — an instalment only means something in the
-    context of the run it belongs to."""
-    method: str
-    amount: Decimal
-    balance_after: Decimal
-    """What was still owed once this one landed, so the column of balances
-    walks down to zero exactly as the document was settled."""
 
 
 # ---------------------------------------------------------------- view models
@@ -104,6 +100,23 @@ class PaymentsViewModel(CollectionViewModelBase):
     def payment_date(self, payment) -> datetime | None:
         raise NotImplementedError
 
+    def record_card(self, document) -> RecordCard:
+        """The document written out in full, for the View button."""
+        raise NotImplementedError
+
+    def _fetch_catalogues(self) -> dict:
+        """Anything else this screen needs to name a document's contents.
+
+        A payment list shows the same records the document lists do, and
+        its card has to say the same things about them — so it loads the
+        same catalogues. Runs off the UI thread with the rest of the
+        reference data.
+        """
+        return {}
+
+    def _catalogues_loaded(self, reference: dict) -> None:
+        """Take up what `_fetch_catalogues` fetched. On the UI thread."""
+
     @property
     def unnamed_party(self) -> str:
         """What a document with no party attached says instead of nothing."""
@@ -127,26 +140,11 @@ class PaymentsViewModel(CollectionViewModelBase):
 
     def payment_lines(self, document) -> list[PaymentLine]:
         """The instalments behind one document, oldest first."""
-        payments = sorted(
-            document.payments, key=lambda p: self.payment_date(p) or datetime.min
+        return payment_lines(
+            document,
+            dated=self.payment_date,
+            method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
         )
-        balance = document.grand_total
-        lines: list[PaymentLine] = []
-        for position, payment in enumerate(payments, start=1):
-            balance -= payment.amount
-            method = payment_method_name(self._method_names.get(payment.payment_method_id))
-            lines.append(
-                PaymentLine(
-                    when=self.payment_date(payment),
-                    sequence=f"Payment {position} of {len(payments)}",
-                    method=f"{method} • {payment.reference_no}"
-                    if payment.reference_no
-                    else method,
-                    amount=payment.amount,
-                    balance_after=balance,
-                )
-            )
-        return lines
 
     def load(self) -> None:
         # Everything in the period, in no particular order: which of them
@@ -178,11 +176,13 @@ class PaymentsViewModel(CollectionViewModelBase):
             return {
                 "parties": self._fetch_parties(),
                 "payment_methods": self._container.list_payment_methods_use_case().execute(100),
+                **self._fetch_catalogues(),
             }
 
         def _on_success(reference: dict) -> None:
             self._party_names = {p.id: p.name for p in reference["parties"]}
             self._method_names = {m.id: m.name for m in reference["payment_methods"]}
+            self._catalogues_loaded(reference)
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)
@@ -209,7 +209,39 @@ class PaymentsViewModel(CollectionViewModelBase):
         self.run_async(lambda: self._record(command), on_success=_on_success)
 
 
-class SalePaymentsViewModel(PaymentsViewModel):
+class _ProductCatalogueMixin:
+    """The card and inventory names a sale or purchase line points at.
+
+    Both payment screens need exactly what their document screen needs,
+    and the catalogue that answers it is already shared — so this is the
+    two-line wiring, not a second copy of the lookup.
+    """
+
+    def _fetch_catalogues(self) -> dict:
+        return {
+            "cards": self._container.list_cards_use_case().execute(_REFERENCE_LIMIT),
+            "inventory_items": self._container.list_inventory_items_use_case().execute(
+                _REFERENCE_LIMIT
+            ),
+        }
+
+    def _catalogues_loaded(self, reference: dict) -> None:
+        self._catalogue.set_products(reference["cards"], reference["inventory_items"])
+
+
+class SalePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
+    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
+        super().__init__(container, period)
+        self._catalogue = ItemCatalogue()
+
+    def record_card(self, document) -> RecordCard:
+        return sale_card(
+            document,
+            customer=self.party_name(document),
+            items=self._catalogue.lines_of(document),
+            payments=self.payment_lines(document),
+        )
+
     def _fetch_documents(self) -> list:
         return self._container.list_sales_by_date_range_use_case().execute(
             self._period.as_query(limit=_REFERENCE_LIMIT)
@@ -247,7 +279,19 @@ class SalePaymentsViewModel(PaymentsViewModel):
         return WALK_IN
 
 
-class PurchasePaymentsViewModel(PaymentsViewModel):
+class PurchasePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
+    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
+        super().__init__(container, period)
+        self._catalogue = ItemCatalogue()
+
+    def record_card(self, document) -> RecordCard:
+        return purchase_card(
+            document,
+            supplier=self.party_name(document),
+            items=self._catalogue.lines_of(document),
+            payments=self.payment_lines(document),
+        )
+
     def _fetch_documents(self) -> list:
         return self._container.list_purchases_by_date_range_use_case().execute(
             self._period.as_query(limit=_REFERENCE_LIMIT)
@@ -444,6 +488,12 @@ class PaymentsView(CollectionView):
 
     def filter_options(self):
         return payment_filters()
+
+    def row_actions(self) -> Sequence[RowAction]:
+        return (VIEW_ACTION,)
+
+    def record_card(self, row) -> RecordCard:
+        return self._payments_view_model.record_card(row)
 
     def summary(self, rows: list):
         return (

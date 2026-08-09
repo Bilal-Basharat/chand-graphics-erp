@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.presentation.dialogs.record_card_dialog import RecordCardDialog
 from app.presentation.navigation.routes import Route
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.dashboard_viewmodel import DashboardData, DashboardViewModel
@@ -38,11 +39,13 @@ from app.presentation.formatting import (
     money,
     pkr,
 )
+from app.presentation.views.collection_view import VIEW_ACTION
 from app.presentation.widgets.activity_list import ActivityList
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_scroll import page_scroll
 from app.presentation.widgets.period_bars import PeriodBars
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
+from app.presentation.widgets.row_actions import RowActionsDelegate
 from app.presentation.widgets.stat_tile import StatTile
 from app.presentation.widgets.table_model import Column
 
@@ -158,7 +161,7 @@ class DashboardView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(
             self._panel_header(
-                "Sales, purchases and expenses", "Across the selected period, PKR"
+                "Money in and out", "Sales, purchases and expenses — PKR"
             )
         )
 
@@ -176,7 +179,7 @@ class DashboardView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(
             self._panel_header(
-                "Recent activity", "Latest documents and payments — click to open"
+                "Recent activity", "Latest documents and payments — click one to read it"
             )
         )
 
@@ -189,15 +192,30 @@ class DashboardView(QWidget):
         return panel
 
     def _on_activity_selected(self, record) -> None:
-        self.recordRequested.emit(record.route, record.reference)
+        # An activity entry is a moment in the life of a document, and what
+        # someone scanning the feed wants next is the document — so it
+        # opens here rather than navigating to the screen it lives on and
+        # leaving them to find the row again.
+        self._open_card(record.card)
+
+    def _open_card(self, card) -> None:
+        RecordCardDialog(card, parent=self).exec()
 
     def _build_documents_panel(self) -> QFrame:
         panel = QFrame()
         panel.setProperty("role", "panel")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(self._panel_header("Recent documents", "Sales and purchase documents"))
+        layout.addLayout(
+            self._panel_header(
+                "Recent documents", "Sales and purchases — open one, or double-click"
+                " to find it on its own screen"
+            )
+        )
 
+        # The same View button the lists carry, in the same last column —
+        # this panel is a list of documents like any other.
+        actions = RowActionsDelegate([VIEW_ACTION])
         # The shared DataTable, like every other list in the app: same
         # column-width policy, same empty state, same money formatting.
         self._documents_table = DataTable(
@@ -209,12 +227,27 @@ class DashboardView(QWidget):
                 Column("TOTAL", lambda r: money(r.total), align="right", width=130),
                 Column("BALANCE", lambda r: money(r.balance), align="right", width=130),
                 Column("STATUS", lambda r: r.status, align="center", color=_document_status_color, width=110),
+                Column("", lambda _row: "", width=actions.column_width()),
             ],
             placeholder="No sales or purchases recorded yet.",
         )
+        actions.setParent(self._documents_table)
+        actions.attach(self._documents_table, column=7)
+        actions.triggered.connect(self._on_document_action)
+        self._documents_table.doubleClicked.connect(self._on_document_double_clicked)
         self._documents_table.fit_to_rows()
         layout.addWidget(self._documents_table)
         return panel
+
+    def _on_document_action(self, _key: str, row_index: int) -> None:
+        row = self._documents_table.row_at(row_index)
+        if row is not None:
+            self._open_card(row.card)
+
+    def _on_document_double_clicked(self, index) -> None:
+        row = self._documents_table.row_at(index.row())
+        if row is not None:
+            self.recordRequested.emit(row.route, row.document_no)
 
     def _on_loaded(self, data: DashboardData) -> None:
         # The period comes back with the figures rather than being read off

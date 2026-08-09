@@ -27,12 +27,14 @@ from app.presentation.theme import tokens as t
 SALES_COLOR = t.PRIMARY
 PURCHASES_COLOR = t.INK_SOFT
 EXPENSES_COLOR = t.WARNING
-"""Money in, money out on stock, money out on everything else.
+"""Money in over the counter, money in from work made to order, money out
+on stock, money out on everything else. Drawn in that order, so the two
+that earn stand together and the two that spend follow.
 
-Sales and purchases are deliberately not the success/danger pair: those
-already mean "paid" and "unpaid" on every list in the app, and neither a
-sale nor a purchase is either. Expenses take the remaining warm colour,
-which is also the one that reads as "watch this".
+None of them is the success/danger pair: those already mean "paid" and
+"unpaid" on every list in the app, and a sale is neither. Expenses take
+the remaining warm colour, which is also the one that reads as "watch
+this".
 """
 
 _EMPTY_MESSAGE = "Nothing recorded in this period."
@@ -76,21 +78,17 @@ class PeriodBars(QWidget):
             self._layout.setCurrentWidget(self._empty)
             return
 
-        sales = QBarSet("Sales")
-        purchases = QBarSet("Purchases")
-        expenses = QBarSet("Expenses")
-        for bucket in buckets:
-            sales.append(float(bucket.sales))
-            purchases.append(float(bucket.purchases))
-            expenses.append(float(bucket.expenses))
-        _paint(sales, SALES_COLOR)
-        _paint(purchases, PURCHASES_COLOR)
-        _paint(expenses, EXPENSES_COLOR)
-
         series = QBarSeries()
-        series.append(sales)
-        series.append(purchases)
-        series.append(expenses)
+        for name, amount_of, color in (
+            ("Sales", lambda b: b.sales, SALES_COLOR),
+            ("Purchases", lambda b: b.purchases, PURCHASES_COLOR),
+            ("Expenses", lambda b: b.expenses, EXPENSES_COLOR),
+        ):
+            bar_set = QBarSet(name)
+            for bucket in buckets:
+                bar_set.append(float(amount_of(bucket)))
+            _paint(bar_set, color)
+            series.append(bar_set)
         # Width is a share of the column, so a period with one or two
         # columns — "Today" most of all — otherwise draws slabs across the
         # whole plot. Narrower keeps them reading as bars.

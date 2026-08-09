@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QGridLayout, QMainWindow, QStackedWidget, QWidget
 from app.container import AppContainer
 from app.presentation.dialogs.change_password_dialog import ChangePasswordDialog
 from app.presentation.navigation.routes import Route
+from app.presentation.records import paper
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
 from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
@@ -90,7 +91,7 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar()
         self._topbar = TopBar()
         self._status_bar = AppStatusBar(
-            container.settings.app_version, container.settings.developed_by
+            container.settings.app_version, container.settings.developed_by, container.settings.developer_email, container.settings.developer_contact
         )
         self._stack = QStackedWidget()
         self._stack.setObjectName("Content")
@@ -137,6 +138,17 @@ class MainWindow(QMainWindow):
         self._add_page(Route.WEDDING_CARDS, self._wedding_cards_view, "Wedding cards")
 
         settings_vm = CompanySettingsViewModel(self._container)
+        # The shop's own details head every printed record. Taken once at
+        # startup and again whenever they are saved, so a page printed
+        # after an edit carries the new ones — see records/paper.py.
+        settings_vm.settingsLoaded.connect(paper.set_company)
+        settings_vm.settingsSaved.connect(paper.set_company)
+        settings_vm.load()
+
+        # The developer info sits in the footer of every printed record.
+        # Taken once at startup from the .env settings.
+        paper.set_app_settings(self._container.settings)
+
         self._add_page(Route.COMPANY_SETTINGS, CompanySettingsView(settings_vm), "Company settings")
 
         self._add_page(

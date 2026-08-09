@@ -32,9 +32,6 @@ from app.presentation.widgets.list_controls import FilterOption
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 from app.presentation.widgets.table_model import Column
 
-# Movements that increase stock, for colouring the quantity column.
-_INBOUND = {MovementType.RETURN, MovementType.ADJUSTMENT}
-
 
 class InventoryMovementViewModel(CollectionViewModelBase):
     """
@@ -127,6 +124,10 @@ class InventoryMovementView(CollectionView):
                     sort_key=lambda m: m.resulting_stock or 0,
                     width=100,
                 ),
+                # Which document moved the stock. Without it a job's
+                # consumption and the return that answers it read as two
+                # unexplained swings in the count.
+                Column("SOURCE", lambda m: or_dash(m.reference_no), width=190),
                 Column("REASON", lambda m: or_dash(m.reason)),
                 Column("NOTE", lambda m: or_dash(m.note)),
                 Column("DATE", _moved_at_text, sort_key=_moved_at, width=180),
@@ -216,12 +217,15 @@ def _moved_at_text(movement) -> str:
 
 
 def _change_text(movement) -> str:
-    sign = "+" if movement.movement_type in _INBOUND else "−"
-    return f"{sign}{movement.quantity}"
+    # The sign comes from the movement's own before/after counts, not from
+    # its type — see InventoryMovement.quantity_change for why the type
+    # cannot answer it.
+    change = movement.quantity_change
+    return f"{'+' if change >= 0 else '−'}{abs(change)}"
 
 
 def _change_color(movement) -> str:
-    return t.SUCCESS if movement.movement_type in _INBOUND else t.DANGER
+    return t.SUCCESS if movement.quantity_change >= 0 else t.DANGER
 
 
 class RecordMovementDialog(FormDialog):

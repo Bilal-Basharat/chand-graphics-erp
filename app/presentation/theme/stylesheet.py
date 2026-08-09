@@ -155,8 +155,16 @@ def build_stylesheet() -> str:
         color: white;
         font-weight: {t.WEIGHT_SEMIBOLD};
     }}
+    /* A row inside a folder. Indented past the icon column it does not
+       use, so its label starts where the labels above it do. */
+    QPushButton[role="navItem"][depth="1"] {{
+        padding-left: 33px;
+        font-size: 12.5px;
+    }}
     /* Collapsed rail: the icon is all that's left, so centre it instead of
-       leaving it indented where the text used to start. */
+       leaving it indented where the text used to start. Last, so it wins
+       over the indent above — though a folder's rows are hidden by then
+       anyway. */
     QPushButton[role="navItem"][collapsed="true"] {{
         padding: 8px 0px;
         text-align: center;
@@ -529,6 +537,32 @@ def build_stylesheet() -> str:
         color: {t.MUTED};
     }}
 
+    /* ---------------- Record card (dialogs/record_card_dialog.py) ----
+       A read-only window onto one document. The head names the record and
+       the foot carries the two ways off it; both are pinned, so they are
+       banded off the page that scrolls between them. */
+    QFrame[role="cardBand"] {{
+        background: {t.SURFACE};
+        border: none;
+        border-bottom: 1px solid {t.LINE};
+    }}
+    QFrame[role="cardFoot"] {{
+        background: {t.SURFACE};
+        border: none;
+        border-top: 1px solid {t.LINE};
+    }}
+    /* The record's own words, set apart from the figures above them: a
+       tinted block reads as something someone typed rather than as one
+       more computed line. */
+    QLabel[role="cardNote"] {{
+        background: {t.CANVAS};
+        border: 1px solid {t.LINE};
+        border-radius: {t.RADIUS_SM}px;
+        padding: 10px 12px;
+        color: {t.INK_SOFT};
+        font-size: 12.5px;
+    }}
+
     /* ---------------- Tags / pills ---------------- */
     QLabel[role="tag"][tone="success"] {{
         background: {t.SUCCESS_TINT}; color: {t.SUCCESS};
@@ -547,6 +581,13 @@ def build_stylesheet() -> str:
     }}
     QLabel[role="tag"][tone="danger"] {{
         background: {t.DANGER_TINT}; color: {t.DANGER};
+        border-radius: 9px; font-size: 11px; font-weight: {t.WEIGHT_SEMIBOLD};
+        padding: 2px 8px;
+    }}
+    /* A state with no colour of its own — a draft job, an expense that is
+       simply recorded. Same chip, so it sits in line with the ones that do. */
+    QLabel[role="tag"][tone="muted"] {{
+        background: {t.CANVAS}; color: {t.MUTED};
         border-radius: 9px; font-size: 11px; font-weight: {t.WEIGHT_SEMIBOLD};
         padding: 2px 8px;
     }}

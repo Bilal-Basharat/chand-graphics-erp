@@ -5,6 +5,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 from dotenv import load_dotenv
 
+from app.config.settings import ENV_FILE
 from app.container import AppContainer
 from app.infrastructure.db import init_db
 from app.presentation.session_controller import SessionController
@@ -55,7 +56,9 @@ def bootstrap():
 
     configure_locale()
 
-    load_dotenv()
+    # Loaded from a path this app resolves, not from the working
+    # directory — see settings._resolve_env_file.
+    load_dotenv(ENV_FILE)
 
     init_db()
 

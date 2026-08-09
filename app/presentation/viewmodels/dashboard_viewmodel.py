@@ -10,14 +10,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from tkinter.font import names
 
 from PySide6.QtCore import Signal
 
 from app.application.dto.commands import DateRangeQuery
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
-from app.presentation.formatting import pkr
+from app.presentation.formatting import payment_method_name, pkr
+from app.presentation.records.builders import purchase_card, sale_card
+from app.presentation.records.builders import sale_card
 from app.presentation.navigation.routes import Route
+from app.presentation.records.card import RecordCard
+from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
+from app.presentation.viewmodels.document_items import payment_lines
 from app.presentation.viewmodels.base import BaseViewModel
 from app.presentation.widgets.period_selector import PeriodSelection
 
@@ -31,15 +37,17 @@ class DocumentRow:
     total: Decimal
     balance: Decimal
     status: str  # "Paid" | "Partial" | "Unpaid"
-
+    route: Route
+    card: RecordCard
 
 @dataclass(slots=True)
 class ActivityRow:
     title: str
     meta: str
     when: datetime
-    route: Route
-    reference: str
+    # route: Route
+    # reference: str
+    card: RecordCard
     """The screen this entry came from and the document number to look for
     on it, so clicking the entry can open the record rather than leaving
     the user to go and find it."""
@@ -85,6 +93,19 @@ _RECENT_DOCUMENTS = 6
 _RECENT_ACTIVITY = 20
 
 
+_CATALOGUE_LIMIT = 500
+"""How much master data a card can name. The same figure every screen
+that loads these catalogues uses."""
+
+
+@dataclass(slots=True)
+class _Catalogues:
+    """The three lookups a written-out document needs, fetched together."""
+
+    products: ItemCatalogue
+    method_name: Callable[[int | None], str]
+
+
 def _status_for(balance: Decimal, total: Decimal) -> str:
     if balance <= 0:
         return "Paid"
@@ -104,6 +125,29 @@ class DashboardViewModel(BaseViewModel):
     def load(self) -> None:
         self.run_async(self._load_sync, on_success=self.dashboardLoaded.emit)
 
+    def _catalogues(self) -> _Catalogues:
+        """Names for everything the cards below refer to.
+
+        The dashboard writes out every document it lists, so it needs the
+        same catalogues the document screens hold. They are small
+        master-data tables next to the documents already fetched above,
+        and reading them once here is what lets a card open from the
+        dashboard without going back to the database for it.
+        """
+        products = ItemCatalogue()
+        products.set_products(
+            self._container.list_cards_use_case().execute(_CATALOGUE_LIMIT),
+            self._container.list_inventory_items_use_case().execute(_CATALOGUE_LIMIT),
+        )
+     
+        methods = {
+            m.id: m.name for m in self._container.list_payment_methods_use_case().execute(100)
+        }
+        return _Catalogues(
+            products=products,
+            method_name=lambda method_id: payment_method_name(methods.get(method_id)),
+        )
+    
     def _load_sync(self) -> DashboardData:
         start, end = self._period.range()
         date_range = DateRangeQuery(start=start, end=end, limit=_DOCUMENT_LIMIT)
@@ -118,12 +162,22 @@ class DashboardViewModel(BaseViewModel):
         all_parties = SearchQuery(term="", limit=1000)
         customers = {c.id: c.name for c in self._container.search_customers_use_case().execute(all_parties)}
         suppliers = {s.id: s.name for s in self._container.search_suppliers_use_case().execute(all_parties)}
-
+        names = self._catalogues()
         documents: list[DocumentRow] = []
         activity: list[ActivityRow] = []
 
         for sale in sales:
             party = customers.get(sale.customer_id, "Walk-in customer") if sale.customer_id else "Walk-in customer"
+            card = sale_card(
+                sale,
+                customer=party,
+                items=names.products.lines_of(sale),
+                payments=payment_lines(
+                    sale,
+                    dated=lambda payment: payment.received_at or payment.created_at,
+                    method_name=names.method_name,
+                ),
+            )
             documents.append(
                 DocumentRow(
                     document_no=sale.invoice_no,
@@ -133,6 +187,8 @@ class DashboardViewModel(BaseViewModel):
                     total=sale.grand_total,
                     balance=sale.balance_amount,
                     status=_status_for(sale.balance_amount, sale.grand_total),
+                    route=Route.SALES,
+                    card=card,
                 )
             )
             activity.append(
@@ -140,8 +196,7 @@ class DashboardViewModel(BaseViewModel):
                     title=f"Invoice {sale.invoice_no} created",
                     meta=f"{party} • {pkr(sale.grand_total)}",
                     when=sale.created_at,
-                    route=Route.SALES,
-                    reference=sale.invoice_no,
+                    card=card,
                 )
             )
             activity.extend(
@@ -150,13 +205,22 @@ class DashboardViewModel(BaseViewModel):
                     lambda payment: payment.received_at,
                     title=f"Payment received on {sale.invoice_no}",
                     party=party,
-                    route=Route.SALE_PAYMENTS,
-                    reference=sale.invoice_no,
+                    card=card,
                 )
             )
 
         for purchase in purchases:
             party = suppliers.get(purchase.supplier_id, "Unknown supplier") if purchase.supplier_id else "Unknown supplier"
+            card = purchase_card(
+                purchase,
+                supplier=party,
+                items=names.products.lines_of(purchase),
+                payments=payment_lines(
+                    purchase,
+                    dated=lambda payment: payment.paid_at or payment.created_at,
+                    method_name=names.method_name,
+                ),
+            )
             documents.append(
                 DocumentRow(
                     document_no=purchase.purchase_no,
@@ -166,6 +230,8 @@ class DashboardViewModel(BaseViewModel):
                     total=purchase.grand_total,
                     balance=purchase.balance_amount,
                     status=_status_for(purchase.balance_amount, purchase.grand_total),
+                    route=Route.PURCHASES,
+                    card=card,
                 )
             )
             activity.append(
@@ -173,8 +239,7 @@ class DashboardViewModel(BaseViewModel):
                     title=f"Purchase {purchase.purchase_no} recorded",
                     meta=f"{party} • {pkr(purchase.grand_total)}",
                     when=purchase.created_at,
-                    route=Route.PURCHASES,
-                    reference=purchase.purchase_no,
+                    card=card,
                 )
             )
             activity.extend(
@@ -183,8 +248,7 @@ class DashboardViewModel(BaseViewModel):
                     lambda payment: payment.paid_at,
                     title=f"Payment made on {purchase.purchase_no}",
                     party=party,
-                    route=Route.PURCHASE_PAYMENTS,
-                    reference=purchase.purchase_no,
+                    card=card,
                 )
             )
 
@@ -313,7 +377,7 @@ def _bucket_totals(
 
 
 def _payment_activity(
-    payments, dated, *, title: str, party: str, route: Route, reference: str
+    payments, dated, *, title: str, party: str, card: RecordCard
 ) -> list[ActivityRow]:
     """Activity rows for the instalments against one document.
 
@@ -331,8 +395,9 @@ def _payment_activity(
                 title=title,
                 meta=f"{party} • {pkr(payment.amount)}",
                 when=when,
-                route=route,
-                reference=reference,
+                card=card,
+                # route=route,
+                # reference=reference,
             )
         )
     return rows

@@ -193,6 +193,9 @@ class InventoryItemDialog(_CollectionFormDialog):
         self._name = self.add_row("Name", QLineEdit(), required=True)
         self._name.setPlaceholderText("e.g. A4 Ivory Sheet 250gsm")
 
+        self._unit = self.add_row("Unit", QLineEdit())
+        self._unit.setPlaceholderText("e.g. sheets, ml, bottles")
+
         self._minimum_stock = ModernSpinBox()
         self._minimum_stock.setRange(0, 1_000_000)
         self.add_row("Minimum stock", self._minimum_stock)
@@ -202,11 +205,14 @@ class InventoryItemDialog(_CollectionFormDialog):
 
         if item is not None:
             self._name.setText(item.name)
+            self._unit.setText(item.unit or "")
             self._minimum_stock.setValue(item.minimum_stock)
             self._description.setPlainText(item.description or "")
 
         self.add_note(
-            "Stock isn't set here — it moves through purchases, sales and stock "
+            "Count stock in the smallest unit you use it in — buy a ream, record "
+            "500 sheets — so a job can consume part of one.\n\n"
+            "Stock isn't set here; it moves through purchases, sales, jobs and "
             "adjustments. Prices aren't either; they're recorded per transaction."
         )
 
@@ -214,18 +220,21 @@ class InventoryItemDialog(_CollectionFormDialog):
         name = self._name.text().strip()
         minimum_stock = self._minimum_stock.value()
         description = _optional(self._description)
+        unit = _optional(self._unit)
         if self._record is None:
             return CreateInventoryItemCommand(
                 name=name,
                 minimum_stock=minimum_stock,
                 current_stock=0,
                 description=description,
+                unit=unit,
             )
         return UpdateInventoryItemCommand(
             id=self._record.id,
             name=name,
             minimum_stock=minimum_stock,
             description=description,
+            unit=unit,
         )
 
 

@@ -22,6 +22,8 @@ class AppStatusBar(QWidget):
         self,
         app_version: str,
         developed_by: str,
+        developer_email: str,
+        developer_contact: str,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -41,7 +43,9 @@ class AppStatusBar(QWidget):
 
         about = QLabel(
             SEPARATOR.join(
-                ["Local database", f"v{app_version}", f"Developed by {developed_by}"]
+                ["Local database", f"v{app_version}", f"Developed by: {developed_by}", 
+                #  f"{developer_email}", f"{developer_contact}"
+                 ]
             )
         )
         about.setStyleSheet(f"color: {t.MUTED}; font-size: 11px;")

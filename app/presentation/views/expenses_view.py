@@ -16,13 +16,16 @@ from app.application.dto.commands import CreateExpenseCommand
 from app.container import AppContainer
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.formatting import DASH, date_time, money, or_dash
+from app.presentation.records.builders import expense_card
+from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionSource, CollectionViewModel
-from app.presentation.views.collection_view import CollectionPage, CollectionView
+from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.widgets.list_controls import FilterOption
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 from app.presentation.widgets.quick_add_strip import QuickAddField, combo, line_edit, refill
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
+from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column
 
 _NO_CATEGORY = "— Uncategorised —"
@@ -108,6 +111,12 @@ class ExpensesView(CollectionView):
 
     def filter_options(self):
         return self._category_filters()
+
+    def row_actions(self) -> tuple[RowAction, ...]:
+        return (VIEW_ACTION,)
+
+    def record_card(self, row) -> RecordCard:
+        return expense_card(row, category=self._category_label(row))
 
     def summary(self, rows: list):
         return (("Spent", money(sum((e.total_amount for e in rows), Decimal("0.00")))),)

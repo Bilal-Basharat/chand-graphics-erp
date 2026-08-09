@@ -18,6 +18,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from PySide6.QtCore import Signal
+
+from app.shared.datetimes import now_pkt
 from PySide6.QtWidgets import QComboBox, QWidget
 
 from app.application.dto.commands import DateRangeQuery
@@ -107,7 +109,7 @@ class PeriodSelection:
         self._index = index
 
     def range(self) -> tuple[datetime, datetime]:
-        return _PRESETS[self._index][1](datetime.now())
+        return _PRESETS[self._index][1](now_pkt())
 
     def as_query(self, limit: int = 500) -> DateRangeQuery:
         start, end = self.range()

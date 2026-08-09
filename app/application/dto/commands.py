@@ -66,6 +66,7 @@ class CreateInventoryItemCommand:
     minimum_stock: int = 0
     current_stock: int = 0
     description: str | None = None
+    unit: str | None = None
 
 
 @dataclass(slots=True)
@@ -74,6 +75,7 @@ class UpdateInventoryItemCommand:
     name: str
     minimum_stock: int = 0
     description: str | None = None
+    unit: str | None = None
 
 
 @dataclass(slots=True)

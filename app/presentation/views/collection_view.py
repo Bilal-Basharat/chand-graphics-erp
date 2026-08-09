@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.presentation.dialogs.confirm import confirm_destructive
+from app.presentation.dialogs.record_card_dialog import RecordCardDialog
+from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.grouped_table import GroupedTable
@@ -56,6 +58,18 @@ _SEARCH_DEBOUNCE_MS = 250
 
 _EDIT = "edit"
 _REMOVE = "remove"
+_VIEW = "view"
+
+VIEW_ACTION = RowAction(_VIEW, "", icon="view", hint="View the whole record")
+"""The one action every document list carries, in the same place, drawn
+the same way. A screen adds it to its `row_actions()` and answers
+`record_card()`; the click is handled below, so no screen restates how a
+card is opened.
+
+An icon rather than the word "View": it appears on seven screens, several
+of which already carry a worded button of their own, and a mark repeated
+down every list stays quieter beside the record than a word would.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,8 +229,19 @@ class CollectionView(QWidget):
 
     def _on_row_action(self, key: str, row_index: int) -> None:
         row = self._table.row_at(row_index)
-        if row is not None:
-            self.on_row_action(key, row)
+        if row is None:
+            return
+        # Handled here rather than passed on, so a screen that shows cards
+        # says only what is on them.
+        if key == _VIEW:
+            self.show_record_card(row)
+            return
+        self.on_row_action(key, row)
+
+    def show_record_card(self, row: object) -> None:
+        card = self.record_card(row)
+        if card is not None:
+            RecordCardDialog(card, parent=self).exec()
 
     def _build_toolbar(self, extras: list[QWidget], refresh: QPushButton) -> QHBoxLayout:
         toolbar = QHBoxLayout()
@@ -298,6 +323,15 @@ class CollectionView(QWidget):
 
     def on_row_action(self, key: str, row: object) -> None:
         """Handle a click on one of `row_actions()`, for the row clicked."""
+
+    def record_card(self, row: object) -> RecordCard | None:
+        """This row written out in full, for `VIEW_ACTION`.
+
+        Only screens that offer that action need answer. None means the
+        record could not be written yet — a screen whose name lookups have
+        not landed says so rather than showing a card full of dashes.
+        """
+        return None
 
     def on_rows_loaded(self, rows: list) -> None:
         """Extra handling after rows land — the base already renders them."""

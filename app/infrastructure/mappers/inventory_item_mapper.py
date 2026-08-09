@@ -15,6 +15,7 @@ class InventoryItemMapper:
             current_stock=model.current_stock,
             minimum_stock=model.minimum_stock,
             description=model.description,
+            unit=model.unit,
         )
         copy_shared_fields(model, entity)
         return entity
@@ -26,6 +27,7 @@ class InventoryItemMapper:
             current_stock=entity.current_stock,
             minimum_stock=entity.minimum_stock,
             description=entity.description,
+            unit=entity.unit,
         )
         copy_shared_fields(entity, model)
         return model

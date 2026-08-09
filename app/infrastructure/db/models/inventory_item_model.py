@@ -38,6 +38,11 @@ class InventoryItemModel(Base, AuditMixin):
         nullable=True,
     )
 
+    unit: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
 #############################################################
 #################### relationship methods ###################
 #############################################################

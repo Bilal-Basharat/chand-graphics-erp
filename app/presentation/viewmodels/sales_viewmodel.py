@@ -13,9 +13,14 @@ from PySide6.QtCore import Signal
 from app.application.dto.commands import CreateSaleCommand
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
-from app.presentation.formatting import DASH, WALK_IN
+from app.presentation.formatting import DASH, WALK_IN, payment_method_name
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
-from app.presentation.viewmodels.document_items import DocumentItemLine, ItemCatalogue
+from app.presentation.viewmodels.document_items import (
+    DocumentItemLine,
+    ItemCatalogue,
+    PaymentLine,
+    payment_lines,
+)
 from app.presentation.widgets.period_selector import PeriodSelection
 
 _REFERENCE_LIMIT = 500
@@ -30,6 +35,7 @@ class SalesViewModel(CollectionViewModelBase):
         self._container = container
         self._period = period
         self._customer_names: dict[int, str] = {}
+        self._method_names: dict[int, str] = {}
         self._catalogue = ItemCatalogue()
 
     # ---------------- listing ----------------
@@ -64,6 +70,14 @@ class SalesViewModel(CollectionViewModelBase):
         """What was sold on one invoice, ready to read underneath it."""
         return self._catalogue.lines_of(sale)
 
+    def payment_lines(self, sale) -> list[PaymentLine]:
+        """What has been paid against one invoice, oldest first."""
+        return payment_lines(
+            sale,
+            dated=lambda payment: payment.received_at or payment.created_at,
+            method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
+        )
+
     # ---------------- reference data ----------------
 
     def load_reference_data(self) -> None:
@@ -83,6 +97,7 @@ class SalesViewModel(CollectionViewModelBase):
 
         def _on_success(reference: dict) -> None:
             self._customer_names = {c.id: c.name for c in reference["customers"]}
+            self._method_names = {m.id: m.name for m in reference["payment_methods"]}
             self._catalogue.set_products(reference["cards"], reference["inventory_items"])
             self.referenceLoaded.emit(reference)
 

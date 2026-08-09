@@ -10,6 +10,36 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 APP_FOLDER_NAME = "ChandGraphicsERP"
 
 
+def _resolve_env_file() -> Path:
+    """The .env this installation reads its configuration from.
+
+    Named explicitly rather than left to python-dotenv's own search, which
+    falls back to the *working directory* as soon as the app is frozen.
+    That is fine when it is started from its own folder and wrong the
+    moment a shortcut sets the working directory elsewhere — the app then
+    starts with no configuration at all and dies on the first required
+    setting.
+
+    A packaged build reads the copy bundled inside it, so there is nothing
+    to lose or mis-place. A file placed beside the executable still wins,
+    which is what lets one build be pointed at a different mail server or
+    version without rebuilding it.
+    """
+    if not getattr(sys, "frozen", False):
+        return BASE_DIR / ".env"
+
+    beside_executable = Path(sys.executable).resolve().parent / ".env"
+    if beside_executable.exists():
+        return beside_executable
+
+    # PyInstaller unpacks bundled data here — the _internal folder for a
+    # onedir build, a temporary directory for onefile.
+    return Path(getattr(sys, "_MEIPASS", BASE_DIR)) / ".env"
+
+
+ENV_FILE = _resolve_env_file()
+
+
 def _resolve_data_dir() -> Path:
     """Where this installation keeps the customer's database.
 
@@ -153,6 +183,8 @@ class AppSettings:
     company_name: str
     app_version: str
     developed_by: str
+    developer_email: str
+    developer_contact: str
 
     initial_admin_email: str
     initial_admin_password: str
@@ -174,7 +206,9 @@ class AppSettings:
             # keeps the .env file they were shipped, and making this
             # required would stop the new build starting at all on every
             # installation that predates it.
-            developed_by=_optional("DEVELOPED_BY", "Alvi-Devs"),
+            developed_by=_optional("DEVELOPED_BY", "Alvi-Systems"),
+            developer_email=_optional("DEVELOPER_EMAIL"),
+            developer_contact=_optional("DEVELOPER_CONTACT"),
 
             initial_admin_email=_required("INITIAL_ADMIN_EMAIL"),
             initial_admin_password=_required("INITIAL_ADMIN_PASSWORD"),

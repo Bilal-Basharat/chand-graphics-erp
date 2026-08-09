@@ -12,8 +12,10 @@ the navigation stays usable rather than becoming a column of guesses.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, Signal
-from PySide6.QtGui import QCursor, QEnterEvent
+from PySide6.QtGui import QCursor, QEnterEvent, QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
     QLabel,
@@ -28,46 +30,76 @@ from app.presentation.navigation.routes import Route
 from app.presentation.theme import tokens as t
 from app.presentation.widgets.nav_icons import ICON_SIZE, nav_icon
 
+
+@dataclass(frozen=True, slots=True)
+class NavItem:
+    """One row in the rail.
+
+    A row with children is a folder: it has no screen of its own and opens
+    the rows underneath it instead. Three payment screens listed flat
+    among the documents they belong to made the Operations group read as
+    six unrelated destinations; folded away they read as one, which is
+    what they are.
+    """
+
+    label: str
+    route: Route | None = None
+    icon: str = ""
+    """Which drawing in `nav_icons` this row shows. Defaults to the
+    route's own — a folder has no route, so it names one."""
+    children: tuple["NavItem", ...] = ()
+
+    @property
+    def icon_name(self) -> str:
+        return self.icon or (self.route.value if self.route is not None else "")
+
+
 # Icons are keyed by route value and painted in nav_icons.py — see that
 # module for why they aren't Unicode glyphs.
-#
-# (group label, [(route, label)])
-_NAV_GROUPS: list[tuple[str, list[tuple[Route, str]]]] = [
-    ("Overview", [
-        (Route.DASHBOARD, "Dashboard"),
-    ]),
-    ("Operations", [
-        (Route.SALES, "Sales"),
-        (Route.SALE_PAYMENTS, "Sale payments"),
-        (Route.PURCHASES, "Purchases"),
-        (Route.PURCHASE_PAYMENTS, "Purchase payments"),
-        (Route.PAYMENT_METHODS, "Payment methods"),
-    ]),
-    ("Items", [
-        (Route.WEDDING_CARDS, "Wedding cards"),
-        (Route.INVENTORY_ITEMS, "Inventory items"),
-        (Route.CABINETS, "Cabinets"),
-        (Route.INVENTORY_MOVEMENT, "Inventory movement"),
-    ]),
-    ("Parties", [
-        (Route.CUSTOMERS, "Customers"),
-        (Route.SUPPLIERS, "Suppliers"),
-    ]),
-    ("Finance", [
-        (Route.EXPENSES, "Expenses"),
-        (Route.EXPENSE_CATEGORIES, "Expense categories"),
-        (Route.REPORTS, "Reports"),
-    ]),
-    ("System", [
-        (Route.COMPANY_SETTINGS, "Company settings"),
-        (Route.PROFILE, "My profile"),
-    ]),
+_NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
+    ("Overview", (
+        NavItem("Dashboard", Route.DASHBOARD),
+    )),
+    ("Operations", (
+        NavItem("Sales", Route.SALES),
+        NavItem("Purchases", Route.PURCHASES),
+        NavItem("Payments", icon="payments", children=(
+            NavItem("Sale payments", Route.SALE_PAYMENTS),
+            NavItem("Purchase payments", Route.PURCHASE_PAYMENTS),
+        )),
+        NavItem("Payment methods", Route.PAYMENT_METHODS),
+    )),
+    ("Items", (
+        NavItem("Wedding cards", Route.WEDDING_CARDS),
+        NavItem("Inventory items", Route.INVENTORY_ITEMS),
+        NavItem("Cabinets", Route.CABINETS),
+        NavItem("Inventory movement", Route.INVENTORY_MOVEMENT),
+    )),
+    ("Parties", (
+        NavItem("Customers", Route.CUSTOMERS),
+        NavItem("Suppliers", Route.SUPPLIERS),
+    )),
+    ("Finance", (
+        NavItem("Expenses", Route.EXPENSES),
+        NavItem("Expense categories", Route.EXPENSE_CATEGORIES),
+        NavItem("Reports", Route.REPORTS),
+    )),
+    ("System", (
+        NavItem("Company settings", Route.COMPANY_SETTINGS),
+        NavItem("My profile", Route.PROFILE),
+    )),
 ]
 
 COLLAPSED_WIDTH = 64
 SIDEBAR_WIDTH = t.SIDEBAR_WIDTH
 """Re-exported so callers can talk about the rail's two widths together."""
 _SLIDE_MS = 190
+
+_OPEN = "⌄"
+_CLOSED = "›"
+"""Which way a folder's rows are. Glyphs rather than a painted icon
+because the button's one icon slot already holds the row's subject, and
+these are the same carets the header's account chip uses."""
 
 
 class _NavButton(QPushButton):
@@ -78,16 +110,32 @@ class _NavButton(QPushButton):
     can't inherit that, so a grey icon would be left sitting on the blue
     active/hover background. The pixmap is re-tinted on each state change
     instead.
+
+    A row nested under a folder keeps its icon but is indented past the
+    rail's icon column, so the group reads as one block hanging off the
+    row above it. The indent comes from QSS, keyed on the `depth`
+    property; an empty icon name draws no icon at all.
     """
 
-    def __init__(self, route: Route, label: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        icon: str,
+        label: str,
+        *,
+        depth: int = 0,
+        checkable: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._route = route
+        self._icon = icon
         self._label = label
+        self._depth = depth
+        self._suffix = ""
         self._hovered = False
         self._collapsed = False
         self.setProperty("role", "navItem")
-        self.setCheckable(True)
+        self.setProperty("depth", depth)
+        self.setCheckable(checkable)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         # A floor, so a cramped layout scrolls rather than slicing rows in
@@ -95,18 +143,27 @@ class _NavButton(QPushButton):
         self.setMinimumHeight(34)
         self.set_collapsed(False)
 
+    def set_suffix(self, suffix: str) -> None:
+        """A marker after the label — the open/closed caret on a folder."""
+        self._suffix = suffix
+        self.set_collapsed(self._collapsed)
+
     def set_collapsed(self, collapsed: bool) -> None:
         self._collapsed = collapsed
         # The tooltip only carries the label when the label isn't visible;
         # a tooltip repeating text already on screen is just noise.
-        self.setText("" if collapsed else f"   {self._label}")
+        text = f"   {self._label}{f'   {self._suffix}' if self._suffix else ''}"
+        self.setText("" if collapsed else text)
         self.setToolTip(self._label if collapsed else "")
         self.setProperty("collapsed", collapsed)
         _repolish(self)
 
     def refresh_icon(self) -> None:
+        if not self._icon:
+            self.setIcon(QIcon())
+            return
         highlighted = self.isChecked() or self._hovered
-        self.setIcon(nav_icon(self._route.value, "#ffffff" if highlighted else t.NAV_IDLE))
+        self.setIcon(nav_icon(self._icon, "#ffffff" if highlighted else t.NAV_IDLE))
 
     def enterEvent(self, event: QEnterEvent) -> None:  # noqa: N802 (Qt override)
         super().enterEvent(event)
@@ -138,6 +195,16 @@ def _repolish(widget: QWidget) -> None:
     widget.style().polish(widget)
 
 
+@dataclass(slots=True)
+class _Folder:
+    """A parent row and the rows it opens."""
+
+    button: _NavButton
+    rows: list[_NavButton] = field(default_factory=list)
+    routes: frozenset[Route] = frozenset()
+    is_open: bool = False
+
+
 class Sidebar(QWidget):
     navigationRequested = Signal(Route)
     collapsedChanged = Signal(bool)
@@ -152,6 +219,7 @@ class Sidebar(QWidget):
         self.setFixedWidth(t.SIDEBAR_WIDTH)
 
         self._buttons: dict[Route, _NavButton] = {}
+        self._folders: list[_Folder] = []
         self._group_headings: list[QLabel] = []
         self._collapsed = False
         self._button_group = QButtonGroup(self)
@@ -203,7 +271,7 @@ class Sidebar(QWidget):
         layout.addWidget(scroll, 1)
         layout.addWidget(self._build_toggle())
 
-    def _build_group(self, label: str, items: list[tuple[Route, str]]) -> QVBoxLayout:
+    def _build_group(self, label: str, items: tuple[NavItem, ...]) -> QVBoxLayout:
         group_layout = QVBoxLayout()
         group_layout.setContentsMargins(12, 0, 12, 12)
         group_layout.setSpacing(1)
@@ -214,14 +282,69 @@ class Sidebar(QWidget):
         self._group_headings.append(heading)
         group_layout.addWidget(heading)
 
-        for route, text in items:
-            button = _NavButton(route, text)
-            button.clicked.connect(lambda _checked, r=route: self.navigationRequested.emit(r))
-            self._button_group.addButton(button)
-            self._buttons[route] = button
-            group_layout.addWidget(button)
+        for item in items:
+            if not item.children:
+                group_layout.addWidget(self._build_row(item))
+                continue
+            # Built before the folder so it can hold them, added after so
+            # they still land underneath it in the column.
+            rows = [self._build_row(child, depth=1) for child in item.children]
+            group_layout.addWidget(self._build_folder(item, rows))
+            for row in rows:
+                group_layout.addWidget(row)
+                row.setVisible(False)  # after the add, so the layout can't re-show it
 
         return group_layout
+
+    def _build_row(self, item: NavItem, depth: int = 0) -> _NavButton:
+        button = _NavButton(item.icon_name, item.label, depth=depth)
+        button.clicked.connect(
+            lambda _checked, r=item.route: self.navigationRequested.emit(r)
+        )
+        self._button_group.addButton(button)
+        self._buttons[item.route] = button
+        return button
+
+    def _build_folder(self, item: NavItem, rows: list[_NavButton]) -> _NavButton:
+        # Not checkable, and out of the exclusive group: a folder is not
+        # somewhere you can be, so it must never take the blue that marks
+        # the screen you are on.
+        button = _NavButton(item.icon_name, item.label, checkable=False)
+        folder = _Folder(
+            button=button,
+            rows=rows,
+            routes=frozenset(child.route for child in item.children if child.route),
+        )
+        self._folders.append(folder)
+        button.clicked.connect(lambda _checked=False, f=folder: self._toggle_folder(f))
+        self._sync_folder(folder)
+        return button
+
+    # ---------------- folders ----------------
+
+    def _toggle_folder(self, folder: _Folder) -> None:
+        # An icon-only rail has nowhere to put an indented list, so the
+        # click that would have opened one opens the rail first.
+        if self._collapsed:
+            self.set_collapsed(False)
+            self._set_folder_open(folder, True)
+            return
+        self._set_folder_open(folder, not folder.is_open)
+
+    def _set_folder_open(self, folder: _Folder, is_open: bool) -> None:
+        folder.is_open = is_open
+        self._sync_folder(folder)
+
+    def _sync_folder(self, folder: _Folder) -> None:
+        visible = folder.is_open and not self._collapsed
+        for row in folder.rows:
+            row.setVisible(visible)
+        folder.button.set_suffix(_OPEN if folder.is_open else _CLOSED)
+        folder.button.refresh_icon()
+
+    def _rows(self):
+        """Every nav row in the rail, folders included."""
+        return [*self._buttons.values(), *(folder.button for folder in self._folders)]
 
     def _build_toggle(self) -> QPushButton:
         self._toggle = QPushButton()
@@ -246,8 +369,14 @@ class Sidebar(QWidget):
             return
         self._collapsed = collapsed
 
-        for button in self._buttons.values():
+        for button in self._rows():
             button.set_collapsed(collapsed)
+        # Collapsing folds every folder away with the labels; expanding
+        # leaves them folded rather than restoring what was open before,
+        # so the rail comes back the same way every time.
+        for folder in self._folders:
+            folder.is_open = False
+            self._sync_folder(folder)
         for heading in self._group_headings:
             # Group headings are words; there is nowhere to put them in an
             # icon-only rail, and abbreviating them would only puzzle.
@@ -280,10 +409,17 @@ class Sidebar(QWidget):
     # ---------------- selection ----------------
 
     def set_active(self, route: Route) -> None:
+        # A screen can be opened from somewhere other than the rail — the
+        # dashboard's activity feed, the header search — so the folder it
+        # lives in opens to show where the user has landed.
+        for folder in self._folders:
+            if route in folder.routes and not folder.is_open:
+                self._set_folder_open(folder, True)
+
         button = self._buttons.get(route)
         if button is not None:
             button.setChecked(True)
         # The group deselects the previous button without routing through
         # setChecked(), so its icon has to be refreshed explicitly.
-        for nav_button in self._buttons.values():
+        for nav_button in self._rows():
             nav_button.refresh_icon()

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLineEdit,
-    QPushButton,
     QWidget,
 )
 
@@ -29,18 +28,17 @@ from app.application.dto.commands import (
     PurchasePaymentCommand,
 )
 from app.domain.enums.item_type import ItemType
-from app.presentation.dialogs.document_dialog import DocumentDialog, field, step_panel
-from app.presentation.formatting import card_label
-from app.presentation.widgets.document_lines import ZERO, DocumentTotals, parse_amount
-from app.presentation.widgets.item_type_combo import ItemTypeCombo
-from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.presentation.dialogs.document_dialog import DocumentDialog, step_panel
+from app.presentation.widgets.document_lines import ZERO, DocumentTotals
+from app.presentation.widgets.form_field import field
+from app.presentation.widgets.item_picker_row import ItemPickerRow, PickedItem
 from app.shared.datetimes import now_pkt
 
 _CHOOSE_SUPPLIER = "— Choose a supplier —"
 
 
 def _new_purchase_number() -> str:
-        return f"PUR-{now_pkt():%y%m%d%H%M%S}"
+    return f"PUR-{now_pkt():%y%m%d%H%M%S}"
 
 
 class NewPurchaseDialog(DocumentDialog):
@@ -72,8 +70,6 @@ class NewPurchaseDialog(DocumentDialog):
             parent=parent,
         )
 
-        self._on_kind_changed(0)
-
     # ---------------- step 1: supplier ----------------
 
     def build_identity_step(self) -> QFrame:
@@ -101,69 +97,22 @@ class NewPurchaseDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        picker = QWidget()
-        row = QHBoxLayout(picker)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(10)
+        self._picker = ItemPickerRow(self._cards, self._inventory_items)
+        self._picker.added.connect(self._add_line)
+        self._picker.rejected.connect(self.warn)
+        return self._picker
 
-        self._kind = ItemTypeCombo()
-        self._kind.currentIndexChanged.connect(self._on_kind_changed)
-
-        self._item = QComboBox()
-        self._item.setMinimumWidth(220)
-
-        self._quantity = ModernSpinBox()
-        self._quantity.setRange(1, 1_000_000)
-        self._quantity.setValue(1)
-
-        self._unit_price = QLineEdit()
-        self._unit_price.setPlaceholderText("0.00")
-        self._unit_price.setMaximumWidth(120)
-        self._unit_price.returnPressed.connect(self._add_line)
-
-        add_button = QPushButton("Add item")
-        add_button.setProperty("variant", "primary")
-        add_button.clicked.connect(self._add_line)
-
-        row.addLayout(field("Type", self._kind))
-        row.addLayout(field("Item", self._item), 1)
-        row.addLayout(field("Quantity", self._quantity))
-        row.addLayout(field("Unit price", self._unit_price))
-        row.addLayout(field("", add_button))
-        return picker
-
-    def _on_kind_changed(self, _index: int) -> None:
-        is_card = self._kind.is_card
-        rows = self._cards if is_card else self._inventory_items
-        self._item.clear()
-        if not rows:
-            self._item.addItem("— none available —", None)
-        for row in rows:
-            self._item.addItem(card_label(row) if is_card else row.name, row.id)
-
-    def _add_line(self) -> None:
-        item_id = self._item.currentData()
-        if item_id is None:
-            self.warn("Choose an item to add.")
-            return
-
-        unit_price = parse_amount(self._unit_price.text())
-        if unit_price is None or unit_price < ZERO:
-            self.warn("Enter the unit price paid for this item.")
-            self._unit_price.setFocus()
-            return
-
+    def _add_line(self, picked: PickedItem) -> None:
+        # Buying raises stock, so there is nothing to refuse: every
+        # complete choice becomes a line.
         self.add_line(
-            item_type=self._kind.selected_type(),
-            item_id=item_id,
-            label=self._item.currentText(),
-            quantity=self._quantity.value(),
-            unit_price=unit_price,
+            item_type=picked.item_type,
+            item_id=picked.item_id,
+            label=picked.label,
+            quantity=picked.quantity,
+            unit_price=picked.unit_price,
         )
-
-        self._unit_price.clear()
-        self._quantity.setValue(1)
-        self._item.setFocus()
+        self._picker.reset()
 
     # ---------------- submit ----------------
 

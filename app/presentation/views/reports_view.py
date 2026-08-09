@@ -28,7 +28,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.container import AppContainer
+from app.presentation.dialogs.record_card_dialog import print_card, save_pdf
 from app.presentation.formatting import TO_COLLECT, TO_PAY, counted, date_only, money
+from app.presentation.records.builders import report_card
 from app.presentation.viewmodels.base import BaseViewModel
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_header import PageHeader
@@ -132,6 +134,9 @@ class ReportsView(QWidget):
         self._period = period
         # Denominator for the share column; set when a summary lands.
         self._expenses_total = _ZERO
+        # What is on screen, kept so it can be put on paper. There is
+        # nothing to print until the first one arrives.
+        self._summary: ReportSummary | None = None
 
         # Six tiles over two rows plus a table — taller than a 768px
         # laptop screen, so it scrolls.
@@ -147,6 +152,12 @@ class ReportsView(QWidget):
         selector = PeriodSelector(period)
         selector.periodChanged.connect(self.reload)
         header.add_widget(selector)
+        # The same two buttons a record card carries, doing the same thing
+        # to the same page — a report is a record of a period.
+        self._save_button = header.add_action("Save as PDF", self._save_pdf)
+        self._print_button = header.add_action("Print", self._print, variant="primary")
+        for button in (self._save_button, self._print_button):
+            button.setEnabled(False)
         outer.addWidget(header)
 
         self._range_label = QLabel("")
@@ -220,9 +231,29 @@ class ReportsView(QWidget):
             return "—"
         return f"{row.total / self._expenses_total * 100:.1f}%"
 
+    # ---------------- output ----------------
+
+    def _card(self):
+        return report_card(
+            self._summary,
+            period_label=self._period.label,
+            share_of_expenses=self._share,
+        )
+
+    def _save_pdf(self) -> None:
+        if self._summary is not None:
+            save_pdf(self, self._card())
+
+    def _print(self) -> None:
+        if self._summary is not None:
+            print_card(self, self._card())
+
     # ---------------- state ----------------
 
     def _on_summary(self, summary: ReportSummary) -> None:
+        self._summary = summary
+        self._save_button.setEnabled(True)
+        self._print_button.setEnabled(True)
         self._expenses_total = summary.expenses_total
         self._range_label.setText(
             f"{self._period.label} — {date_only(summary.start)} to {date_only(summary.end)}"

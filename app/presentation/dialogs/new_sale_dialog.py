@@ -3,9 +3,9 @@ New sale: invoice and customer, what was sold, what was paid.
 
 The shape of the form comes from `DocumentDialog` — the same one the
 purchase dialog uses, so a sale and a purchase are recorded the same way
-round. What a sale differs by is here: the invoice and customer fields, a
-catalogue you pick from by recognising the product, and the one rule a
-purchase has no equivalent of — you cannot sell stock you do not have.
+round, down to the row a line is picked in. What a sale differs by is
+here: the invoice and customer fields, and the one rule a purchase has no
+equivalent of — you cannot sell stock you do not have.
 """
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLineEdit, QWidget
 
 from app.application.dto.commands import CreateSaleCommand, SaleItemCommand, SalePaymentCommand
 from app.domain.enums.item_type import ItemType
-from app.presentation.dialogs.document_dialog import DocumentDialog, field, step_panel
-from app.presentation.dialogs.line_item_dialog import LineItemDialog
+from app.presentation.dialogs.document_dialog import DocumentDialog, step_panel
 from app.presentation.widgets.document_lines import ZERO, DocumentTotals
-from app.presentation.widgets.product_picker import Product, ProductPicker
+from app.presentation.widgets.form_field import field
+from app.presentation.widgets.item_picker_row import ItemPickerRow, PickedItem
 from app.shared.datetimes import now_pkt
 
 _WALK_IN = "Walk-in customer"
@@ -44,17 +44,19 @@ class NewSaleDialog(DocumentDialog):
         self._customers = customers
         self._cards = cards
         self._inventory_items = inventory_items
-        self._stock = {
-            (ItemType.CARD, card.id): card.current_stock for card in cards
-        } | {(ItemType.INVENTORY_ITEM, item.id): item.current_stock for item in inventory_items}
+        # The product behind each line, so the stock rules below can be
+        # answered without going back to the two lists to find it.
+        self._products = {(ItemType.CARD, card.id): card for card in cards} | {
+            (ItemType.INVENTORY_ITEM, item.id): item for item in inventory_items
+        }
 
         super().__init__(
             view_model,
             title="New sale",
-            subtitle="Pick products, set quantities, then record the payment.",
+            subtitle="Choose what was sold, set quantities, then record the payment.",
             submit_label="Record sale",
             items_title="What was sold",
-            empty_lines_message="Nothing added yet — pick a product above.",
+            empty_lines_message="Nothing added yet — choose an item above.",
             payment_methods=payment_methods,
             current_user_id=current_user_id,
             parent=parent,
@@ -82,52 +84,61 @@ class NewSaleDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        picker = ProductPicker(self._cards, self._inventory_items)
-        picker.picked.connect(self._pick)
-        return picker
+        self._picker = ItemPickerRow(self._cards, self._inventory_items)
+        self._picker.added.connect(self._add_line)
+        self._picker.rejected.connect(self.warn)
+        self._picker.itemChanged.connect(self._on_item_changed)
+        return self._picker
 
-    def _pick(self, product: Product) -> None:
-        if not product.sellable:
+    def _on_item_changed(self, item_type: ItemType, item_id: int) -> None:
+        # The quantity can never exceed what is on the shelf, so the field
+        # stops there rather than letting a number be typed that the sale
+        # would then refuse.
+        self._picker.set_quantity_limit(self.available_stock(item_type, item_id))
+
+    def _add_line(self, picked: PickedItem) -> None:
+        product = self._products.get((picked.item_type, picked.item_id))
+        if product is None:
+            self.warn("That product is no longer in the catalogue. Refresh and try again.")
+            return
+
+        # Mirrors CreateSaleUseCase, which refuses to sell anything at or
+        # below its minimum stock. Hearing it here beats hearing it after
+        # the whole invoice has been built.
+        if product.current_stock <= product.minimum_stock:
+            left = (
+                "is out of stock"
+                if product.current_stock <= 0
+                else f"is down to its minimum ({product.current_stock} left)"
+            )
             self.warn(
-                f"'{product.label}' is {product.blocked_reason.lower()}. "
-                "Record a purchase to bring stock back above its minimum."
+                f"'{picked.label}' {left}. Record a purchase to bring it back "
+                "above its minimum before selling it."
             )
             return
 
-        existing = self.line_for(product.item_type, product.id)
-        dialog = LineItemDialog(
-            item_label=product.label,
-            title="Add to sale" if existing is None else "Update line",
-            submit_label="Add to sale" if existing is None else "Update line",
-            quantity=existing.quantity + 1 if existing else 1,
-            unit_price=existing.unit_price if existing else None,
-            available_stock=product.current_stock,
-            parent=self,
-        )
-        dialog.exec()
-        entered = dialog.line()
-        if entered is None:
-            return
-        quantity, unit_price = entered
-
-        if existing is not None:
-            # The dialog opened showing the line's current quantity, so what
-            # comes back is the new total for it, not an amount to add.
-            existing.quantity = quantity
-            existing.unit_price = unit_price
-            self._render_lines()
+        already = self.line_for(picked.item_type, picked.item_id)
+        on_hand = product.current_stock
+        wanted = picked.quantity + (already.quantity if already is not None else 0)
+        if wanted > on_hand:
+            self.warn(
+                f"Only {on_hand} of '{picked.label}' in stock, and this invoice "
+                f"already has {already.quantity if already else 0}."
+            )
             return
 
         self.add_line(
-            item_type=product.item_type,
-            item_id=product.id,
-            label=product.label,
-            quantity=quantity,
-            unit_price=unit_price,
+            item_type=picked.item_type,
+            item_id=picked.item_id,
+            label=picked.label,
+            quantity=picked.quantity,
+            unit_price=picked.unit_price,
         )
+        self._picker.reset()
 
     def available_stock(self, item_type: ItemType, item_id: int) -> int | None:
-        return self._stock.get((item_type, item_id))
+        product = self._products.get((item_type, item_id))
+        return product.current_stock if product is not None else None
 
     # ---------------- submit ----------------
 

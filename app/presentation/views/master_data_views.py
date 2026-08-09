@@ -210,6 +210,7 @@ class InventoryItemsView(EditableCollectionView):
             [
                 Column("NAME", lambda i: i.name, sort_key=lambda i: i.name.lower()),
                 Column("DESCRIPTION", lambda i: _or_dash(i.description)),
+                Column("UNIT", lambda i: _or_dash(i.unit), width=110),
                 Column(
                     "STOCK",
                     lambda i: i.current_stock,
@@ -242,13 +243,13 @@ class InventoryItemsView(EditableCollectionView):
 
     def quick_add_fields(self):
         self._new_item = line_edit("e.g. A4 Ivory Sheet 250gsm")
-        self._new_description = line_edit("Description")
+        self._new_unit = line_edit("Unit, e.g. sheets")
         self._new_minimum = ModernSpinBox()
         self._new_minimum.setRange(0, 1_000_000)
         self._new_minimum.setPrefix("Min: ")
         return (
             QuickAddField(self._new_item, 3),
-            QuickAddField(self._new_description, 3),
+            QuickAddField(self._new_unit, 2),
             QuickAddField(self._new_minimum, 1),
         )
 
@@ -261,7 +262,7 @@ class InventoryItemsView(EditableCollectionView):
             name=name,
             minimum_stock=self._new_minimum.value(),
             current_stock=0,
-            description=self._new_description.text().strip() or None,
+            unit=self._new_unit.text().strip() or None,
         )
 
     def open_create_dialog(self) -> None:

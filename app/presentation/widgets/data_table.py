@@ -152,14 +152,30 @@ class DataTable(QTableView):
         columns: Sequence[Column],
         placeholder: str = "Nothing to show yet.",
         parent: QWidget | None = None,
+        *,
+        sortable: bool = True,
     ) -> None:
+        """`sortable=False` for a table whose order is part of the record.
+
+        A list is sorted to find something in it. The lines of an invoice
+        are not a list — they are the invoice, in the order it was
+        written — and re-ordering them on screen would leave the printed
+        copy disagreeing with what was read.
+        """
         super().__init__(parent)
         self._placeholder = placeholder
         self._model: SimpleTableModel = SimpleTableModel(columns)
         self.setModel(self._model)
 
         self._sorting = SortableHeader(columns, self)
-        self._sorting.install(self)
+        if sortable:
+            self._sorting.install(self)
+        else:
+            # Kept so `sorting` is always answerable — it sorts nothing
+            # while no column is chosen — but hidden: an un-installed
+            # header is still a child widget, and Qt would show it over
+            # the first rows at its default geometry.
+            self._sorting.hide()
 
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

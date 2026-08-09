@@ -339,15 +339,3 @@ def step_panel(number: str, title: str) -> tuple[QFrame, QVBoxLayout]:
     heading.addStretch(1)
     layout.addLayout(heading)
     return panel, layout
-
-
-def field(label_text: str, widget: QWidget) -> QVBoxLayout:
-    """A labelled control. A blank label keeps a control's baseline level
-    with its labelled neighbours in the same row."""
-    block = QVBoxLayout()
-    block.setSpacing(5)
-    label = QLabel(label_text or " ")
-    label.setProperty("role", "fieldLabel")
-    block.addWidget(label)
-    block.addWidget(widget)
-    return block

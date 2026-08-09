@@ -19,10 +19,19 @@ class InventoryItem(AuditEntity):
     minimum_stock: int = 0
     description: str | None = None
 
+    unit: str | None = None
+    """What one of these is, in the shop's own words — "sheets", "ml",
+    "bottles". A label only: stock is counted in whole units of whatever
+    this says, so an item bought by the ream and used by the sheet is
+    recorded in sheets. Optional, because an item that is simply counted
+    needs no word for it."""
+
     def __post_init__(self) -> None:
 
         if not self.name.strip():
             raise ValueError("name cannot be empty")
+        if self.unit is not None:
+            self.unit = " ".join(self.unit.split()) or None
         if self.current_stock < 0:
             raise ValueError("current_stock cannot be negative")
         if self.minimum_stock < 0:

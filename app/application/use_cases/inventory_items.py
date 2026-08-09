@@ -55,6 +55,7 @@ class CreateInventoryItemUseCase(AuthorizedUseCase[CreateInventoryItemCommand, I
                 current_stock=request.current_stock,
                 minimum_stock=request.minimum_stock,
                 description=request.description,
+                unit=request.unit,
                 created_by_user_id=current_user_id
             )
             return items.add(item)
@@ -84,6 +85,7 @@ class UpdateInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[UpdateInventoryItem
             item.name = name
             item.minimum_stock = request.minimum_stock
             item.description = request.description
+            item.unit = request.unit
             item.updated_by_user_id = current_user_id
 
             return items.update(item)

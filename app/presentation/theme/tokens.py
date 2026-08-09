@@ -38,6 +38,11 @@ PRIMARY = "#2554eb"
 PRIMARY_HOVER = "#1e45cc"
 PRIMARY_TINT = "#eaf0fe"
 
+ACCENT_ALT = "#7c3aed"
+"""A second accent, for the one place that needs a colour which is neither
+the primary nor one of the semantic ones: a chart series. Deliberately not
+green or red — those already mean paid and unpaid on every list."""
+
 # ---------------------------------------------------------------- Semantic
 SUCCESS = "#16a34a"
 SUCCESS_TINT = "#e6f7ec"
@@ -67,4 +72,4 @@ WEIGHT_SEMIBOLD = 600
 # ---------------------------------------------------------------- Layout
 SIDEBAR_WIDTH = 232
 HEADER_HEIGHT = 52
-STATUSBAR_HEIGHT = 26
+STATUSBAR_HEIGHT = 30

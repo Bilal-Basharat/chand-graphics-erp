@@ -142,18 +142,19 @@ class TopBar(QWidget):
         layout.setContentsMargins(0, 0, 16, 0)
         layout.setSpacing(8)
 
-        new_sale = QPushButton("New Sale")
-        new_sale.setProperty("variant", "primary")
-        new_sale.setCursor(Qt.CursorShape.PointingHandCursor)
-        new_sale.clicked.connect(self.newSaleRequested.emit)
+        # The three things the shop records all day, in the same order the
+        # rail lists them. Only the first is primary: three buttons of
+        # equal weight is three, and none of them reads as the usual one.
+        for label, variant, signal in (
+            ("New Sale", "primary", self.newSaleRequested),
+            ("New Purchase", "outline", self.newPurchaseRequested),
+        ):
+            button = QPushButton(label)
+            button.setProperty("variant", variant)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(signal.emit)
+            layout.addWidget(button)
 
-        new_purchase = QPushButton("New Purchase")
-        new_purchase.setProperty("variant", "outline")
-        new_purchase.setCursor(Qt.CursorShape.PointingHandCursor)
-        new_purchase.clicked.connect(self.newPurchaseRequested.emit)
-
-        layout.addWidget(new_sale)
-        layout.addWidget(new_purchase)
         layout.addLayout(self._build_user_chip())
         return layout
 

@@ -206,6 +206,23 @@ class SqlAlchemyPurchaseRepository(
             self.session, PurchaseItemModel, PurchaseItemModel.purchase_id, item_type, item_id
         )
 
+    def latest_unit_price(self, item_type: ItemType, item_id: int) -> Decimal | None:
+        column = (
+            PurchaseItemModel.card_id
+            if item_type is ItemType.CARD
+            else PurchaseItemModel.inventory_item_id
+        )
+        stmt = (
+            select(PurchaseItemModel.unit_price)
+            .join(PurchaseModel, PurchaseItemModel.purchase_id == PurchaseModel.id)
+            .where(column == item_id)
+            # Newest purchase wins; id breaks the tie when two land in the
+            # same second, which bulk entry routinely does.
+            .order_by(PurchaseModel.created_at.desc(), PurchaseItemModel.id.desc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
     def count_by_supplier(self, supplier_id: int) -> int:
         stmt = select(func.count(PurchaseModel.id)).where(
             PurchaseModel.supplier_id == supplier_id

@@ -25,9 +25,15 @@
 #     DATA_DIR.mkdir(parents=True, exist_ok=True)
 #     Base.metadata.create_all(bind=engine)
 
+import logging
+
+from sqlalchemy import inspect
+
 from app.config.settings import DATA_DIR
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.database import engine
+
+logger = logging.getLogger(__name__)
 
 # Import models directly so SQLAlchemy registers them before create_all()
 from app.infrastructure.db.models.cabinet_model import CabinetModel  # noqa: F401
@@ -64,3 +70,36 @@ def init_db() -> None:
     adopt_previous_installation()
     Base.metadata.create_all(bind=engine)
     migrate(engine)
+    _report_schema_drift()
+
+
+def _report_schema_drift() -> None:
+    """Say so, loudly and by name, if the file still differs from the models.
+
+    Between them `create_all` and `migrate` should leave nothing behind.
+    When they do not — a column added to a model with no step written for
+    it — every query touching that table fails from the next startup on,
+    and all the user is told is "something went wrong". Retrying never
+    helps, and nothing on screen says which column is missing.
+
+    Logged rather than raised: a column left over from an older build is
+    harmless, and refusing to start over one would be worse than the
+    problem it is reporting.
+    """
+    inspector = inspect(engine)
+    live = set(inspector.get_table_names())
+
+    for name, table in Base.metadata.tables.items():
+        if name not in live:
+            logger.error("Schema drift: table '%s' is missing", name)
+            continue
+        missing = {column.name for column in table.columns} - {
+            column["name"] for column in inspector.get_columns(name)
+        }
+        if missing:
+            logger.error(
+                "Schema drift: '%s' has no %s. Every query against it will fail "
+                "until a step in upgrade.py adds the column.",
+                name,
+                ", ".join(sorted(missing)),
+            )

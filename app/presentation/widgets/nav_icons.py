@@ -14,9 +14,18 @@ row they sit in.
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import lru_cache
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QGuiApplication,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 
 ICON_SIZE = 14
 _STROKE = 1.4
@@ -139,6 +148,29 @@ def _sliders(painter: QPainter) -> None:
         painter.drawEllipse(QPointF(knob_x, y), 2.0, 2.0)
 
 
+def _eye(painter: QPainter) -> None:
+    """Look at this one.
+
+    An eye is wider than it is tall. Drawn to fill the box in both
+    directions it came out round, with a pupil pressed against lids only a
+    stroke away on either side — at 14px that reads as a smudge rather
+    than as an eye. The lids here span the full width but only a third of
+    the height, which leaves the pupil clear air around it.
+
+    A path rather than two arcs: an arc of an ellipse gives a round lens,
+    and what reads as an eye is the pointed corners where the lids meet.
+    """
+    middle = _BOX.center()
+    # A quadratic reaches half way to its control point, so the lids open
+    # to `_EYE_LIFT / 2` above and below the centre line.
+    lift = 7.0
+    path = QPainterPath(QPointF(_BOX.left(), middle.y()))
+    path.quadTo(QPointF(middle.x(), middle.y() - lift), QPointF(_BOX.right(), middle.y()))
+    path.quadTo(QPointF(middle.x(), middle.y() + lift), QPointF(_BOX.left(), middle.y()))
+    painter.drawPath(path)
+    painter.drawEllipse(middle, 1.5, 1.5)
+
+
 def _chevron_left(painter: QPainter) -> None:
     """A single chevron pointing at the edge the rail folds towards."""
     x, top, bottom = _BOX.center().x() + 2, _BOX.top() + 2, _BOX.bottom() - 2
@@ -157,9 +189,11 @@ def _chevron_right(painter: QPainter) -> None:
 _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "chevron_left": _chevron_left,
     "chevron_right": _chevron_right,
+    "view": _eye,
     "dashboard": _grid,
     "sales": _arrow_up_right,
     "sale_payments": _banknote,
+    "payments": _banknote,
     "purchases": _arrow_down_left,
     "purchase_payments": _banknote,
     "payment_methods": _swap,
@@ -177,14 +211,36 @@ _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
 }
 
 
-def nav_icon(name: str, color: str) -> QIcon:
-    """A navigation icon in `color`. Unknown names render as a diamond."""
-    # Drawn at 2x and handed to Qt as a high-DPI pixmap, so the strokes
-    # stay crisp on scaled displays rather than being upscaled from 18px.
-    scale = 2
-    pixmap = QPixmap(ICON_SIZE * scale, ICON_SIZE * scale)
+def _screen_ratio() -> float:
+    """How many device pixels the display gives a logical one.
+
+    Rarely a whole number: a Windows desktop at 125% reports 1.25. An icon
+    drawn at a hardcoded 2x is then resampled by 0.625 to reach the
+    screen, and a 1.4px stroke lands across pixel boundaries — which is
+    what made the eye look chewed. Drawing at the ratio the display
+    actually uses lets every stroke land where it was put.
+    """
+    app = QGuiApplication.instance()
+    screen = app.primaryScreen() if app is not None else None
+    return screen.devicePixelRatio() if screen is not None else 1.0
+
+
+def icon_pixmap(name: str, color: str) -> QPixmap:
+    """An icon in `color`. Unknown names render as a diamond."""
+    return _rendered(name, color, _screen_ratio())
+
+
+@lru_cache(maxsize=64)
+def _rendered(name: str, color: str, ratio: float) -> QPixmap:
+    """Cached because the row-action delegate asks for an icon on every
+    repaint of every visible row — painting the same twelve strokes a few
+    hundred times a second is the one thing a delegate exists to avoid.
+    The set of (name, colour, ratio) an app uses is small and fixed; the
+    ratio is a key rather than a constant so moving the window to a second
+    monitor redraws rather than rescales."""
+    pixmap = QPixmap(round(ICON_SIZE * ratio), round(ICON_SIZE * ratio))
     pixmap.fill(Qt.GlobalColor.transparent)
-    pixmap.setDevicePixelRatio(scale)
+    pixmap.setDevicePixelRatio(ratio)
 
     # No manual painter.scale() here: QPainter already maps logical
     # coordinates through the pixmap's device pixel ratio, so scaling again
@@ -202,4 +258,9 @@ def nav_icon(name: str, color: str) -> QIcon:
     _DRAWINGS.get(name, _diamond)(painter)
     painter.end()
 
-    return QIcon(pixmap)
+    return pixmap
+
+
+def nav_icon(name: str, color: str) -> QIcon:
+    """The same icon, as a QIcon for a button to wear."""
+    return QIcon(icon_pixmap(name, color))

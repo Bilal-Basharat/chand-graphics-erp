@@ -104,6 +104,11 @@ def payment_method_name(name: str | None) -> str:
     return name or CASH
 
 
+def quantity(count: int, unit: str | None) -> str:
+    """"500 sheets", "2 bottles", or plain "500" when nothing names it."""
+    return f"{count} {unit}" if unit else str(count)
+
+
 def card_label(card) -> str:
     """How a wedding card names itself in pickers and line items."""
     return f"{card.card_number} — {card.name}" if card.name else card.card_number

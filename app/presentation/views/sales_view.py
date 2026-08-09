@@ -16,11 +16,14 @@ from PySide6.QtWidgets import QWidget
 
 from app.presentation.dialogs.new_sale_dialog import NewSaleDialog
 from app.presentation.formatting import date_time, money
+from app.presentation.records.builders import sale_card
+from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
-from app.presentation.views.collection_view import CollectionPage, CollectionView
+from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import created_at, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
+from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
 _ZERO = Decimal("0.00")
@@ -114,6 +117,17 @@ class SalesView(CollectionView):
             ),
             children_of=self._sales_view_model.item_lines,
             placeholder="No sales in this period.",
+        )
+
+    def row_actions(self) -> Sequence[RowAction]:
+        return (VIEW_ACTION,)
+
+    def record_card(self, row) -> RecordCard:
+        return sale_card(
+            row,
+            customer=self._sales_view_model.customer_name(row),
+            items=self._sales_view_model.item_lines(row),
+            payments=self._sales_view_model.payment_lines(row),
         )
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
