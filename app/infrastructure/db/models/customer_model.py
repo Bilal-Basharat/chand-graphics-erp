@@ -37,6 +37,7 @@ class CustomerModel(Base, AuditMixin):
     #############################################################
 
     sales = relationship("SaleModel", back_populates="customer")
+    jobs = relationship("JobModel", back_populates="customer")
     created_by_user = relationship(
         "UserModel",
         back_populates="customers",

@@ -68,6 +68,10 @@ class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand,
                     sales = self.require(uow.sales, "sales")
                     if sales.get_by_id(request.source_document_id) is None:
                         raise NotFoundError(f"Sale id={request.source_document_id} not found")
+                elif doc_type == "JOB":
+                    jobs = self.require(uow.jobs, "jobs")
+                    if jobs.get_by_id(request.source_document_id) is None:
+                        raise NotFoundError(f"Job id={request.source_document_id} not found")
 
             target = load_stock_target(
                 uow=uow,

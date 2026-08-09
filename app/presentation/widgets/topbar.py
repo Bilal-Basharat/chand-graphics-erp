@@ -61,6 +61,7 @@ class _UserChip(QFrame):
 
 class TopBar(QWidget):
     newSaleRequested = Signal()
+    newJobRequested = Signal()
     newPurchaseRequested = Signal()
     searchSubmitted = Signal(str)
     profileRequested = Signal()
@@ -147,6 +148,7 @@ class TopBar(QWidget):
         # equal weight is three, and none of them reads as the usual one.
         for label, variant, signal in (
             ("New Sale", "primary", self.newSaleRequested),
+            ("New Job", "outline", self.newJobRequested),
             ("New Purchase", "outline", self.newPurchaseRequested),
         ):
             button = QPushButton(label)

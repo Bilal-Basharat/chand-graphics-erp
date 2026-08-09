@@ -41,6 +41,16 @@ class PurchaseRepository(Repository[Purchase], ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def latest_unit_price(self, item_type: ItemType, item_id: int) -> Decimal | None:
+        """What the shop last paid for one of these, or None if never bought.
+
+        This is what a job material costs. The catalogue carries no price
+        by design, so the most recent purchase is the only honest answer to
+        "what is this worth" — and it is the answer a shopkeeper gives.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def count_by_supplier(self, supplier_id: int) -> int:
         """How many purchases are recorded against one supplier."""
         raise NotImplementedError

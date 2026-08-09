@@ -54,6 +54,17 @@ from app.infrastructure.db.models.sale_payment_model import SalePaymentModel  # 
 from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
 from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
 from app.infrastructure.db.models.login_audit_model import LoginAuditModel  # noqa: F401
+from app.infrastructure.db.models.product_type_model import ProductTypeModel  # noqa: F401
+from app.infrastructure.db.models.labour_charge_type_model import (  # noqa: F401
+    LabourChargeTypeModel,
+)
+from app.infrastructure.db.models.job_order_models import (  # noqa: F401
+    JobItemModel,
+    JobLabourChargeModel,
+    JobMaterialModel,
+    JobModel,
+    JobPaymentModel,
+)
 from app.infrastructure.db.upgrade import adopt_previous_installation, migrate
 
 def init_db() -> None:

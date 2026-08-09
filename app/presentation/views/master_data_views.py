@@ -15,14 +15,18 @@ from app.application.dto.commands import (
     CreateCabinetCommand,
     CreateExpenseCategoryCommand,
     CreateInventoryItemCommand,
+    CreateLabourChargeTypeCommand,
     CreatePaymentMethodCommand,
+    CreateProductTypeCommand,
 )
 from app.presentation.dialogs.master_data_dialogs import (
     CabinetDialog,
     CustomerDialog,
     ExpenseCategoryDialog,
     InventoryItemDialog,
+    LabourChargeTypeDialog,
     PaymentMethodDialog,
+    ProductTypeDialog,
     SupplierDialog,
 )
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
@@ -315,3 +319,105 @@ class ExpenseCategoriesView(EditableCollectionView):
 
     def open_edit_dialog(self, row) -> None:
         ExpenseCategoryDialog(self.view_model, category=row, parent=self).exec()
+
+
+class ProductTypesView(EditableCollectionView):
+    def __init__(self, view_model: CollectionViewModel, parent: QWidget | None = None) -> None:
+        super().__init__(
+            CollectionPage(
+                crumb=("Items", "Product types"),
+                title="Product types",
+                subtitle="What the shop makes to order — bill books, letterheads, business cards.",
+                panel_title="Product type list",
+                empty_message="No product types yet. Add one so job orders can name what they make.",
+                unit="product type",
+                search_placeholder="Search product types by name",
+                create_label="Add product type",
+            ),
+            [
+                Column("NAME", lambda p: p.name, width=260),
+                Column("DESCRIPTION", lambda p: _or_dash(p.description)),
+            ],
+            view_model,
+            parent,
+        )
+
+    def quick_add_fields(self):
+        self._new_product = line_edit("e.g. Bill Book, Letterhead, Business Card")
+        self._new_description = line_edit("Description")
+        return (
+            QuickAddField(self._new_product, 2),
+            QuickAddField(self._new_description, 3),
+        )
+
+    def build_quick_add(self) -> CreateProductTypeCommand | None:
+        name = self._new_product.text().strip()
+        if not name:
+            self._new_product.setFocus()
+            return None
+        return CreateProductTypeCommand(
+            name=name, description=self._new_description.text().strip() or None
+        )
+
+    def open_create_dialog(self) -> None:
+        ProductTypeDialog(self.view_model, parent=self).exec()
+
+    def open_edit_dialog(self, row) -> None:
+        ProductTypeDialog(self.view_model, product_type=row, parent=self).exec()
+
+    def delete_warning(self, row) -> str:
+        return (
+            "Only possible while no job has been made against it.\n\n"
+            "This cannot be undone."
+        )
+
+
+class LabourChargesView(EditableCollectionView):
+    def __init__(self, view_model: CollectionViewModel, parent: QWidget | None = None) -> None:
+        super().__init__(
+            CollectionPage(
+                crumb=("Items", "Labour charges"),
+                title="Labour charges",
+                subtitle="Kinds of work a job costs. The amount is entered per job item.",
+                panel_title="Labour charge list",
+                empty_message="No labour charges yet. Add printing, binding or cutting to start.",
+                unit="labour charge",
+                search_placeholder="Search labour charges by name",
+                create_label="Add labour charge",
+            ),
+            [
+                Column("NAME", lambda c: c.name, width=260),
+                Column("DESCRIPTION", lambda c: _or_dash(c.description)),
+            ],
+            view_model,
+            parent,
+        )
+
+    def quick_add_fields(self):
+        self._new_charge = line_edit("e.g. Printing, Binding, Lamination, Cutting")
+        self._new_description = line_edit("Description")
+        return (
+            QuickAddField(self._new_charge, 2),
+            QuickAddField(self._new_description, 3),
+        )
+
+    def build_quick_add(self) -> CreateLabourChargeTypeCommand | None:
+        name = self._new_charge.text().strip()
+        if not name:
+            self._new_charge.setFocus()
+            return None
+        return CreateLabourChargeTypeCommand(
+            name=name, description=self._new_description.text().strip() or None
+        )
+
+    def open_create_dialog(self) -> None:
+        LabourChargeTypeDialog(self.view_model, parent=self).exec()
+
+    def open_edit_dialog(self, row) -> None:
+        LabourChargeTypeDialog(self.view_model, labour_charge_type=row, parent=self).exec()
+
+    def delete_warning(self, row) -> str:
+        return (
+            "Only possible while no job has been charged for it.\n\n"
+            "This cannot be undone."
+        )

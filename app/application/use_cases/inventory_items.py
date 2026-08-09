@@ -102,6 +102,7 @@ class DeleteInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
             items = self.require(uow.inventory_items, "inventory_items")
             sales = self.require(uow.sales, "sales")
             purchases = self.require(uow.purchases, "purchases")
+            jobs = self.require(uow.jobs, "jobs")
 
             item = items.get_by_id(request)
             if item is None:
@@ -112,6 +113,7 @@ class DeleteInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
                 {
                     "sale": sales.count_by_item(ItemType.INVENTORY_ITEM, request),
                     "purchase": purchases.count_by_item(ItemType.INVENTORY_ITEM, request),
+                    "job": jobs.count_by_material(ItemType.INVENTORY_ITEM, request),
                 },
             )
 

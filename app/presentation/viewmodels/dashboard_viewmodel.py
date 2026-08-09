@@ -18,39 +18,43 @@ from app.application.dto.commands import DateRangeQuery
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.formatting import payment_method_name, pkr
-from app.presentation.records.builders import purchase_card, sale_card
-from app.presentation.records.builders import sale_card
 from app.presentation.navigation.routes import Route
 from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
 from app.presentation.viewmodels.document_items import payment_lines
+from app.presentation.records.builders import job_card, purchase_card, sale_card
 from app.presentation.viewmodels.base import BaseViewModel
+from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
+from app.presentation.viewmodels.job_items import JobCatalogue
 from app.presentation.widgets.period_selector import PeriodSelection
 
 
 @dataclass(slots=True)
 class DocumentRow:
     document_no: str
-    doc_type: str  # "Sale" | "Purchase"
+    doc_type: str  # "Sale" | "Job" | "Purchase"
     party: str
     date: datetime
     total: Decimal
     balance: Decimal
-    status: str  # "Paid" | "Partial" | "Unpaid"
+    status: str  # "Paid" | "Partial" | "Unpaid" | "Cancelled"
     route: Route
     card: RecordCard
+    """The screen this document lives on, and the document itself written
+    out. Both are settled here, where the record and every name it refers
+    to are already in hand — the dashboard's own panels hold display rows,
+    not entities, and re-fetching one to open it would be a second answer
+    to a question already answered."""
 
 @dataclass(slots=True)
 class ActivityRow:
     title: str
     meta: str
     when: datetime
-    # route: Route
-    # reference: str
     card: RecordCard
-    """The screen this entry came from and the document number to look for
-    on it, so clicking the entry can open the record rather than leaving
-    the user to go and find it."""
+    """The record this entry is about, written out. Every entry against
+    one document — raised, completed, paid — carries the same card: they
+    are moments in the life of one record, not records of their own."""
 
 
 @dataclass(slots=True)
@@ -59,6 +63,7 @@ class BucketTotals:
 
     label: str
     sales: Decimal
+    jobs: Decimal
     purchases: Decimal
     expenses: Decimal
 
@@ -91,6 +96,19 @@ that volume ever changes, an aggregate query is the thing to add first.
 
 _RECENT_DOCUMENTS = 6
 _RECENT_ACTIVITY = 20
+
+_CATALOGUE_LIMIT = 500
+"""How much master data a card can name. The same figure every screen
+that loads these catalogues uses."""
+
+
+@dataclass(slots=True)
+class _Catalogues:
+    """The three lookups a written-out document needs, fetched together."""
+
+    products: ItemCatalogue
+    jobs: JobCatalogue
+    method_name: Callable[[int | None], str]
 
 
 _CATALOGUE_LIMIT = 500
@@ -139,20 +157,32 @@ class DashboardViewModel(BaseViewModel):
             self._container.list_cards_use_case().execute(_CATALOGUE_LIMIT),
             self._container.list_inventory_items_use_case().execute(_CATALOGUE_LIMIT),
         )
-     
+        job_catalogue = JobCatalogue()
+        job_catalogue.set_reference(
+            product_types=self._container.list_product_types_use_case().execute(_CATALOGUE_LIMIT),
+            labour_charge_types=self._container.list_labour_charge_types_use_case().execute(
+                _CATALOGUE_LIMIT
+            ),
+            cards=self._container.list_cards_use_case().execute(_CATALOGUE_LIMIT),
+            inventory_items=self._container.list_inventory_items_use_case().execute(
+                _CATALOGUE_LIMIT
+            ),
+        )
         methods = {
             m.id: m.name for m in self._container.list_payment_methods_use_case().execute(100)
         }
         return _Catalogues(
             products=products,
+            jobs=job_catalogue,
             method_name=lambda method_id: payment_method_name(methods.get(method_id)),
         )
-    
+
     def _load_sync(self) -> DashboardData:
         start, end = self._period.range()
         date_range = DateRangeQuery(start=start, end=end, limit=_DOCUMENT_LIMIT)
 
         sales = self._container.list_sales_by_date_range_use_case().execute(date_range)
+        jobs = self._container.list_jobs_by_date_range_use_case().execute(date_range)
         purchases = self._container.list_purchases_by_date_range_use_case().execute(date_range)
         expenses = self._container.list_expenses_by_date_range_use_case().execute(date_range)
         low_stock_cards = self._container.list_low_stock_cards_use_case().execute(500)
@@ -209,6 +239,50 @@ class DashboardViewModel(BaseViewModel):
                 )
             )
 
+        for job in jobs:
+            party = customers.get(job.customer_id, "Walk-in customer") if job.customer_id else "Walk-in customer"
+            card = job_card(
+                job,
+                customer=party,
+                items=names.jobs.lines_of(job),
+                payments=payment_lines(
+                    job,
+                    dated=lambda payment: payment.created_at,
+                    method_name=names.method_name,
+                ),
+            )
+            documents.append(
+                DocumentRow(
+                    document_no=job.job_no,
+                    doc_type="Job",
+                    party=party,
+                    date=job.created_at,
+                    total=job.grand_total,
+                    balance=job.balance_amount,
+                    # A cancelled job owes nothing, which `_status_for`
+                    # would read as settled. It was not settled; it was
+                    # called off, and the row should say so.
+                    status="Cancelled"
+                    if job.is_void
+                    else _status_for(job.balance_amount, job.grand_total),
+                    route=Route.JOBS,
+                    card=card,
+                )
+            )
+            activity.extend(_job_activity(job, party, card))
+            activity.extend(
+                _payment_activity(
+                    # A cancelled job's refunds are payments too, and
+                    # showing them as money received would be a lie about
+                    # which way it went.
+                    [p for p in job.payments if not p.is_refund],
+                    lambda payment: payment.created_at,
+                    title=f"Payment received on {job.job_no}",
+                    party=party,
+                    card=card,
+                )
+            )
+
         for purchase in purchases:
             party = suppliers.get(purchase.supplier_id, "Unknown supplier") if purchase.supplier_id else "Unknown supplier"
             card = purchase_card(
@@ -256,7 +330,15 @@ class DashboardViewModel(BaseViewModel):
         # Overpayments are ignored rather than netted off: a document paid
         # more than its total is a recording mistake, not money owed the
         # other way, and letting it reduce the figure would hide it.
-        receivable = sum((s.balance_amount for s in sales if s.balance_amount > 0), Decimal("0.00"))
+        #
+        # Jobs count towards what is owed alongside sales — a customer who
+        # has not paid for their bill books owes exactly as much as one who
+        # has not paid for their cards, and the documents panel below lists
+        # both. A cancelled job's balance is already zero.
+        receivable = sum(
+            (d.balance_amount for d in (*sales, *jobs) if d.balance_amount > 0),
+            Decimal("0.00"),
+        )
         payable = sum((p.balance_amount for p in purchases if p.balance_amount > 0), Decimal("0.00"))
 
         documents.sort(key=lambda d: d.date or datetime.min, reverse=True)
@@ -273,7 +355,7 @@ class DashboardViewModel(BaseViewModel):
             payable=payable,
             recent_documents=documents[:_RECENT_DOCUMENTS],
             recent_activity=activity[:_RECENT_ACTIVITY],
-            buckets=_bucket_totals(start, end, sales, purchases, expenses),
+            buckets=_bucket_totals(start, end, sales, jobs, purchases, expenses),
         )
 
 
@@ -315,7 +397,12 @@ def _year_starts(begin: datetime, end: datetime) -> list[datetime]:
 
 
 def _bucket_totals(
-    start: datetime, end: datetime, sales: list, purchases: list, expenses: list
+    start: datetime,
+    end: datetime,
+    sales: list,
+    jobs: list,
+    purchases: list,
+    expenses: list,
 ) -> list[BucketTotals]:
     """Money in and out, bucketed across the period, oldest first.
 
@@ -326,7 +413,7 @@ def _bucket_totals(
     start, because "All time" begins at an epoch no shop traded in and
     would otherwise draw decades of nothing before the first sale.
     """
-    dated = [d.created_at for d in (*sales, *purchases, *expenses) if d.created_at]
+    dated = [d.created_at for d in (*sales, *jobs, *purchases, *expenses) if d.created_at]
     begin = max(start, min(dated)) if dated else start
 
     span = end - begin
@@ -347,6 +434,7 @@ def _bucket_totals(
 
     keys = [key(at) for at in starts]
     sold = {bucket: Decimal("0.00") for bucket in keys}
+    made = dict(sold)
     bought = dict(sold)
     spent = dict(sold)
 
@@ -354,6 +442,7 @@ def _bucket_totals(
     # why each source brings its own amount rather than sharing one field.
     for records, totals, amount_of in (
         (sales, sold, lambda record: record.grand_total),
+        (jobs, made, lambda record: record.grand_total),
         (purchases, bought, lambda record: record.grand_total),
         (expenses, spent, lambda record: record.total_amount),
     ):
@@ -369,10 +458,43 @@ def _bucket_totals(
         BucketTotals(
             label=label(at),
             sales=sold[bucket],
+            jobs=made[bucket],
             purchases=bought[bucket],
             expenses=spent[bucket],
         )
         for at, bucket in zip(starts, keys)
+    ]
+
+
+def _job_activity(job, party: str, card: RecordCard) -> list[ActivityRow]:
+    """A job's own milestones, each dated by the stamp that records it.
+
+    A job is not one event. It is written down, it comes off the press, it
+    goes out of the door — or it is called off — and each of those is a
+    thing someone scanning the feed is looking for, at its own moment. So
+    each is its own entry rather than one row whose wording keeps changing
+    under the same timestamp.
+
+    The amount is what the work was quoted at, on every entry including a
+    cancelled job's. That job's total reads zero from the moment it is
+    called off, and "Job X recorded • PKR 0" is not what happened.
+    """
+    quoted = job.subtotal - job.discount_amount
+    milestones = (
+        ("recorded", job.created_at),
+        ("completed", job.completed_at),
+        ("delivered", job.delivered_at),
+        ("cancelled", job.cancelled_at),
+    )
+    return [
+        ActivityRow(
+            title=f"Job {job.job_no} {word}",
+            meta=f"{party} • {pkr(quoted)}",
+            when=when,
+            card=card,
+        )
+        for word, when in milestones
+        if when is not None
     ]
 
 
@@ -396,8 +518,6 @@ def _payment_activity(
                 meta=f"{party} • {pkr(payment.amount)}",
                 when=when,
                 card=card,
-                # route=route,
-                # reference=reference,
             )
         )
     return rows

@@ -164,6 +164,7 @@ class DeleteCardUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
             cards = self.require(uow.cards, "cards")
             sales = self.require(uow.sales, "sales")
             purchases = self.require(uow.purchases, "purchases")
+            jobs = self.require(uow.jobs, "jobs")
 
             card = cards.get_by_id(request)
             if card is None:
@@ -174,6 +175,7 @@ class DeleteCardUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
                 {
                     "sale": sales.count_by_item(ItemType.CARD, request),
                     "purchase": purchases.count_by_item(ItemType.CARD, request),
+                    "job": jobs.count_by_material(ItemType.CARD, request),
                 },
             )
 

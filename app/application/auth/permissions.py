@@ -9,6 +9,7 @@ class Permission(StrEnum):
     MANAGE_MASTER_DATA = "manage_master_data"
     MANAGE_PURCHASES = "manage_purchases"
     MANAGE_SALES = "manage_sales"
+    MANAGE_JOBS = "manage_jobs"
     MANAGE_EXPENSES = "manage_expenses"
     VIEW_REPORTS = "view_reports"
 
@@ -21,6 +22,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.MANAGE_MASTER_DATA,
             Permission.MANAGE_PURCHASES,
             Permission.MANAGE_SALES,
+            Permission.MANAGE_JOBS,
             Permission.MANAGE_EXPENSES,
             Permission.VIEW_REPORTS,
         }
@@ -29,6 +31,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
         {
             Permission.MANAGE_PURCHASES,
             Permission.MANAGE_SALES,
+            Permission.MANAGE_JOBS,
         }
     ),
 }

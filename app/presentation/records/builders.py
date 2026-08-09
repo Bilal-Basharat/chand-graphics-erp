@@ -32,6 +32,7 @@ from app.presentation.records.card import (
     Total,
 )
 from app.presentation.viewmodels.document_items import DocumentItemLine, PaymentLine
+from app.presentation.widgets.job_status import job_status_text, job_status_tone
 from app.presentation.widgets.payment_status import payment_status_text
 
 _ZERO = Decimal("0.00")
@@ -155,6 +156,117 @@ def purchase_card(purchase, *, supplier: str, items: Sequence[DocumentItemLine],
         totals=_settlement_totals(purchase),
         note=purchase.note or "",
     )
+
+
+_JOB_ITEM_HEADINGS = (
+    # The product is a catalogue name and short; the material list is a
+    # sentence and the longest thing on the card. Fixing the first hands
+    # every spare pixel to the second, which is what stops "500 sheets,
+    # 2 tins of ink, …" being elided down to "500 sheets, …".
+    Heading("ITEM", width=170),
+    Heading("MATERIALS USED"),
+    Heading("QTY", "right", 60),
+    Heading("UNIT PRICE", "right", 105),
+    Heading("COST", "right", 105),
+    Heading("CHARGED", "right", 115),
+)
+
+
+def job_card(job, *, customer: str, items: Sequence, payments: Sequence[PaymentLine]) -> RecordCard:
+    """A job order: what was made, what it cost the shop, what it left.
+
+    `items` are `JobItemLine`s — the same rows the job list discloses
+    under each job, so the card and the list can never disagree about what
+    a job was made of.
+    """
+    milestones = (
+        ("Promised", job.promised_date),
+        ("Completed", job.completed_at),
+        ("Delivered", job.delivered_at),
+        ("Cancelled", job.cancelled_at),
+    )
+    return RecordCard(
+        kind="Job order",
+        reference=job.job_no,
+        subtitle=f"{customer} • {date_time(job.created_at)}",
+        status=job_status_text(job),
+        status_tone=job_status_tone(job),
+        fields=(
+            Field("Customer", customer),
+            Field("Recorded", date_time(job.created_at)),
+            Field("Items", counted(len(job.items), "item")),
+            # Only the milestones this job has actually reached. A column
+            # of dashes under "Delivered" and "Cancelled" says nothing
+            # except that the job is neither, which its status already did.
+            *(Field(label, date_only(when)) for label, when in milestones if when is not None),
+        ),
+        sections=(
+            Section(
+                title="Items made",
+                headings=_JOB_ITEM_HEADINGS,
+                rows=tuple(
+                    (
+                        line.label,
+                        line.materials,
+                        str(line.quantity),
+                        money(line.unit_price),
+                        money(line.cost),
+                        money(line.total),
+                    )
+                    for line in items
+                ),
+                empty="This job has no items.",
+            ),
+            _payments_section("Payments received", payments),
+        ),
+        totals=_job_totals(job),
+        note=_job_note(job),
+    )
+
+
+def _job_totals(job) -> tuple[Total, ...]:
+    """What the job came to — or, once it is called off, what it did not.
+
+    No margin line. What the work cost the shop is here, and what it was
+    charged is here, but the subtraction is left to whoever wants it: this
+    card is also what gets handed to the customer.
+
+    A cancelled job's total, cost and profit all answer zero by design
+    (see `Job.is_void`), while its items keep the figures they were quoted
+    at. Printing both columns unchanged puts "Charged 2,500" three lines
+    above "Total 0.00" with nothing between them to explain it, so a
+    cancelled job says what it means instead.
+    """
+    if job.is_void:
+        return (
+            Total("Quoted", money(job.subtotal), tone="muted"),
+            Total("Charged", money(job.grand_total), strong=True),
+            Total("Paid, less refunds", money(job.paid_amount), tone="muted"),
+        )
+    return (
+        Total("Charged", money(job.subtotal)),
+        Total("Discount", money(job.discount_amount), tone="muted"),
+        Total("Total", money(job.grand_total), strong=True),
+        Total("Materials and labour", money(job.cost), tone="muted"),
+        Total("Paid", money(job.paid_amount), tone="success"),
+        Total(
+            "Left to pay",
+            money(job.balance_amount),
+            tone="success" if job.balance_amount <= _ZERO else "danger",
+        ),
+    )
+
+
+def _job_note(job) -> str:
+    if not job.is_void:
+        return job.note or ""
+    called_off = (
+        f"Cancelled{' on ' + date_only(job.cancelled_at) if job.cancelled_at else ''}. "
+        f"The work was quoted at {money(job.subtotal)} and none of it was charged: "
+        "the materials went back into stock and anything paid was refunded. The "
+        "items and payments above are the record of what was attempted."
+    )
+    return f"{job.note}\n\n{called_off}" if job.note else called_off
 
 
 def expense_card(expense, *, category: str) -> RecordCard:

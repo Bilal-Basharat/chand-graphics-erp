@@ -5,6 +5,7 @@ import datetime
 from decimal import Decimal
 
 from app.domain.enums.item_type import ItemType
+from app.domain.enums.job_status import JobStatus
 from app.domain.enums.movement_type import MovementType
 
 @dataclass(slots=True)
@@ -246,6 +247,115 @@ class CreateSaleCommand:
     discount_amount: Decimal = Decimal("0.00")
     items: list[SaleItemCommand] = field(default_factory=list)
     payments: list[SalePaymentCommand] = field(default_factory=list)
+
+
+############################################################
+######################### Job Orders #######################
+############################################################
+
+
+@dataclass(slots=True)
+class CreateProductTypeCommand:
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateProductTypeCommand:
+    id: int
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class CreateLabourChargeTypeCommand:
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateLabourChargeTypeCommand:
+    id: int
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class JobMaterialCommand:
+    item_type: ItemType
+    quantity: int
+    card_id: int | None = None
+    inventory_item_id: int | None = None
+    unit_cost: Decimal | None = None
+    """What one of these cost. Left out, the use case takes the last price
+    the shop paid — which is what the form offers the user anyway."""
+    note: str | None = None
+
+
+@dataclass(slots=True)
+class JobLabourChargeCommand:
+    labour_charge_type_id: int
+    amount: Decimal
+    note: str | None = None
+
+
+@dataclass(slots=True)
+class JobItemCommand:
+    product_type_id: int
+    quantity: int
+    unit_price: Decimal
+    specifications: str | None = None
+    materials: list[JobMaterialCommand] = field(default_factory=list)
+    labour_charges: list[JobLabourChargeCommand] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class JobPaymentCommand:
+    amount: Decimal
+    received_by_user_id: int
+    payment_method_id: int | None = None
+    reference_no: str | None = None
+    note: str | None = None
+
+
+@dataclass(slots=True)
+class CreateJobCommand:
+    job_no: str
+    customer_id: int | None = None
+    promised_date: datetime.date | None = None
+    note: str | None = None
+    discount_amount: Decimal = Decimal("0.00")
+    items: list[JobItemCommand] = field(default_factory=list)
+    payments: list[JobPaymentCommand] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RecordJobPaymentCommand:
+    job_id: int
+    amount: Decimal
+    received_by_user_id: int
+    payment_method_id: int | None = None
+    reference_no: str | None = None
+    note: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateJobStatusCommand:
+    job_id: int
+    status: JobStatus
+
+
+@dataclass(slots=True)
+class CancelJobCommand:
+    """Cancelling is not one of the status moves above.
+
+    The others only record where the work has got to; this one undoes the
+    job — materials back to stock, money back to the customer — so it has
+    its own command and its own use case.
+    """
+
+    job_id: int
+    reason: str | None = None
 
 
 @dataclass(slots=True)

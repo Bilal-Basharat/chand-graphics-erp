@@ -93,6 +93,34 @@ def inventory_items_view_model(container: AppContainer) -> CollectionViewModel:
     )
 
 
+def product_types_view_model(container: AppContainer) -> CollectionViewModel:
+    return CollectionViewModel(
+        CollectionSource(
+            list_all=lambda: container.list_product_types_use_case().execute(_LIST_LIMIT),
+            search=lambda term: container.search_product_types_use_case().execute(
+                SearchQuery(term=term, limit=_SEARCH_LIMIT)
+            ),
+            create=lambda command: container.create_product_type_use_case().execute(command),
+            update=lambda command: container.update_product_type_use_case().execute(command),
+            delete=lambda type_id: container.delete_product_type_use_case().execute(type_id),
+        )
+    )
+
+
+def labour_charge_types_view_model(container: AppContainer) -> CollectionViewModel:
+    return CollectionViewModel(
+        CollectionSource(
+            list_all=lambda: container.list_labour_charge_types_use_case().execute(_LIST_LIMIT),
+            search=lambda term: container.search_labour_charge_types_use_case().execute(
+                SearchQuery(term=term, limit=_SEARCH_LIMIT)
+            ),
+            create=lambda command: container.create_labour_charge_type_use_case().execute(command),
+            update=lambda command: container.update_labour_charge_type_use_case().execute(command),
+            delete=lambda type_id: container.delete_labour_charge_type_use_case().execute(type_id),
+        )
+    )
+
+
 def expense_categories_view_model(container: AppContainer) -> CollectionViewModel:
     return CollectionViewModel(
         CollectionSource(

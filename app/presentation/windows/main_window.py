@@ -18,24 +18,30 @@ from app.presentation.viewmodels.company_settings_viewmodel import CompanySettin
 from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
+from app.presentation.viewmodels.jobs_viewmodel import JobsViewModel
 from app.presentation.viewmodels.master_data_viewmodels import (
     cabinets_view_model,
     customers_view_model,
     expense_categories_view_model,
     inventory_items_view_model,
+    labour_charge_types_view_model,
     payment_methods_view_model,
+    product_types_view_model,
     suppliers_view_model,
 )
 from app.presentation.viewmodels.wedding_cards_viewmodel import WeddingCardsViewModel
 from app.presentation.views.collection_view import CollectionView
 from app.presentation.views.company_settings_view import CompanySettingsView
 from app.presentation.views.dashboard_view import DashboardView
+from app.presentation.views.jobs_view import JobsView
 from app.presentation.views.master_data_views import (
     CabinetsView,
     CustomersView,
     ExpenseCategoriesView,
     InventoryItemsView,
+    LabourChargesView,
     PaymentMethodsView,
+    ProductTypesView,
     SuppliersView,
 )
 from app.presentation.views.expenses_view import ExpensesView, expenses_view_model
@@ -44,8 +50,10 @@ from app.presentation.views.inventory_movement_view import (
     InventoryMovementViewModel,
 )
 from app.presentation.views.payments_view import (
+    JOB_PAYMENTS_PAGE,
     PURCHASE_PAYMENTS_PAGE,
     SALE_PAYMENTS_PAGE,
+    JobPaymentsViewModel,
     PaymentsView,
     PurchasePaymentsViewModel,
     SalePaymentsViewModel,
@@ -110,6 +118,7 @@ class MainWindow(QMainWindow):
         self._sidebar.navigationRequested.connect(self.navigate)
         self._sidebar.collapsedChanged.connect(self._on_sidebar_collapsed)
         self._topbar.newSaleRequested.connect(lambda: self.navigate(Route.SALES))
+        self._topbar.newJobRequested.connect(lambda: self.navigate(Route.JOBS))
         self._topbar.newPurchaseRequested.connect(lambda: self.navigate(Route.PURCHASES))
         self._topbar.searchSubmitted.connect(self._on_global_search)
         self._topbar.profileRequested.connect(lambda: self.navigate(Route.PROFILE))
@@ -181,6 +190,16 @@ class MainWindow(QMainWindow):
             ExpenseCategoriesView(expense_categories_view_model(self._container)),
             "Expense categories",
         )
+        self._add_page(
+            Route.PRODUCT_TYPES,
+            ProductTypesView(product_types_view_model(self._container)),
+            "Product types",
+        )
+        self._add_page(
+            Route.LABOUR_CHARGES,
+            LabourChargesView(labour_charge_types_view_model(self._container)),
+            "Labour charges",
+        )
 
         # Each period-filtered screen owns its own selection, so switching
         # to "Last month" on expenses doesn't silently retarget purchases.
@@ -193,6 +212,28 @@ class MainWindow(QMainWindow):
                 self._current_user_id,
             ),
             "Sales",
+        )
+
+        jobs_period = PeriodSelection()
+        self._add_page(
+            Route.JOBS,
+            JobsView(
+                JobsViewModel(self._container, jobs_period),
+                jobs_period,
+                self._current_user_id,
+            ),
+            "Job orders",
+        )
+
+        job_payments_period = PeriodSelection()
+        self._add_page(
+            Route.JOB_PAYMENTS,
+            PaymentsView(
+                JOB_PAYMENTS_PAGE,
+                JobPaymentsViewModel(self._container, job_payments_period),
+                job_payments_period,
+            ),
+            "Job payments",
         )
 
         purchases_period = PeriodSelection()

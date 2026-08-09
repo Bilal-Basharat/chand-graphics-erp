@@ -13,3 +13,5 @@ class MovementType(str, Enum):
     
     # Moving stock between physical locations/cabinets (if tracked) or branches
     TRANSFER = "TRANSFER"
+
+    CONSUMPTION = "CONSUMPTION"

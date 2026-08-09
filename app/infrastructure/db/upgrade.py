@@ -148,9 +148,39 @@ def _is_nullable(connection: Connection, table: str, column: str) -> bool:
     return any(row[1] == column and not row[3] for row in rows)
 
 
+def _add_inventory_item_unit(connection: Connection) -> None:
+    """Inventory items gained a unit label — "sheets", "ml", "bottles".
+
+    A plain nullable column, so existing items simply have no unit named
+    and read exactly as they did before.
+    """
+    if "unit" not in _table_columns(connection, "inventory_items"):
+        logger.info("Adding inventory_items.unit")
+        connection.exec_driver_sql("ALTER TABLE inventory_items ADD COLUMN unit VARCHAR(20)")
+
+
+def _add_job_cancelled_at(connection: Connection) -> None:
+    """Jobs gained the moment they were called off.
+
+    A step is needed even though `jobs` is a table this build introduced.
+    `create_all` writes the current shape only when it creates the table;
+    a database that already had `jobs` from an earlier build of this same
+    feature keeps the older shape forever, and every query naming the new
+    column fails against it.
+    """
+    columns = _table_columns(connection, "jobs")
+    # Empty means the table is not there at all — `create_all` runs before
+    # this and will have made it with the column already.
+    if columns and "cancelled_at" not in columns:
+        logger.info("Adding jobs.cancelled_at")
+        connection.exec_driver_sql("ALTER TABLE jobs ADD COLUMN cancelled_at DATETIME")
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
     _relax_payment_method_links,
+    _add_inventory_item_unit,
+    _add_job_cancelled_at,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

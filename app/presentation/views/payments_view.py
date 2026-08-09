@@ -19,6 +19,7 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QLabel, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import (
+    RecordJobPaymentCommand,
     RecordPurchasePaymentCommand,
     RecordSalePaymentCommand,
 )
@@ -33,7 +34,7 @@ from app.presentation.formatting import (
     money,
     payment_method_name,
 )
-from app.presentation.records.builders import purchase_card, sale_card
+from app.presentation.records.builders import job_card, purchase_card, sale_card
 from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
@@ -42,6 +43,7 @@ from app.presentation.viewmodels.document_items import (
     PaymentLine,
     payment_lines,
 )
+from app.presentation.viewmodels.job_items import JobCatalogue
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import NOT_FULLY_PAID, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
@@ -621,3 +623,93 @@ def _decimal_or_none(text: str) -> Decimal | None:
         return Decimal(text.strip())
     except (InvalidOperation, ValueError):
         return None
+
+
+class JobPaymentsViewModel(PaymentsViewModel):
+    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
+        super().__init__(container, period)
+        self._catalogue = JobCatalogue()
+
+    def record_card(self, document) -> RecordCard:
+        return job_card(
+            document,
+            customer=self.party_name(document),
+            items=self._catalogue.lines_of(document),
+            payments=self.payment_lines(document),
+        )
+
+    def _fetch_catalogues(self) -> dict:
+        # A job's lines name a product, its materials and its labour, so
+        # this screen loads what the job screen loads.
+        return {
+            "product_types": self._container.list_product_types_use_case().execute(
+                _REFERENCE_LIMIT
+            ),
+            "labour_charge_types": self._container.list_labour_charge_types_use_case().execute(
+                _REFERENCE_LIMIT
+            ),
+            "cards": self._container.list_cards_use_case().execute(_REFERENCE_LIMIT),
+            "inventory_items": self._container.list_inventory_items_use_case().execute(
+                _REFERENCE_LIMIT
+            ),
+        }
+
+    def _catalogues_loaded(self, reference: dict) -> None:
+        self._catalogue.set_reference(
+            product_types=reference["product_types"],
+            labour_charge_types=reference["labour_charge_types"],
+            cards=reference["cards"],
+            inventory_items=reference["inventory_items"],
+        )
+
+    def _fetch_documents(self) -> list:
+        return self._container.list_jobs_by_date_range_use_case().execute(
+            self._period.as_query(limit=_REFERENCE_LIMIT)
+        )
+
+    def _fetch_parties(self) -> list:
+        return self._container.search_customers_use_case().execute(
+            SearchQuery(term="", limit=_REFERENCE_LIMIT)
+        )
+
+    def _build_command(self, document_id, amount, method_id, reference, note):
+        return RecordJobPaymentCommand(
+            job_id=document_id,
+            amount=amount,
+            payment_method_id=method_id,
+            received_by_user_id=self.current_user_id(),
+            reference_no=reference,
+            note=note,
+        )
+
+    def _record(self, command):
+        return self._container.record_job_payment_use_case().execute(command)
+
+    def document_number(self, document) -> str:
+        return document.job_no
+
+    def party_id(self, document) -> int | None:
+        return document.customer_id
+
+    def payment_date(self, payment) -> datetime | None:
+        return payment.created_at
+
+    @property
+    def unnamed_party(self) -> str:
+        return WALK_IN
+
+
+JOB_PAYMENTS_PAGE = PaymentsPage(
+    crumb=("Operations", "Job payments"),
+    title="Job payments",
+    subtitle="What customers still owe on work made to order, and a place to record it.",
+    panel_title="Job orders",
+    empty_message="Nothing unpaid in this period.",
+    unit="job",
+    number_header="JOB #",
+    party_header="CUSTOMER",
+    search_placeholder="Search by job number or customer",
+    dialog_title="Record payment received",
+    document_noun="job",
+    amount_caption="Amount received",
+)

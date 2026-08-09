@@ -102,7 +102,7 @@ which fall back to the defaults shown:
 APP_NAME=Printing Press ERP
 COMPANY_NAME=Chand Graphics
 APP_VERSION=1.0.0
-DEVELOPED_BY=Alvi-Devs
+DEVELOPED_BY=Alvi-Systems
 
 INITIAL_ADMIN_EMAIL=admin@localhost
 INITIAL_ADMIN_PASSWORD=change-me

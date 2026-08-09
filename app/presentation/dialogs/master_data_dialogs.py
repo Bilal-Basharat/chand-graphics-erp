@@ -22,13 +22,17 @@ from app.application.dto.commands import (
     CreateCustomerCommand,
     CreateExpenseCategoryCommand,
     CreateInventoryItemCommand,
+    CreateLabourChargeTypeCommand,
     CreatePaymentMethodCommand,
+    CreateProductTypeCommand,
     CreateSupplierCommand,
     UpdateCabinetCommand,
     UpdateCustomerCommand,
     UpdateExpenseCategoryCommand,
     UpdateInventoryItemCommand,
+    UpdateLabourChargeTypeCommand,
     UpdatePaymentMethodCommand,
+    UpdateProductTypeCommand,
     UpdateSupplierCommand,
 )
 from app.presentation.dialogs.form_dialog import FormDialog
@@ -328,4 +332,91 @@ class SupplierDialog(_PartyDialog):
             return CreateSupplierCommand(name=name, phone=phone, address=address, notes=notes)
         return UpdateSupplierCommand(
             id=self._record.id, name=name, phone=phone, address=address, notes=notes
+        )
+
+
+class _NamedTypeDialog(_CollectionFormDialog):
+    """Shared form for the two job catalogues — a name and a description.
+
+    Same reasoning as `_PartyDialog`: the commands are field-for-field
+    identical, so only the wording genuinely differs.
+    """
+
+    def __init__(
+        self,
+        view_model: CollectionViewModel,
+        *,
+        noun: str,
+        subtitle: str,
+        placeholder: str,
+        record: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            view_model,
+            noun=noun,
+            subtitle=subtitle,
+            record=record,
+            parent=parent,
+        )
+        self._name = self.add_row("Name", QLineEdit(), required=True)
+        self._name.setPlaceholderText(placeholder)
+        self._description = self.add_row("Description", QTextEdit())
+        self._description.setFixedHeight(64)
+
+        if record is not None:
+            self._name.setText(record.name)
+            self._description.setPlainText(record.description or "")
+
+    def _fields(self) -> tuple[str, str | None]:
+        return self._name.text().strip(), _optional(self._description)
+
+
+class ProductTypeDialog(_NamedTypeDialog):
+    def __init__(
+        self,
+        view_model: CollectionViewModel,
+        *,
+        product_type: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            view_model,
+            noun="product type",
+            subtitle="What the shop can be asked to make. Price is agreed per job.",
+            placeholder="e.g. Bill Book, Letterhead, Business Card",
+            record=product_type,
+            parent=parent,
+        )
+
+    def build_command(self) -> CreateProductTypeCommand | UpdateProductTypeCommand:
+        name, description = self._fields()
+        if self._record is None:
+            return CreateProductTypeCommand(name=name, description=description)
+        return UpdateProductTypeCommand(id=self._record.id, name=name, description=description)
+
+
+class LabourChargeTypeDialog(_NamedTypeDialog):
+    def __init__(
+        self,
+        view_model: CollectionViewModel,
+        *,
+        labour_charge_type: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            view_model,
+            noun="labour charge",
+            subtitle="Kinds of work a job costs. The amount is entered per job item.",
+            placeholder="e.g. Printing, Binding, Lamination, Cutting",
+            record=labour_charge_type,
+            parent=parent,
+        )
+
+    def build_command(self) -> CreateLabourChargeTypeCommand | UpdateLabourChargeTypeCommand:
+        name, description = self._fields()
+        if self._record is None:
+            return CreateLabourChargeTypeCommand(name=name, description=description)
+        return UpdateLabourChargeTypeCommand(
+            id=self._record.id, name=name, description=description
         )

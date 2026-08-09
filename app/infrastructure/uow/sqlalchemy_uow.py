@@ -26,6 +26,11 @@ from app.infrastructure.repositories.transaction_repositories import (
     SqlAlchemySalePaymentRepository,
     SqlAlchemySaleRepository,
 )
+from app.infrastructure.repositories.job_repositories import (
+    SqlAlchemyJobRepository,
+    SqlAlchemyLabourChargeTypeRepository,
+    SqlAlchemyProductTypeRepository,
+)
 from app.infrastructure.repositories.login_audit_repository import SqlAlchemyLoginAuditRepository
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
@@ -55,6 +60,9 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.sale_payments: SqlAlchemySalePaymentRepository | None = None
         self.expenses: SqlAlchemyExpenseRepository | None = None
         self.inventory_movements: SqlAlchemyInventoryMovementRepository | None = None
+        self.jobs: SqlAlchemyJobRepository | None = None
+        self.product_types: SqlAlchemyProductTypeRepository | None = None
+        self.labour_charge_types: SqlAlchemyLabourChargeTypeRepository | None = None
         self.login_audits = None
         
     def __enter__(self) -> SqlAlchemyUnitOfWork:
@@ -86,6 +94,9 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.sale_payments = SqlAlchemySalePaymentRepository(self.session)
         self.expenses = SqlAlchemyExpenseRepository(self.session)
         self.inventory_movements = SqlAlchemyInventoryMovementRepository(self.session)
+        self.jobs = SqlAlchemyJobRepository(self.session)
+        self.product_types = SqlAlchemyProductTypeRepository(self.session)
+        self.labour_charge_types = SqlAlchemyLabourChargeTypeRepository(self.session)
 
     def commit(self) -> None:
         if self.session is None:

@@ -123,7 +123,7 @@ class DashboardView(QWidget):
         text_col = QVBoxLayout()
         title = QLabel("Dashboard")
         title.setProperty("role", "pageTitle")
-        sub = QLabel("Sales, purchases, stock and balances at a glance.")
+        sub = QLabel("Sales, job orders, purchases, stock and balances at a glance.")
         sub.setProperty("role", "pageSub")
         text_col.addWidget(title)
         text_col.addWidget(sub)
@@ -161,7 +161,7 @@ class DashboardView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(
             self._panel_header(
-                "Money in and out", "Sales, purchases and expenses — PKR"
+                "Money in and out", "Sales, job orders, purchases and expenses — PKR"
             )
         )
 
@@ -208,7 +208,7 @@ class DashboardView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(
             self._panel_header(
-                "Recent documents", "Sales and purchases — open one, or double-click"
+                "Recent documents", "Sales, job orders and purchases — open one, or double-click"
                 " to find it on its own screen"
             )
         )

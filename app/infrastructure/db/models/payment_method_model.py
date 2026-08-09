@@ -32,3 +32,8 @@ class PaymentMethodModel(Base, AuditMixin):
     "PurchasePaymentModel",
     back_populates="payment_method",
     )
+
+    job_payments = relationship(
+    "JobPaymentModel",
+    back_populates="payment_method",
+    )

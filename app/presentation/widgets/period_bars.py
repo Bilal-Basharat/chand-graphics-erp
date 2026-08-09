@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 from app.presentation.theme import tokens as t
 
 SALES_COLOR = t.PRIMARY
+JOBS_COLOR = t.ACCENT_ALT
 PURCHASES_COLOR = t.INK_SOFT
 EXPENSES_COLOR = t.WARNING
 """Money in over the counter, money in from work made to order, money out
@@ -73,7 +74,7 @@ class PeriodBars(QWidget):
     def set_buckets(self, buckets: Sequence) -> None:
         """Render `BucketTotals`, oldest first."""
         if not buckets or not any(
-            b.sales or b.purchases or b.expenses for b in buckets
+            b.sales or b.jobs or b.purchases or b.expenses for b in buckets
         ):
             self._layout.setCurrentWidget(self._empty)
             return
@@ -81,6 +82,7 @@ class PeriodBars(QWidget):
         series = QBarSeries()
         for name, amount_of, color in (
             ("Sales", lambda b: b.sales, SALES_COLOR),
+            ("Job orders", lambda b: b.jobs, JOBS_COLOR),
             ("Purchases", lambda b: b.purchases, PURCHASES_COLOR),
             ("Expenses", lambda b: b.expenses, EXPENSES_COLOR),
         ):

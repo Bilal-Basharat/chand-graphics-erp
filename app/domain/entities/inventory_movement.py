@@ -6,6 +6,13 @@ from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.domain.entities.base import AuditEntity
 
+_USUALLY_INBOUND = frozenset({MovementType.RETURN, MovementType.ADJUSTMENT})
+"""Which way a movement went, when the stock figures cannot say.
+
+Only a fallback for rows recorded without them — see `quantity_change`,
+which explains why the type alone is not an answer.
+"""
+
 
 @dataclass(slots=True)
 class InventoryMovement(AuditEntity):
@@ -13,6 +20,8 @@ class InventoryMovement(AuditEntity):
     movement_type: MovementType
     item_type: ItemType
     quantity: int
+    """How many moved, always positive. Which way they went is
+    `quantity_change`."""
 
     card_id: int | None = None
     inventory_item_id: int | None = None
@@ -46,3 +55,22 @@ class InventoryMovement(AuditEntity):
                 raise ValueError("inventory_item_id is required for INVENTORY_ITEM movements")
             if self.card_id is not None:
                 raise ValueError("card_id must be None for INVENTORY_ITEM movements")
+
+    @property
+    def quantity_change(self) -> int:
+        """Signed change to stock: positive put some in, negative took some out.
+
+        Read from the two stock figures rather than guessed from the
+        movement type, because the type does not know. An ADJUSTMENT goes
+        either way — stock found or stock written off. So does a RETURN:
+        a customer bringing goods back raises stock, the shop returning
+        them to a supplier lowers it. A TRANSFER likewise. Only the before
+        and after counts say which happened, and both are recorded.
+        """
+        if self.previous_stock is not None and self.resulting_stock is not None:
+            return self.resulting_stock - self.previous_stock
+        return (
+            self.quantity
+            if self.movement_type in _USUALLY_INBOUND
+            else -self.quantity
+        )

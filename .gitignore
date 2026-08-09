@@ -57,3 +57,5 @@ Thumbs.db
 
 # Alembic temporary / local files if any
 alembic/*.pyc
+# Installer output
+installer/

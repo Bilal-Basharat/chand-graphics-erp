@@ -246,12 +246,19 @@ class DeleteCustomerUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
         with self.uow as uow:
             customers = self.require(uow.customers, "customers")
             sales = self.require(uow.sales, "sales")
+            jobs = self.require(uow.jobs, "jobs")
 
             customer = customers.get_by_id(request)
             if customer is None:
                 raise NotFoundError(f"Customer id={request} not found")
 
-            ensure_not_in_use(customer.name, {"sale": sales.count_by_customer(request)})
+            ensure_not_in_use(
+                customer.name,
+                {
+                    "sale": sales.count_by_customer(request),
+                    "job": jobs.count_by_customer(request),
+                },
+            )
 
             customers.delete(request)
 

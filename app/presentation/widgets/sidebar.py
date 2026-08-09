@@ -62,9 +62,11 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
     )),
     ("Operations", (
         NavItem("Sales", Route.SALES),
+        NavItem("Job orders", Route.JOBS),
         NavItem("Purchases", Route.PURCHASES),
         NavItem("Payments", icon="payments", children=(
             NavItem("Sale payments", Route.SALE_PAYMENTS),
+            NavItem("Job payments", Route.JOB_PAYMENTS),
             NavItem("Purchase payments", Route.PURCHASE_PAYMENTS),
         )),
         NavItem("Payment methods", Route.PAYMENT_METHODS),
@@ -74,6 +76,8 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
         NavItem("Inventory items", Route.INVENTORY_ITEMS),
         NavItem("Cabinets", Route.CABINETS),
         NavItem("Inventory movement", Route.INVENTORY_MOVEMENT),
+        NavItem("Product types", Route.PRODUCT_TYPES),
+        NavItem("Labour charges", Route.LABOUR_CHARGES),
     )),
     ("Parties", (
         NavItem("Customers", Route.CUSTOMERS),

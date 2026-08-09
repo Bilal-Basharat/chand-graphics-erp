@@ -282,6 +282,81 @@ class AppContainer:
         return UpdateCompanySettingsUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
     ############################################################
+    ###################### Job Use Cases #######################
+    ############################################################
+    def create_job_use_case(self):
+        from app.application.use_cases.jobs import CreateJobUseCase
+        return CreateJobUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def record_job_payment_use_case(self):
+        from app.application.use_cases.jobs import RecordJobPaymentUseCase
+        return RecordJobPaymentUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_job_status_use_case(self):
+        from app.application.use_cases.jobs import UpdateJobStatusUseCase
+        return UpdateJobStatusUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def cancel_job_use_case(self):
+        from app.application.use_cases.jobs import CancelJobUseCase
+        return CancelJobUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def get_job_by_job_no_use_case(self):
+        from app.application.use_cases.jobs import GetJobByJobNoUseCase
+        return GetJobByJobNoUseCase(self.create_uow(), self.current_user_session)
+
+    def list_jobs_by_date_range_use_case(self):
+        from app.application.use_cases.jobs import ListJobsByDateRangeUseCase
+        return ListJobsByDateRangeUseCase(self.create_uow(), self.current_user_session)
+
+    def search_jobs_use_case(self):
+        from app.application.use_cases.jobs import SearchJobsUseCase
+        return SearchJobsUseCase(self.create_uow(), self.current_user_session)
+
+    def get_material_unit_cost_use_case(self):
+        from app.application.use_cases.jobs import GetMaterialUnitCostUseCase
+        return GetMaterialUnitCostUseCase(self.create_uow(), self.current_user_session)
+
+    def create_product_type_use_case(self):
+        from app.application.use_cases.job_catalogues import CreateProductTypeUseCase
+        return CreateProductTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_product_type_use_case(self):
+        from app.application.use_cases.job_catalogues import UpdateProductTypeUseCase
+        return UpdateProductTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_product_type_use_case(self):
+        from app.application.use_cases.job_catalogues import DeleteProductTypeUseCase
+        return DeleteProductTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_product_types_use_case(self):
+        from app.application.use_cases.job_catalogues import ListProductTypesUseCase
+        return ListProductTypesUseCase(self.create_uow(), self.current_user_session)
+
+    def search_product_types_use_case(self):
+        from app.application.use_cases.job_catalogues import SearchProductTypesUseCase
+        return SearchProductTypesUseCase(self.create_uow(), self.current_user_session)
+
+    def create_labour_charge_type_use_case(self):
+        from app.application.use_cases.job_catalogues import CreateLabourChargeTypeUseCase
+        return CreateLabourChargeTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_labour_charge_type_use_case(self):
+        from app.application.use_cases.job_catalogues import UpdateLabourChargeTypeUseCase
+        return UpdateLabourChargeTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_labour_charge_type_use_case(self):
+        from app.application.use_cases.job_catalogues import DeleteLabourChargeTypeUseCase
+        return DeleteLabourChargeTypeUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_labour_charge_types_use_case(self):
+        from app.application.use_cases.job_catalogues import ListLabourChargeTypesUseCase
+        return ListLabourChargeTypesUseCase(self.create_uow(), self.current_user_session)
+
+    def search_labour_charge_types_use_case(self):
+        from app.application.use_cases.job_catalogues import SearchLabourChargeTypesUseCase
+        return SearchLabourChargeTypesUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
     #################### Purchase Use Cases #######################
     ############################################################
     def create_purchase_use_case(self):

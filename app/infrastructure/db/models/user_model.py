@@ -113,3 +113,15 @@ class UserModel(Base, AuditMixin):
 
     payment_methods = relationship("PaymentMethodModel", back_populates="created_by_user",
             foreign_keys="PaymentMethodModel.created_by_user_id",)
+
+    jobs = relationship(
+        "JobModel",
+        back_populates="created_by_user",
+        foreign_keys="JobModel.created_by_user_id",
+    )
+
+    job_payments = relationship(
+        "JobPaymentModel",
+        back_populates="received_by_user",
+        foreign_keys="JobPaymentModel.received_by_user_id",
+    )
