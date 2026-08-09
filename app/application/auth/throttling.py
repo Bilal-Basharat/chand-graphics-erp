@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.application.auth.exceptions import LoginThrottledError
 from app.config.settings import AppSettings
 from app.domain.uow import UnitOfWork
+from app.shared.datetimes import now_pkt
 
 
 @dataclass(slots=True)
@@ -27,7 +28,7 @@ class LoginThrottleService:
 
     def require_not_throttled(self, email: str) -> None:
         email = email.strip().lower()
-        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        since = now_pkt() - timedelta(
             minutes=self.settings.login_lockout_minutes
         )
         failed_attempts = self.failed_attempts_since(email, since)

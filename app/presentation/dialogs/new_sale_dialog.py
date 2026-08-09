@@ -19,12 +19,13 @@ from app.presentation.dialogs.document_dialog import DocumentDialog, field, step
 from app.presentation.dialogs.line_item_dialog import LineItemDialog
 from app.presentation.widgets.document_lines import ZERO, DocumentTotals
 from app.presentation.widgets.product_picker import Product, ProductPicker
+from app.shared.datetimes import now_pkt
 
 _WALK_IN = "Walk-in customer"
 
 
 def _new_invoice_number() -> str:
-    return f"INV-{datetime.now():%y%m%d%H%M%S}"
+    return f"INV-{now_pkt():%y%m%d%H%M%S}"
 
 
 class NewSaleDialog(DocumentDialog):

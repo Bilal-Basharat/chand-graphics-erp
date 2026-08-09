@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.mixins import TimestampMixin
+from app.shared.datetimes import now_pkt
 
 
 class SalePaymentModel(Base, TimestampMixin):
@@ -51,7 +52,7 @@ class SalePaymentModel(Base, TimestampMixin):
 
     received_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=now_pkt,
         nullable=False,
     )
 

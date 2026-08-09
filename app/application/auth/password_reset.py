@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.application.auth.commands import PasswordResetCommand, RecordLoginAuditCommand
 from app.application.auth.email_address import clean_email
@@ -31,6 +31,7 @@ from app.domain.enums.login_event_type import LoginEventType
 from app.domain.notifications.email_sender import EmailMessage, EmailSender
 from app.domain.security.password_hasher import PasswordHasher
 from app.domain.uow import UnitOfWork
+from app.shared.datetimes import now_pkt
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class RequestPasswordResetUseCase(UseCase[PasswordResetCommand, PasswordResetRes
                     "That account is inactive, so its password cannot be reset."
                 )
 
-            since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            since = now_pkt() - timedelta(
                 minutes=_WINDOW_MINUTES
             )
             if audits.count_recent_events(email, LoginEventType.PASSWORD_RESET, since) >= _MAX_RESETS:

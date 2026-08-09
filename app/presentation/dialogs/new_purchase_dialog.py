@@ -34,12 +34,13 @@ from app.presentation.formatting import card_label
 from app.presentation.widgets.document_lines import ZERO, DocumentTotals, parse_amount
 from app.presentation.widgets.item_type_combo import ItemTypeCombo
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.shared.datetimes import now_pkt
 
 _CHOOSE_SUPPLIER = "— Choose a supplier —"
 
 
 def _new_purchase_number() -> str:
-    return f"PUR-{datetime.now():%y%m%d%H%M%S}"
+        return f"PUR-{now_pkt():%y%m%d%H%M%S}"
 
 
 class NewPurchaseDialog(DocumentDialog):

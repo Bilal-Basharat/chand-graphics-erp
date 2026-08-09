@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, Numeric, String
@@ -8,6 +8,7 @@ from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.infrastructure.db.mixins import AuditMixin
 from app.infrastructure.db.base import Base
+from app.shared.datetimes import now_pkt
 
 class InventoryMovementModel(Base, AuditMixin):
     __tablename__ = "inventory_movements"
@@ -85,7 +86,7 @@ class InventoryMovementModel(Base, AuditMixin):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default=now_pkt,
     )
 
     card_id: Mapped[int | None] = mapped_column(

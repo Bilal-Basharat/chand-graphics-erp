@@ -1,21 +1,23 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
+
+from app.shared.datetimes import now_pkt
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=now_pkt,
         index=True,
     )
 
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=now_pkt,
     )
 
 
