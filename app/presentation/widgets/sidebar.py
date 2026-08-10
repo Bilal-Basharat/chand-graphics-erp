@@ -70,8 +70,7 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
         NavItem("Payment methods", Route.PAYMENT_METHODS),
     )),
     ("Items", (
-        NavItem("Wedding cards", Route.WEDDING_CARDS),
-        NavItem("Inventory items", Route.INVENTORY_ITEMS),
+        NavItem("Inventory", Route.INVENTORY),
         NavItem("Cabinets", Route.CABINETS),
         NavItem("Inventory movement", Route.INVENTORY_MOVEMENT),
     )),

@@ -3,10 +3,10 @@ What a recorded document actually contained, ready to read underneath it:
 the lines it was made of, and the instalments that settled it.
 
 A sale line and a purchase line are the same record in opposite
-directions — a card or inventory item, a quantity and a unit price — and
-neither carries the product's name, only its id. Both screens already
-load the two catalogues for their create dialog, so the lookup is fed
-from that and lives here once instead of twice.
+directions — an item, a quantity and a unit price — and neither carries
+the item's name, only its id. Both screens already load the catalogues
+for their create dialog, so the lookup is fed from that and lives here
+once instead of twice.
 
 The same goes for payments. A sale, a purchase and a job are each paid in
 instalments against a falling balance, and all six screens that show that
@@ -21,7 +21,8 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.domain.enums.item_type import ItemType
-from app.presentation.formatting import DASH, card_label
+from app.presentation.formatting import DASH
+from app.presentation.item_types import catalogue_key, item_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,27 +36,20 @@ class DocumentItemLine:
 
 
 class ItemCatalogue:
-    """Names for the cards and inventory items that document lines point at."""
+    """Names for the catalogue records that document lines point at."""
 
     def __init__(self) -> None:
         self._names: dict[tuple[ItemType, int], str] = {}
 
-    def set_products(self, cards: list, inventory_items: list) -> None:
-        self._names = {(ItemType.CARD, card.id): card_label(card) for card in cards}
-        self._names.update(
-            {(ItemType.INVENTORY_ITEM, item.id): item.name for item in inventory_items}
-        )
+    def set_catalogues(self, catalogues: dict[ItemType, list]) -> None:
+        self._names = {
+            (item_type, record.id): item_name(item_type, record)
+            for item_type, records in catalogues.items()
+            for record in records
+        }
 
     def label_for(self, item) -> str:
-        # Keyed off which id the line carries rather than off its declared
-        # type: the two are guaranteed to agree by the line's own
-        # invariant, and reading the id needs no enum round trip.
-        key = (
-            (ItemType.CARD, item.card_id)
-            if item.card_id is not None
-            else (ItemType.INVENTORY_ITEM, item.inventory_item_id)
-        )
-        return self._names.get(key, DASH)
+        return self._names.get(catalogue_key(item), DASH)
 
     def lines_of(self, document) -> list[DocumentItemLine]:
         return [

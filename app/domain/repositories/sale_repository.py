@@ -35,7 +35,7 @@ class SaleRepository(Repository[Sale], ABC):
 
     @abstractmethod
     def count_by_item(self, item_type: ItemType, item_id: int) -> int:
-        """How many sales have sold one card or inventory item."""
+        """How many sales have sold one catalogue item."""
         raise NotImplementedError
 
     @abstractmethod

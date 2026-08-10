@@ -697,7 +697,7 @@ def build_stylesheet() -> str:
         border-radius: {t.RADIUS_SM}px;
     }}
 
-    /* ---------------- Wedding Cards quick-add row ---------------- */
+    /* ---------------- Quick-add row ---------------- */
     QFrame#AddRowStrip {{
         background: {t.PRIMARY_TINT};
         border: none;

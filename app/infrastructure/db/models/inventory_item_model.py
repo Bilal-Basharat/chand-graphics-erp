@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -43,6 +43,12 @@ class InventoryItemModel(Base, AuditMixin):
         nullable=True,
     )
 
+    cabinet_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cabinets.id"),
+        nullable=True,
+        index=True,
+    )
+
 #############################################################
 #################### relationship methods ###################
 #############################################################
@@ -52,7 +58,14 @@ class InventoryItemModel(Base, AuditMixin):
                 back_populates="inventory_items",
                 foreign_keys="InventoryItemModel.created_by_user_id",
     )
-    
+
+    cabinet = relationship(
+        "CabinetModel",
+        back_populates="inventory_items",
+        foreign_keys="InventoryItemModel.cabinet_id",
+    )
+
+
     purchase_items = relationship(
         "PurchaseItemModel",
         back_populates="inventory_item",

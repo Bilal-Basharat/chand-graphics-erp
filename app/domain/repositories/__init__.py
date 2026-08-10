@@ -1,6 +1,5 @@
 # from app.domain.repositories.base import Repository
 # from app.domain.repositories.cabinet_repository import CabinetRepository
-# from app.domain.repositories.card_repository import CardRepository
 # from app.domain.repositories.company_settings_repository import CompanySettingsRepository
 # from app.domain.repositories.customer_repository import CustomerRepository
 # from app.domain.repositories.expense_category_repository import ExpenseCategoryRepository

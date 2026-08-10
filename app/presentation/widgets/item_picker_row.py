@@ -19,12 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget, QStyledItemDelegate
 
 from app.domain.enums.item_type import ItemType
-from app.presentation.formatting import card_label
+from app.presentation.item_types import item_name
 from app.presentation.widgets.document_lines import ZERO, parse_amount
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.item_type_combo import ItemTypeCombo
@@ -33,6 +33,28 @@ from app.presentation.widgets.modern_spinbox import ModernSpinBox
 _NONE_AVAILABLE = "— none available —"
 _UNCAPPED = 1_000_000
 
+
+class ItemDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        painter.save()
+
+        rect = option.rect.adjusted(10, 0, -10, 0)
+        name = index.data(Qt.ItemDataRole.DisplayRole)
+        stock = index.data(Qt.ItemDataRole.UserRole + 1)
+
+        painter.drawText(
+            rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            name,
+        )
+
+        painter.drawText(
+            rect,
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            f"Stock: {stock}",
+        )
+
+        painter.restore()
 
 @dataclass(frozen=True, slots=True)
 class PickedItem:
@@ -52,14 +74,12 @@ class ItemPickerRow(QWidget):
 
     def __init__(
         self,
-        cards: list,
-        inventory_items: list,
+        catalogues: dict[ItemType, list],
         *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._cards = cards
-        self._inventory_items = inventory_items
+        self._catalogues = catalogues
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -69,6 +89,8 @@ class ItemPickerRow(QWidget):
         self._kind.currentIndexChanged.connect(self._on_kind_changed)
 
         self._item = QComboBox()
+        self._item.setItemDelegate(ItemDelegate(self._item))
+
         self._item.setMinimumWidth(220)
         self._item.currentIndexChanged.connect(self._on_item_changed)
 
@@ -98,13 +120,18 @@ class ItemPickerRow(QWidget):
     # ---------------- state ----------------
 
     def _on_kind_changed(self, _index: int) -> None:
-        is_card = self._kind.is_card
-        rows = self._cards if is_card else self._inventory_items
+        item_type = self._kind.selected_type()
+        records = self._catalogues.get(item_type, [])
         self._item.clear()
-        if not rows:
+        if not records:
             self._item.addItem(_NONE_AVAILABLE, None)
-        for row in rows:
-            self._item.addItem(card_label(row) if is_card else row.name, row.id)
+        for record in records:
+            self._item.addItem(item_name(item_type, record), record.id)
+            self._item.setItemData(
+            self._item.count() - 1,
+            getattr(record, "current_stock", 0),
+            Qt.ItemDataRole.UserRole + 1,
+    )
 
     def _on_item_changed(self, _index: int = 0) -> None:
         item_id = self._item.currentData()

@@ -37,7 +37,7 @@ class PurchaseRepository(Repository[Purchase], ABC):
 
     @abstractmethod
     def count_by_item(self, item_type: ItemType, item_id: int) -> int:
-        """How many purchases have bought one card or inventory item."""
+        """How many purchases have bought one catalogue item."""
         raise NotImplementedError
 
     @abstractmethod

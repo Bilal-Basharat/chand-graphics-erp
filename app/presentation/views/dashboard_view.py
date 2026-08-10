@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -43,6 +44,7 @@ from app.presentation.views.collection_view import VIEW_ACTION
 from app.presentation.widgets.activity_list import ActivityList
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.page_scroll import page_scroll
+from app.presentation.widgets.payment_status import STATUS_COLORS
 from app.presentation.widgets.period_bars import PeriodBars
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.row_actions import RowActionsDelegate
@@ -51,13 +53,9 @@ from app.presentation.widgets.table_model import Column
 
 
 def _document_status_color(row) -> str:
-    """Same status colours as the purchases and payments screens, so a
-    document reads the same wherever it appears."""
-    if row.status == "Paid":
-        return t.SUCCESS
-    if row.status == "Partial":
-        return t.WARNING
-    return t.DANGER
+    """The status colours the document screens use, looked up by the word
+    the view model already settled on — see `widgets/payment_status.py`."""
+    return STATUS_COLORS.get(row.status, t.DANGER)
 
 
 class DashboardView(QWidget):
@@ -113,10 +111,18 @@ class DashboardView(QWidget):
         outer.addStretch(1)
 
         self._view_model.dashboardLoaded.connect(self._on_loaded)
+        # Every list screen routes its view model's errors to the user;
+        # this one used to drop them, so a failed load left four empty
+        # panels and no reason why. A dashboard that cannot say it is
+        # broken looks exactly like a shop that did no trade.
+        self._view_model.errorOccurred.connect(self._on_error)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
         self._view_model.load()
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Dashboard", message)
 
     def _build_page_head(self) -> QHBoxLayout:
         row = QHBoxLayout()

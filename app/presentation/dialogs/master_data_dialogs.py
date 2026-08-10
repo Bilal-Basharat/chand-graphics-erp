@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtWidgets import QLineEdit, QTextEdit, QWidget
+from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import (
     CreateCabinetCommand,
@@ -34,6 +34,8 @@ from app.application.dto.commands import (
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
+
+_NO_CABINET = "— None —"
 
 
 class _CollectionFormDialog(FormDialog):
@@ -94,7 +96,7 @@ class CabinetDialog(_CollectionFormDialog):
         super().__init__(
             view_model,
             noun="cabinet",
-            subtitle="Cabinets are the physical storage locations cards are filed under.",
+            subtitle="Cabinets are the physical storage locations stock is filed under.",
             record=cabinet,
             parent=parent,
         )
@@ -179,14 +181,15 @@ class InventoryItemDialog(_CollectionFormDialog):
     def __init__(
         self,
         view_model: CollectionViewModel,
+        cabinet_names: dict[int, str],
         *,
         item: Any | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
             view_model,
-            noun="inventory item",
-            subtitle="Non-card stock such as paper, ink and packaging.",
+            noun="item",
+            subtitle="Stock you keep and trade — paper, ink, packaging, anything counted.",
             record=item,
             parent=parent,
         )
@@ -200,6 +203,12 @@ class InventoryItemDialog(_CollectionFormDialog):
         self._minimum_stock.setRange(0, 1_000_000)
         self.add_row("Minimum stock", self._minimum_stock)
 
+        self._cabinet = QComboBox()
+        self._cabinet.addItem(_NO_CABINET, None)
+        for cabinet_id, code in sorted(cabinet_names.items(), key=lambda kv: kv[1]):
+            self._cabinet.addItem(code, cabinet_id)
+        self.add_row("Cabinet", self._cabinet)
+
         self._description = self.add_row("Description", QTextEdit())
         self._description.setFixedHeight(64)
 
@@ -207,6 +216,7 @@ class InventoryItemDialog(_CollectionFormDialog):
             self._name.setText(item.name)
             self._unit.setText(item.unit or "")
             self._minimum_stock.setValue(item.minimum_stock)
+            self._cabinet.setCurrentIndex(max(self._cabinet.findData(item.cabinet_id), 0))
             self._description.setPlainText(item.description or "")
 
         self.add_note(
@@ -220,6 +230,7 @@ class InventoryItemDialog(_CollectionFormDialog):
         name = self._name.text().strip()
         minimum_stock = self._minimum_stock.value()
         description = _optional(self._description)
+        cabinet_id = self._cabinet.currentData()
         unit = _optional(self._unit)
         if self._record is None:
             return CreateInventoryItemCommand(
@@ -227,6 +238,7 @@ class InventoryItemDialog(_CollectionFormDialog):
                 minimum_stock=minimum_stock,
                 current_stock=0,
                 description=description,
+                cabinet_id=cabinet_id,
                 unit=unit,
             )
         return UpdateInventoryItemCommand(
@@ -234,6 +246,7 @@ class InventoryItemDialog(_CollectionFormDialog):
             name=name,
             minimum_stock=minimum_stock,
             description=description,
+            cabinet_id=cabinet_id,
             unit=unit,
         )
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -13,14 +13,6 @@ from app.shared.datetimes import now_pkt
 class InventoryMovementModel(Base, AuditMixin):
     __tablename__ = "inventory_movements"
 
-    __table_args__ = (
-        CheckConstraint(
-           "(card_id IS NOT NULL AND inventory_item_id IS NULL) OR "
-            "(card_id IS NULL AND inventory_item_id IS NOT NULL)",
-            name="ck_inventory_movements_exclusive_target",
-        ),
-    )
-    
     id: Mapped[int] = mapped_column(primary_key=True)
 
     movement_type: Mapped[str] = mapped_column(
@@ -89,18 +81,12 @@ class InventoryMovementModel(Base, AuditMixin):
         default=now_pkt,
     )
 
-    card_id: Mapped[int | None] = mapped_column(
-            ForeignKey("cards.id"),
-            nullable=True,
-            index=True,
-    )
-    
-    inventory_item_id: Mapped[int | None] = mapped_column(
+    inventory_item_id: Mapped[int] = mapped_column(
             ForeignKey("inventory_items.id"),
-            nullable=True,
+            nullable=False,
             index=True,
     )
+    """Which catalogue record the stock moved on — see SaleItemModel."""
 
-    card = relationship("CardModel")
     inventory_item = relationship("InventoryItemModel")
     created_by_user = relationship("UserModel", foreign_keys="InventoryMovementModel.created_by_user_id", back_populates="inventory_movements")

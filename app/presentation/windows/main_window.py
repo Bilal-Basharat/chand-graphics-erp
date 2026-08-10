@@ -19,14 +19,13 @@ from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.viewmodels.master_data_viewmodels import (
+    InventoryViewModel,
     cabinets_view_model,
     customers_view_model,
     expense_categories_view_model,
-    inventory_items_view_model,
     payment_methods_view_model,
     suppliers_view_model,
 )
-from app.presentation.viewmodels.wedding_cards_viewmodel import WeddingCardsViewModel
 from app.presentation.views.collection_view import CollectionView
 from app.presentation.views.company_settings_view import CompanySettingsView
 from app.presentation.views.dashboard_view import DashboardView
@@ -34,7 +33,7 @@ from app.presentation.views.master_data_views import (
     CabinetsView,
     CustomersView,
     ExpenseCategoriesView,
-    InventoryItemsView,
+    InventoryView,
     PaymentMethodsView,
     SuppliersView,
 )
@@ -54,7 +53,6 @@ from app.presentation.views.profile_view import ProfileView
 from app.presentation.views.purchases_view import PurchasesView, PurchasesViewModel
 from app.presentation.views.reports_view import ReportsView, ReportsViewModel
 from app.presentation.views.sales_view import SalesView
-from app.presentation.views.wedding_cards_view import WeddingCardsView
 from app.presentation.widgets.period_selector import PeriodSelection
 from app.presentation.widgets.sidebar import Sidebar
 from app.presentation.widgets.status_bar import AppStatusBar
@@ -133,9 +131,8 @@ class MainWindow(QMainWindow):
         dashboard.recordRequested.connect(self._open_record)
         self._add_page(Route.DASHBOARD, dashboard, "Dashboard")
 
-        wedding_cards_vm = WeddingCardsViewModel(self._container)
-        self._wedding_cards_view = WeddingCardsView(wedding_cards_vm)
-        self._add_page(Route.WEDDING_CARDS, self._wedding_cards_view, "Wedding cards")
+        self._inventory_view = InventoryView(InventoryViewModel(self._container))
+        self._add_page(Route.INVENTORY, self._inventory_view, "Inventory")
 
         settings_vm = CompanySettingsViewModel(self._container)
         # The shop's own details head every printed record. Taken once at
@@ -151,11 +148,6 @@ class MainWindow(QMainWindow):
 
         self._add_page(Route.COMPANY_SETTINGS, CompanySettingsView(settings_vm), "Company settings")
 
-        self._add_page(
-            Route.INVENTORY_ITEMS,
-            InventoryItemsView(inventory_items_view_model(self._container)),
-            "Inventory items",
-        )
         self._add_page(
             Route.CABINETS,
             CabinetsView(cabinets_view_model(self._container)),
@@ -312,7 +304,7 @@ class MainWindow(QMainWindow):
 
     def _on_global_search(self, term: str) -> None:
         # Search the screen the user is actually on, when that screen can
-        # be searched. Otherwise fall back to the card catalogue, which is
+        # be searched. Otherwise fall back to the item catalogue, which is
         # the app's largest searchable dataset.
         if not term:
             return
@@ -320,5 +312,5 @@ class MainWindow(QMainWindow):
         if page is not None:
             page.apply_search(term)
             return
-        self.navigate(Route.WEDDING_CARDS)
-        self._wedding_cards_view.apply_search(term)
+        self.navigate(Route.INVENTORY)
+        self._inventory_view.apply_search(term)

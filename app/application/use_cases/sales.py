@@ -4,13 +4,14 @@ from app.application.dto.commands import (
     CreateSaleCommand,
     DateRangeQuery,
     RecordSalePaymentCommand,
-    SaleItemCommand,
-    SalePaymentCommand,
 )
 from app.application.dto.queries import SalePaymentStatus
 from app.application.exceptions import DuplicateEntityError, NotFoundError
-from app.application.use_cases.base import UseCase
-from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
+from app.application.use_cases.stock_helpers import (
+    ResolvedStockTarget,
+    decrease_stock,
+    load_stock_target,
+)
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_item import SaleItem
 from app.domain.entities.sale_payment import SalePayment
@@ -72,46 +73,31 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                 created_by_user_id=current_user_id,
             )
 
-            stock_cache: dict[tuple[str, int], object] = {}
+            # One record per item on the invoice, so a second line for the
+            # same item draws down the running count rather than starting
+            # again from what was on the shelf when the sale began.
+            targets: dict[tuple[ItemType, int | None], ResolvedStockTarget] = {}
 
             for item in request.items:
-                if item.item_type == ItemType.CARD:
-                    if item.card_id is None:
-                        raise ValueError("card_id is required for CARD items")
-                    key = ("CARD", item.card_id)
-                    if key not in stock_cache:
-                        stock_cache[key] = self.require(uow.cards, "cards").get_by_id(item.card_id)
-                        if stock_cache[key] is None:
-                            raise NotFoundError(f"Card id={item.card_id} not found")
-                    card = stock_cache[key]
-                    if card.is_low_stock:
-                        raise ValueError(
-                            f"Card '{card.card_number}' is low/out of stock and cannot be sold."
-                        )
-                    previous_stock, resulting_stock = decrease_stock(card, item.quantity)
-                    stock_cache[key] = self.require(uow.cards, "cards").update(card)
-                else:
-                    if item.inventory_item_id is None:
-                        raise ValueError("inventory_item_id is required for INVENTORY_ITEM items")
-                    key = ("ITEM", item.inventory_item_id)
-                    if key not in stock_cache:
-                        stock_cache[key] = self.require(uow.inventory_items, "inventory_items").get_by_id(item.inventory_item_id)
-                        if stock_cache[key] is None:
-                            raise NotFoundError(f"Inventory item id={item.inventory_item_id} not found")
-                    inv_item = stock_cache[key]
-                    if inv_item.is_low_stock:
-                        raise ValueError(
-                            f"Inventory item '{inv_item.name}' is low/out of stock and cannot be sold."
-                        )
-                    previous_stock, resulting_stock = decrease_stock(inv_item, item.quantity)
-                    stock_cache[key] = self.require(uow.inventory_items, "inventory_items").update(inv_item)
+                key = (item.item_type, item.inventory_item_id)
+                target = targets.get(key)
+                if target is None:
+                    target = load_stock_target(uow, item.item_type, item.inventory_item_id)
+                    targets[key] = target
+
+                if target.entity.is_low_stock:
+                    raise ValueError(
+                        f"'{target.entity.name}' is low/out of stock and cannot be sold."
+                    )
+
+                previous_stock, resulting_stock = decrease_stock(target.entity, item.quantity)
+                target.entity = target.repository.update(target.entity)
 
                 sale.add_item(
                     SaleItem(
                         item_type=item.item_type,
                         quantity=item.quantity,
                         unit_price=item.unit_price,
-                        card_id=item.card_id,
                         inventory_item_id=item.inventory_item_id,
                         previous_stock=previous_stock,
                         resulting_stock=resulting_stock,

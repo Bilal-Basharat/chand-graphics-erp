@@ -12,8 +12,6 @@ there is no "not enough stock" case to guard against.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -48,15 +46,13 @@ class NewPurchaseDialog(DocumentDialog):
         *,
         suppliers: list,
         payment_methods: list,
-        cards: list,
-        inventory_items: list,
+        catalogues: dict[ItemType, list],
         current_user_id: int | None,
         parent: QWidget | None = None,
     ) -> None:
         # Set before super(), which calls the build hooks below.
         self._suppliers = suppliers
-        self._cards = cards
-        self._inventory_items = inventory_items
+        self._catalogues = catalogues
 
         super().__init__(
             view_model,
@@ -97,7 +93,7 @@ class NewPurchaseDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        self._picker = ItemPickerRow(self._cards, self._inventory_items)
+        self._picker = ItemPickerRow(self._catalogues)
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
         return self._picker
@@ -152,8 +148,7 @@ class NewPurchaseDialog(DocumentDialog):
                     item_type=line.item_type,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
-                    card_id=line.item_id if line.item_type is ItemType.CARD else None,
-                    inventory_item_id=None if line.item_type is ItemType.CARD else line.item_id,
+                    inventory_item_id=line.item_id,
                 )
                 for line in self.lines
             ],

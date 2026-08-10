@@ -38,7 +38,7 @@ from app.presentation.widgets.table_model import Column
 _PERMISSION_LABELS: dict[Permission, str] = {
     Permission.MANAGE_USERS: "Manage user accounts",
     Permission.MANAGE_SETTINGS: "Change company settings",
-    Permission.MANAGE_MASTER_DATA: "Add cards, items, cabinets and parties",
+    Permission.MANAGE_MASTER_DATA: "Add items, cabinets, parties and payment methods",
     Permission.MANAGE_PURCHASES: "Record purchases",
     Permission.MANAGE_SALES: "Record sales",
     Permission.MANAGE_EXPENSES: "Record expenses",

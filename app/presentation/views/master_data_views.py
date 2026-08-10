@@ -1,6 +1,6 @@
 """
 The master-data screens: cabinets, payment methods, customers, suppliers,
-inventory items and expense categories.
+inventory and expense categories.
 
 All six are `CollectionView` subclasses, so what each one contributes is
 just its copy, its columns, and which dialog its primary button opens.
@@ -9,6 +9,7 @@ you the shape of the others.
 """
 from __future__ import annotations
 
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from app.application.dto.commands import (
@@ -26,9 +27,10 @@ from app.presentation.dialogs.master_data_dialogs import (
     SupplierDialog,
 )
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
+from app.presentation.viewmodels.master_data_viewmodels import InventoryViewModel
 from app.presentation.views.collection_view import CollectionPage, EditableCollectionView
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
-from app.presentation.widgets.quick_add_strip import QuickAddField, line_edit
+from app.presentation.widgets.quick_add_strip import QuickAddField, combo, line_edit, refill
 from app.presentation.widgets.stock_status import (
     stock_filters,
     stock_status_color,
@@ -37,6 +39,7 @@ from app.presentation.widgets.stock_status import (
 from app.presentation.widgets.table_model import Column
 
 _DASH = "—"
+_NO_CABINET = "— None —"
 
 
 def _or_dash(value) -> str:
@@ -49,9 +52,9 @@ class CabinetsView(EditableCollectionView):
             CollectionPage(
                 crumb=("Items", "Cabinets"),
                 title="Cabinets",
-                subtitle="Physical storage locations that wedding cards are filed under.",
+                subtitle="Physical storage locations that stock is filed under.",
                 panel_title="Cabinet list",
-                empty_message="No cabinets yet. Add one to start filing cards.",
+                empty_message="No cabinets yet. Add one to start filing stock.",
                 unit="cabinet",
                 create_label="Add cabinet",
             ),
@@ -194,15 +197,18 @@ class SuppliersView(EditableCollectionView):
         SupplierDialog(self.view_model, supplier=row, parent=self).exec()
 
 
-class InventoryItemsView(EditableCollectionView):
-    def __init__(self, view_model: CollectionViewModel, parent: QWidget | None = None) -> None:
+class InventoryView(EditableCollectionView):
+    def __init__(self, view_model: InventoryViewModel, parent: QWidget | None = None) -> None:
+        self._inventory_view_model = view_model
+        self._cabinet_names: dict[int, str] = {}
+
         super().__init__(
             CollectionPage(
-                crumb=("Items", "Inventory items"),
-                title="Inventory items",
-                subtitle="Non-card stock such as paper, ink and packaging, with its own stock levels.",
+                crumb=("Items", "Inventory"),
+                title="Inventory",
+                subtitle="Everything you keep in stock, where it is filed, and how much is left.",
                 panel_title="Item list",
-                empty_message="No inventory items yet. Add the materials you keep in stock.",
+                empty_message="No items yet. Add one above, or use the quick-add row below.",
                 unit="item",
                 search_placeholder="Search items by name",
                 create_label="Add item",
@@ -210,6 +216,7 @@ class InventoryItemsView(EditableCollectionView):
             [
                 Column("NAME", lambda i: i.name, sort_key=lambda i: i.name.lower()),
                 Column("DESCRIPTION", lambda i: _or_dash(i.description)),
+                Column("CABINET", self._cabinet_label, width=150),
                 Column("UNIT", lambda i: _or_dash(i.unit), width=110),
                 Column(
                     "STOCK",
@@ -238,18 +245,31 @@ class InventoryItemsView(EditableCollectionView):
             parent,
         )
 
+        view_model.cabinetsLoaded.connect(self._on_cabinets_loaded)
+
     def filter_options(self):
         return stock_filters()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        # Refreshed each visit rather than only when empty — cabinets get
+        # added on their own screen, and a stale list here would silently
+        # offer the wrong choices in the quick-add row and the dialog.
+        self._inventory_view_model.load_cabinets()
+
+    # ---------------- quick-add strip ----------------
 
     def quick_add_fields(self):
         self._new_item = line_edit("e.g. A4 Ivory Sheet 250gsm")
         self._new_unit = line_edit("Unit, e.g. sheets")
+        self._new_cabinet = combo(_NO_CABINET)
         self._new_minimum = ModernSpinBox()
         self._new_minimum.setRange(0, 1_000_000)
         self._new_minimum.setPrefix("Min: ")
         return (
             QuickAddField(self._new_item, 3),
             QuickAddField(self._new_unit, 2),
+            QuickAddField(self._new_cabinet, 2),
             QuickAddField(self._new_minimum, 1),
         )
 
@@ -262,14 +282,34 @@ class InventoryItemsView(EditableCollectionView):
             name=name,
             minimum_stock=self._new_minimum.value(),
             current_stock=0,
+            cabinet_id=self._new_cabinet.currentData(),
             unit=self._new_unit.text().strip() or None,
         )
 
+    # ---------------- cabinets ----------------
+
+    def _cabinet_label(self, item) -> str:
+        if not item.cabinet_id:
+            return _DASH
+        return self._cabinet_names.get(item.cabinet_id, _DASH)
+
+    def _on_cabinets_loaded(self, cabinets: list) -> None:
+        self._cabinet_names = {c.id: c.code for c in cabinets}
+        self.table.refresh()
+        refill(
+            self._new_cabinet,
+            _NO_CABINET,
+            sorted(
+                ((code, cabinet_id) for cabinet_id, code in self._cabinet_names.items()),
+                key=lambda entry: entry[0],
+            ),
+        )
+
     def open_create_dialog(self) -> None:
-        InventoryItemDialog(self.view_model, parent=self).exec()
+        InventoryItemDialog(self.view_model, self._cabinet_names, parent=self).exec()
 
     def open_edit_dialog(self, row) -> None:
-        InventoryItemDialog(self.view_model, item=row, parent=self).exec()
+        InventoryItemDialog(self.view_model, self._cabinet_names, item=row, parent=self).exec()
 
 
 class ExpenseCategoriesView(EditableCollectionView):

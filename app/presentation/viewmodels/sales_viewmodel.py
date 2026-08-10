@@ -3,7 +3,7 @@ View model for the sales screen: the period-filtered invoice list, the
 catalogues the new-sale dialog picks from, and recording a sale.
 
 Mirrors `PurchasesViewModel` — listing is by date range and the create
-dialog needs several catalogues, so neither fits `CollectionSource` and
+dialog needs the item catalogues, so neither fits `CollectionSource` and
 both implement the collection contract directly.
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ from app.application.dto.commands import CreateSaleCommand
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.formatting import DASH, WALK_IN, payment_method_name
+from app.presentation.item_types import load_catalogues
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.viewmodels.document_items import (
     DocumentItemLine,
@@ -89,16 +90,13 @@ class SalesViewModel(CollectionViewModelBase):
                     SearchQuery(term="", limit=_REFERENCE_LIMIT)
                 ),
                 "payment_methods": self._container.list_payment_methods_use_case().execute(100),
-                "cards": self._container.list_cards_use_case().execute(_REFERENCE_LIMIT),
-                "inventory_items": self._container.list_inventory_items_use_case().execute(
-                    _REFERENCE_LIMIT
-                ),
+                "catalogues": load_catalogues(self._container, _REFERENCE_LIMIT),
             }
 
         def _on_success(reference: dict) -> None:
             self._customer_names = {c.id: c.name for c in reference["customers"]}
             self._method_names = {m.id: m.name for m in reference["payment_methods"]}
-            self._catalogue.set_products(reference["cards"], reference["inventory_items"])
+            self._catalogue.set_catalogues(reference["catalogues"])
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)

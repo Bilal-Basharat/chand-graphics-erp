@@ -1,5 +1,4 @@
 from .cabinet_model import CabinetModel
-from .card_model import CardModel
 from .company_settings_model import CompanySettingsModel
 from .customer_model import CustomerModel
 from .expense_category_model import ExpenseCategoryModel
@@ -19,7 +18,6 @@ from .user_model import UserModel
 
 __all__ = [
     "CabinetModel",
-    "CardModel",
     "CompanySettingsModel",
     "CustomerModel",
     "ExpenseCategoryModel",

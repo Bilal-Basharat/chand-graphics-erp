@@ -1,11 +1,11 @@
 """
 One phrasing for "this record is still referenced".
 
-Cards, inventory items, cabinets, payment methods and expense categories
-can all be deleted now, and each of them is pointed at by a different set
-of documents. What differs between the five is only which references are
-counted; the decision, and the sentence the user reads when it goes
-against them, should not be written out five times.
+Inventory items, cabinets, payment methods, customers, suppliers and
+expense categories can all be deleted, and each of them is pointed at by
+a different set of documents. What differs between them is only which
+references are counted; the decision, and the sentence the user reads
+when it goes against them, should not be written out once each.
 """
 from __future__ import annotations
 

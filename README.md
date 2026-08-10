@@ -1,10 +1,12 @@
 # Chand Graphics ERP
 
-Offline-first desktop ERP for a prining press business built with Python and PySide6, designed with a clean architecture so it can later evolve into a multi-tenant SaaS platform and expose web/mobile APIs.
+Offline-first desktop ERP for a small trading or manufacturing business, built with Python and PySide6, designed with a clean architecture so it can later evolve into a multi-tenant SaaS platform and expose web/mobile APIs.
 
 ## Project overview
 
-This application manages the operational workflow of Chand Graphics, including card stock, customer issuance, inventory, expenses, reporting, and audit-friendly record keeping.
+This application manages the operational workflow of a stock-holding business: inventory, sales and purchases with their payments, expenses, reporting, and audit-friendly record keeping.
+
+It is deliberately generic. Where a business needs a catalogue of its own — with its own table, screen and rules, as wedding cards were when this was a printing-press application — that arrives as a *special item module* rather than as changes spread through the app. See "Adding a special item module" below.
 
 The architecture is intentionally designed to support:
 - offline desktop usage
@@ -27,9 +29,9 @@ The architecture is intentionally designed to support:
 ## features
 
 - login and role-based access
-- card stock management
-- card issuance to customers
-- inventory management
+- inventory and stock levels, filed under cabinets
+- sales and purchases with partial payments
+- stock movement ledger (adjustment, damage, return, transfer)
 - expense tracking
 - daily profit/loss reports
 - revenue summaries
@@ -164,6 +166,34 @@ Any change to an existing table needs a step appended to `_STEPS` in
 `app/infrastructure/db/upgrade.py`. Write it so running it twice is
 harmless, and never reorder or remove an existing step: its position in
 that list is the version number recorded in every database in the field.
+
+### Adding a special item module
+
+A *special item module* is a second kind of stocked thing, with its own
+table, its own catalogue screen and its own rules — wedding cards, filed
+by number under a cabinet, were one. Sales, purchases and the stock
+ledger already ask "which kind of item?" on every line, so adding one is
+a matter of registering it rather than rewriting them:
+
+1. Add a member to `ItemType` (`app/domain/enums/item_type.py`).
+2. Add the entity, repository port, ORM model, mapper and repository, and
+   expose the repository on `SqlAlchemyUnitOfWork`.
+3. Add its nullable foreign key beside `inventory_item_id` on
+   `sale_items`, `purchase_items` and `inventory_movements`, with a CHECK
+   naming exactly one target — plus a step in `upgrade.py` that adds the
+   column to databases already in the field. Carry the same field onto
+   `SaleItem`/`PurchaseItem`/`InventoryMovement` and their commands.
+4. Add a branch to `load_stock_target`
+   (`app/application/use_cases/stock_helpers.py`) and an entry to
+   `_item_column` (`infrastructure/repositories/transaction_repositories.py`).
+5. Register it in `ITEM_KINDS` (`app/presentation/item_types.py`): its
+   label, how a record names itself, which id a line carries it in, and
+   how its catalogue is fetched. Every picker, dropdown and document line
+   in the UI is built from that registry and picks it up at once.
+6. Add its catalogue screen and route if it needs one of its own, and a
+   "movements for this item" use case for the stock ledger.
+
+Nothing else should need to know how many kinds exist.
 
 ## Testing
 

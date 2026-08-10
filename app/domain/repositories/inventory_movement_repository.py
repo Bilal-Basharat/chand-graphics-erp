@@ -18,11 +18,6 @@ class InventoryMovementRepository(Repository[InventoryMovement], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list_by_card_id(self, card_id: int, limit: int = 200) -> list[InventoryMovement]:
-        """Return the movement audit trail for a card."""
-        raise NotImplementedError
-
-    @abstractmethod
     def list_by_inventory_item_id(self, inventory_item_id: int, limit: int = 200) -> list[InventoryMovement]:
         """Return the movement audit trail for an inventory item."""
         raise NotImplementedError

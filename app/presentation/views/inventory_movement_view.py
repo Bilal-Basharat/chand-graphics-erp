@@ -1,10 +1,10 @@
 """
 Inventory movement screen: the stock ledger for one item at a time.
 
-The backend lists movements per card or per inventory item — there is no
-"all movements" query — so the screen is built around picking an item and
-reading its history, which is how a stock ledger is normally used anyway
-("why is this card's count what it is?").
+The backend lists movements per item — there is no "all movements" query
+— so the screen is built around picking an item and reading its history,
+which is how a stock ledger is normally used anyway ("why is this item's
+count what it is?").
 
 Recording a movement here covers only the exceptional cases the use case
 allows: adjustment, damage, return and transfer. Purchase and sale stock
@@ -23,7 +23,8 @@ from app.container import AppContainer
 from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.presentation.dialogs.form_dialog import FormDialog
-from app.presentation.formatting import card_label, date_time, or_dash
+from app.presentation.formatting import date_time, or_dash
+from app.presentation.item_types import item_name, load_catalogues
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.views.collection_view import CollectionPage, CollectionView
@@ -37,10 +38,10 @@ class InventoryMovementViewModel(CollectionViewModelBase):
     """
     Not a `CollectionViewModel`: listing here is scoped to a selected item
     rather than being a whole-collection fetch, and the screen also needs
-    the two catalogues to populate its picker.
+    the item catalogues to populate its picker.
     """
 
-    catalogueLoaded = Signal(list, list)  # cards, inventory items
+    cataloguesLoaded = Signal(dict)  # dict[ItemType, list]
 
     def __init__(self, container: AppContainer) -> None:
         super().__init__()
@@ -50,13 +51,11 @@ class InventoryMovementViewModel(CollectionViewModelBase):
     def set_target(self, item_type: ItemType | None, item_id: int | None) -> None:
         self._target = (item_type, item_id) if item_type and item_id else None
 
-    def load_catalogue(self) -> None:
-        def fetch() -> tuple[list, list]:
-            cards = self._container.list_cards_use_case().execute(500)
-            items = self._container.list_inventory_items_use_case().execute(500)
-            return cards, items
-
-        self.run_async(fetch, on_success=lambda pair: self.catalogueLoaded.emit(*pair))
+    def load_catalogues(self) -> None:
+        self.run_async(
+            lambda: load_catalogues(self._container),
+            on_success=self.cataloguesLoaded.emit,
+        )
 
     def load(self) -> None:
         if self._target is None:
@@ -64,11 +63,10 @@ class InventoryMovementViewModel(CollectionViewModelBase):
             self.rowsLoaded.emit([])
             return
 
-        item_type, item_id = self._target
-        if item_type is ItemType.CARD:
-            use_case = self._container.list_inventory_movements_by_card_use_case()
-        else:
-            use_case = self._container.list_inventory_movements_by_inventory_item_use_case()
+        # One "movements for this item" use case per kind; a special item
+        # module brings its own, chosen here on the selected type.
+        _item_type, item_id = self._target
+        use_case = self._container.list_inventory_movements_by_inventory_item_use_case()
         self.run_async(lambda: use_case.execute(item_id), on_success=self.rowsLoaded.emit)
 
     def search(self, term: str) -> None:  # noqa: ARG002 - scaffold contract, no text search here
@@ -87,8 +85,7 @@ class InventoryMovementViewModel(CollectionViewModelBase):
 class InventoryMovementView(CollectionView):
     def __init__(self, view_model: InventoryMovementViewModel, parent: QWidget | None = None) -> None:
         self._movement_view_model = view_model
-        self._cards: list = []
-        self._items: list = []
+        self._catalogues: dict[ItemType, list] = {}
 
         super().__init__(
             CollectionPage(
@@ -136,13 +133,13 @@ class InventoryMovementView(CollectionView):
             parent,
         )
 
-        view_model.catalogueLoaded.connect(self._on_catalogue_loaded)
+        view_model.cataloguesLoaded.connect(self._on_catalogues_loaded)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
-        # Cards and items are added on other screens during a session, so
-        # the picker is refilled on each visit rather than at construction.
-        self._movement_view_model.load_catalogue()
+        # Items are added on other screens during a session, so the picker
+        # is refilled on each visit rather than at construction.
+        self._movement_view_model.load_catalogues()
 
     def filter_options(self):
         return [
@@ -154,7 +151,7 @@ class InventoryMovementView(CollectionView):
         ]
 
     def toolbar_extras(self) -> list[QWidget]:
-        self._kind = ItemTypeCombo(card_label="Wedding cards", item_label="Inventory items")
+        self._kind = ItemTypeCombo()
         self._kind.currentIndexChanged.connect(self._on_kind_changed)
 
         self._item = QComboBox()
@@ -165,24 +162,23 @@ class InventoryMovementView(CollectionView):
 
     # ---------------- selection ----------------
 
-    def _on_catalogue_loaded(self, cards: list, items: list) -> None:
-        self._cards = cards
-        self._items = items
+    def _on_catalogues_loaded(self, catalogues: dict) -> None:
+        self._catalogues = catalogues
         self._repopulate_items()
 
     def _on_kind_changed(self, _index: int) -> None:
         self._repopulate_items()
 
     def _repopulate_items(self) -> None:
-        is_card = self._kind.is_card
-        rows = self._cards if is_card else self._items
+        item_type = self._kind.selected_type()
+        records = self._catalogues.get(item_type, [])
 
         self._item.blockSignals(True)
         self._item.clear()
-        if not rows:
+        if not records:
             self._item.addItem("— none available —", None)
-        for row in rows:
-            self._item.addItem(card_label(row) if is_card else row.name, row.id)
+        for record in records:
+            self._item.addItem(item_name(item_type, record), record.id)
         self._item.blockSignals(False)
         self._on_item_changed(self._item.currentIndex())
 
@@ -304,8 +300,7 @@ class RecordMovementDialog(FormDialog):
             movement_type=movement_type,
             item_type=self._item_type,
             quantity_change=quantity_change,
-            card_id=self._item_id if self._item_type is ItemType.CARD else None,
-            inventory_item_id=None if self._item_type is ItemType.CARD else self._item_id,
+            inventory_item_id=self._item_id,
             reference_no=self._reference.text().strip() or None,
             reason=reason or None,
             note=self._note.toPlainText().strip() or None,

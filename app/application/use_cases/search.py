@@ -3,26 +3,10 @@ from __future__ import annotations
 from app.application.auth.session import CurrentUserSession
 from app.application.dto.queries import SearchQuery
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
-from app.domain.entities.card import Card
 from app.domain.entities.inventory_item import InventoryItem
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.sale import Sale
 from app.domain.uow import UnitOfWork
-
-
-class SearchCardsUseCase(AuthenticatedUseCase[SearchQuery, list[Card]]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
-
-    def execute(self, request: SearchQuery) -> list[Card]:
-        term = request.term.strip()
-        if not term:
-            return []
-
-        with self.uow as uow:
-            cards = self.require(uow.cards, "cards")
-            return cards.search_by_term(term, request.limit)
 
 
 class SearchInventoryItemsUseCase(AuthenticatedUseCase[SearchQuery, list[InventoryItem]]):

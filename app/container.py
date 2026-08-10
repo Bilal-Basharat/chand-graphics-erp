@@ -110,42 +110,7 @@ class AppContainer:
         return LoginThrottleService(self.create_uow(), self.settings)
 
     ############################################################
-    ###################### Card Use Cases #######################
-    ############################################################
-    def create_card_use_case(self):
-        from app.application.use_cases.cards import CreateCardUseCase
-        return CreateCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def update_card_cabinet_use_case(self):
-        from app.application.use_cases.cards import UpdateCardCabinetUseCase
-        return UpdateCardCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def update_card_use_case(self):
-        from app.application.use_cases.cards import UpdateCardUseCase
-        return UpdateCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def delete_card_use_case(self):
-        from app.application.use_cases.cards import DeleteCardUseCase
-        return DeleteCardUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def list_cards_use_case(self):
-        from app.application.use_cases.cards import ListCardsUseCase
-        return ListCardsUseCase(self.create_uow(), self.current_user_session)
-
-    def list_cards_by_cabinet_use_case(self):
-        from app.application.use_cases.cards import ListCardsByCabinetUseCase
-        return ListCardsByCabinetUseCase(self.create_uow(), self.current_user_session)
-
-    def get_card_by_number_use_case(self):
-        from app.application.use_cases.cards import GetCardByNumberUseCase
-        return GetCardByNumberUseCase(self.create_uow(), self.current_user_session)
-
-    def list_low_stock_cards_use_case(self):
-        from app.application.use_cases.cards import ListLowStockCardsUseCase
-        return ListLowStockCardsUseCase(self.create_uow(), self.current_user_session)
-
-    ############################################################
-    ################ Inventory Item Use Cases ###################
+    ##################### Inventory Use Cases ###################
     ############################################################
     def create_inventory_item_use_case(self):
         from app.application.use_cases.inventory_items import CreateInventoryItemUseCase
@@ -342,10 +307,6 @@ class AppContainer:
         from app.application.use_cases.inventory_movements import ListInventoryMovementsBySourceDocumentUseCase
         return ListInventoryMovementsBySourceDocumentUseCase(self.create_uow(), self.current_user_session)
 
-    def list_inventory_movements_by_card_use_case(self):
-        from app.application.use_cases.inventory_movements import ListInventoryMovementsByCardUseCase
-        return ListInventoryMovementsByCardUseCase(self.create_uow(), self.current_user_session)
-
     def list_inventory_movements_by_inventory_item_use_case(self):
         from app.application.use_cases.inventory_movements import ListInventoryMovementsByInventoryItemUseCase
         return ListInventoryMovementsByInventoryItemUseCase(self.create_uow(), self.current_user_session)
@@ -353,10 +314,6 @@ class AppContainer:
     ############################################################
     ###################### Search Use Cases ########################
     ############################################################
-    def search_cards_use_case(self):
-        from app.application.use_cases.search import SearchCardsUseCase
-        return SearchCardsUseCase(self.create_uow(), self.current_user_session)
-
     def search_inventory_items_use_case(self):
         from app.application.use_cases.search import SearchInventoryItemsUseCase
         return SearchInventoryItemsUseCase(self.create_uow(), self.current_user_session)

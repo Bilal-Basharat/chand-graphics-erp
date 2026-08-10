@@ -5,13 +5,15 @@ from decimal import Decimal
 from app.application.dto.commands import (
     CreatePurchaseCommand,
     DateRangeQuery,
-    PurchaseItemCommand,
-    PurchasePaymentCommand,
     RecordPurchasePaymentCommand,
 )
 from app.application.dto.queries import PurchasePaymentStatus
 from app.application.exceptions import DuplicateEntityError, NotFoundError
-from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
+from app.application.use_cases.stock_helpers import (
+    ResolvedStockTarget,
+    increase_stock,
+    load_stock_target,
+)
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_item import PurchaseItem
 from app.domain.entities.purchase_payment import PurchasePayment
@@ -71,38 +73,25 @@ class CreatePurchaseUseCase(AuthorizedUseCase[CreatePurchaseCommand, Purchase]):
                 created_by_user_id=current_user_id,
             )
 
-            stock_cache: dict[tuple[str, int], object] = {}
+            # See CreateSaleUseCase: one record per item, so two lines for
+            # the same item build on one running count.
+            targets: dict[tuple[ItemType, int | None], ResolvedStockTarget] = {}
 
             for item in request.items:
-                if item.item_type == ItemType.CARD:
-                    if item.card_id is None:
-                        raise ValueError("card_id is required for CARD items")
-                    key = ("CARD", item.card_id)
-                    if key not in stock_cache:
-                        stock_cache[key] = self.require(uow.cards, "cards").get_by_id(item.card_id)
-                        if stock_cache[key] is None:
-                            raise NotFoundError(f"Card id={item.card_id} not found")
-                    card = stock_cache[key]
-                    previous_stock, resulting_stock = increase_stock(card, item.quantity)
-                    stock_cache[key] = self.require(uow.cards, "cards").update(card)
-                else:
-                    if item.inventory_item_id is None:
-                        raise ValueError("inventory_item_id is required for INVENTORY_ITEM items")
-                    key = ("ITEM", item.inventory_item_id)
-                    if key not in stock_cache:
-                        stock_cache[key] = self.require(uow.inventory_items, "inventory_items").get_by_id(item.inventory_item_id)
-                        if stock_cache[key] is None:
-                            raise NotFoundError(f"Inventory item id={item.inventory_item_id} not found")
-                    inv_item = stock_cache[key]
-                    previous_stock, resulting_stock = increase_stock(inv_item, item.quantity)
-                    stock_cache[key] = self.require(uow.inventory_items, "inventory_items").update(inv_item)
+                key = (item.item_type, item.inventory_item_id)
+                target = targets.get(key)
+                if target is None:
+                    target = load_stock_target(uow, item.item_type, item.inventory_item_id)
+                    targets[key] = target
+
+                previous_stock, resulting_stock = increase_stock(target.entity, item.quantity)
+                target.entity = target.repository.update(target.entity)
 
                 purchase.add_item(
                     PurchaseItem(
                         item_type=item.item_type,
                         quantity=item.quantity,
                         unit_price=item.unit_price,
-                        card_id=item.card_id,
                         inventory_item_id=item.inventory_item_id,
                         previous_stock=previous_stock,
                         resulting_stock=resulting_stock,

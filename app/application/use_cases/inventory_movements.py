@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.application.dto.commands import DateRangeQuery, InventoryMovementCommand
 from app.application.exceptions import NotFoundError
-from app.application.use_cases.base import UseCase
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
 from app.domain.entities.inventory_movement import InventoryMovement
 from app.domain.enums.movement_type import MovementType
@@ -72,29 +71,24 @@ class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand,
             target = load_stock_target(
                 uow=uow,
                 item_type=request.item_type,
-                card_id=request.card_id,
                 inventory_item_id=request.inventory_item_id,
             )
 
-            previous_stock = target.entity.current_stock
-
             if request.quantity_change > 0:
-                target.entity.receive_stock(request.quantity_change)
+                previous_stock, resulting_stock = increase_stock(
+                    target.entity, request.quantity_change
+                )
             else:
-                target.entity.issue_stock(abs(request.quantity_change))
+                previous_stock, resulting_stock = decrease_stock(
+                    target.entity, abs(request.quantity_change)
+                )
 
-            resulting_stock = target.entity.current_stock
-
-            if request.item_type == request.item_type.CARD:
-                self.require(uow.cards, "cards").update(target.entity)
-            else:
-                self.require(uow.inventory_items, "inventory_items").update(target.entity)
+            target.repository.update(target.entity)
 
             movement = InventoryMovement(
                 movement_type=request.movement_type,
                 item_type=request.item_type,
                 quantity=abs(request.quantity_change),
-                card_id=request.card_id,
                 inventory_item_id=request.inventory_item_id,
                 previous_stock=previous_stock,
                 resulting_stock=resulting_stock,
@@ -121,21 +115,6 @@ class ListInventoryMovementsBySourceDocumentUseCase(AuthenticatedUseCase[tuple[s
                 source_document_type=source_document_type,
                 source_document_id=source_document_id,
             )
-
-
-class ListInventoryMovementsByCardUseCase(AuthenticatedUseCase[int, list[InventoryMovement]]):
-    """
-    Movement audit trail for a single card.
-    """
-
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
-
-    def execute(self, request: int) -> list[InventoryMovement]:
-        with self.uow as uow:
-            movements = self.require(uow.inventory_movements, "inventory_movements")
-            return movements.list_by_card_id(request)
 
 
 class ListInventoryMovementsByInventoryItemUseCase(AuthenticatedUseCase[int, list[InventoryMovement]]):

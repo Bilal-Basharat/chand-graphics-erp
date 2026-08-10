@@ -14,7 +14,6 @@ class SaleItem(TimestampEntity):
     quantity: int
     unit_price: Decimal
 
-    card_id: int | None = None
     inventory_item_id: int | None = None
     sale_id: int | None = None
 
@@ -32,19 +31,13 @@ class SaleItem(TimestampEntity):
         if self.unit_price < 0:
             raise ValueError("unit_price cannot be negative")
 
-        if self.item_type == ItemType.CARD:
-            if self.card_id is None:
-                raise ValueError("card_id is required for CARD items")
-            if self.inventory_item_id is not None:
-                raise ValueError("inventory_item_id must be None for CARD items")
+        # One id per item type, and the line has to carry the one its type
+        # names — a special item module adds its own branch here alongside
+        # its own column.
+        if self.item_type is ItemType.INVENTORY_ITEM and self.inventory_item_id is None:
+            raise ValueError("inventory_item_id is required for INVENTORY_ITEM items")
 
-        if self.item_type == ItemType.INVENTORY_ITEM:
-            if self.inventory_item_id is None:
-                raise ValueError("inventory_item_id is required for INVENTORY_ITEM items")
-            if self.card_id is not None:
-                raise ValueError("card_id must be None for INVENTORY_ITEM items")
 
-    
     @property
     def total_amount(self) -> Decimal:
         return self.unit_price * Decimal(self.quantity)

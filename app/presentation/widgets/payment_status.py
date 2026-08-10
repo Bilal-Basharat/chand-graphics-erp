@@ -14,6 +14,19 @@ from app.presentation.theme import tokens as t
 
 _ZERO = Decimal("0.00")
 
+STATUS_COLORS: dict[str, str] = {
+    "Paid": t.SUCCESS,
+    "Part paid": t.WARNING,
+    "Unpaid": t.DANGER,
+}
+"""The three words and the three colours, paired once.
+
+Exported for the screens that hold a status already worked out rather
+than the document it came from — the dashboard summarises its rows before
+it draws them. Anything with the document itself should call the two
+functions below instead of reaching in here.
+"""
+
 
 def payment_status_text(document) -> str:
     if document.balance_amount <= _ZERO:
@@ -24,8 +37,4 @@ def payment_status_text(document) -> str:
 
 
 def payment_status_color(document) -> str:
-    if document.balance_amount <= _ZERO:
-        return t.SUCCESS
-    if document.paid_amount > _ZERO:
-        return t.WARNING
-    return t.DANGER
+    return STATUS_COLORS[payment_status_text(document)]

@@ -3,36 +3,39 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.application.dto.commands import (
-    CreateCardCommand,
+    CreateInventoryItemCommand,
     CreatePurchaseCommand,
     CreateSaleCommand,
     PurchaseItemCommand,
     SaleItemCommand,
 )
-from app.application.use_cases.cards import CreateCardUseCase, GetCardByNumberUseCase
+from app.application.use_cases.inventory_items import (
+    CreateInventoryItemUseCase,
+    GetInventoryItemByNameUseCase,
+)
 from app.application.use_cases.purchases import CreatePurchaseUseCase
 from app.application.use_cases.sales import CreateSaleUseCase, GetSaleByInvoiceNoUseCase
 from app.domain.enums.item_type import ItemType
 
 
-def test_create_sale_decreases_card_stock_and_stores_snapshots(uow, admin_session):
-    card = CreateCardUseCase(uow, admin_session).execute(
-        CreateCardCommand(
-            card_number="1111",
-            name="1111 Card",
+def test_create_sale_decreases_stock_and_stores_snapshots(uow, admin_session):
+    item = CreateInventoryItemUseCase(uow, admin_session).execute(
+        CreateInventoryItemCommand(
+            name="A4 Ivory Sheet 250gsm",
+            unit="sheets",
             current_stock=0,
             minimum_stock=20,
         )
     )
 
-    # cards start at zero stock; bring stock to 100 via a purchase before selling from it
+    # items start at zero stock; bring stock to 100 via a purchase before selling from it
     CreatePurchaseUseCase(uow, admin_session).execute(
         CreatePurchaseCommand(
             purchase_no="PUR-SETUP",
             items=[
                 PurchaseItemCommand(
-                    item_type=ItemType.CARD,
-                    card_id=card.id,
+                    item_type=ItemType.INVENTORY_ITEM,
+                    inventory_item_id=item.id,
                     quantity=100,
                     unit_price=Decimal("10.00"),
                 )
@@ -47,8 +50,8 @@ def test_create_sale_decreases_card_stock_and_stores_snapshots(uow, admin_sessio
             discount_amount=Decimal("0.00"),
             items=[
                 SaleItemCommand(
-                    item_type=ItemType.CARD,
-                    card_id=card.id,
+                    item_type=ItemType.INVENTORY_ITEM,
+                    inventory_item_id=item.id,
                     quantity=30,
                     unit_price=Decimal("20.00"),
                 )
@@ -67,9 +70,9 @@ def test_create_sale_decreases_card_stock_and_stores_snapshots(uow, admin_sessio
     assert sale.items[0].previous_stock == 100
     assert sale.items[0].resulting_stock == 70
 
-    fresh_card = GetCardByNumberUseCase(uow).execute("1111")
-    assert fresh_card is not None
-    assert fresh_card.current_stock == 70
+    fresh_item = GetInventoryItemByNameUseCase(uow).execute("A4 Ivory Sheet 250gsm")
+    assert fresh_item is not None
+    assert fresh_item.current_stock == 70
 
     loaded_sale = GetSaleByInvoiceNoUseCase(uow).execute("INV-0001")
     assert loaded_sale is not None

@@ -15,7 +15,6 @@ def _register_models() -> None:
     Import all SQLAlchemy models so their tables are registered on Base.metadata.
     """
     from app.infrastructure.db.models.cabinet_model import CabinetModel  # noqa: F401
-    from app.infrastructure.db.models.card_model import CardModel  # noqa: F401
     from app.infrastructure.db.models.company_settings_model import CompanySettingsModel  # noqa: F401
     from app.infrastructure.db.models.customer_model import CustomerModel  # noqa: F401
     from app.infrastructure.db.models.expense_category_model import ExpenseCategoryModel  # noqa: F401

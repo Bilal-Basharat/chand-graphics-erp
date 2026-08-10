@@ -26,10 +26,10 @@ class CabinetModel(Base, AuditMixin):
 #################### relationship methods ###################
 #############################################################
 
-    cards = relationship(
-        "CardModel",
+    inventory_items = relationship(
+        "InventoryItemModel",
         back_populates="cabinet",
-        foreign_keys="CardModel.cabinet_id",
+        foreign_keys="InventoryItemModel.cabinet_id",
     )
 
     created_by_user = relationship(

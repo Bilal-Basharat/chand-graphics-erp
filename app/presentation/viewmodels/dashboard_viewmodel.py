@@ -10,21 +10,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from tkinter.font import names
 
 from PySide6.QtCore import Signal
 
 from app.application.dto.commands import DateRangeQuery
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
-from app.presentation.formatting import payment_method_name, pkr
-from app.presentation.records.builders import purchase_card, sale_card
-from app.presentation.records.builders import sale_card
+from app.presentation.formatting import NO_SUPPLIER, WALK_IN, payment_method_name, pkr
+from app.presentation.item_types import load_catalogues
 from app.presentation.navigation.routes import Route
+from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
-from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
-from app.presentation.viewmodels.document_items import payment_lines
 from app.presentation.viewmodels.base import BaseViewModel
+from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
+from app.presentation.widgets.payment_status import payment_status_text
 from app.presentation.widgets.period_selector import PeriodSelection
 
 
@@ -36,21 +35,23 @@ class DocumentRow:
     date: datetime
     total: Decimal
     balance: Decimal
-    status: str  # "Paid" | "Partial" | "Unpaid"
+    status: str
+    """As `payment_status_text` words it, so a document reads the same
+    here as on the screen it lives on."""
     route: Route
+    """Which screen that is, for the double-click that goes there."""
     card: RecordCard
+
 
 @dataclass(slots=True)
 class ActivityRow:
     title: str
     meta: str
     when: datetime
-    # route: Route
-    # reference: str
     card: RecordCard
-    """The screen this entry came from and the document number to look for
-    on it, so clicking the entry can open the record rather than leaving
-    the user to go and find it."""
+    """The document this entry is a moment in, written out in full, so
+    clicking the entry opens the record rather than leaving the user to go
+    and find it."""
 
 
 @dataclass(slots=True)
@@ -93,25 +94,21 @@ _RECENT_DOCUMENTS = 6
 _RECENT_ACTIVITY = 20
 
 
-_CATALOGUE_LIMIT = 500
+_REFERENCE_LIMIT = 500
 """How much master data a card can name. The same figure every screen
 that loads these catalogues uses."""
 
+_METHOD_LIMIT = 100
+"""Payment methods are a short hand-kept list, as the payment screens
+also assume."""
+
 
 @dataclass(slots=True)
-class _Catalogues:
-    """The three lookups a written-out document needs, fetched together."""
+class _Lookups:
+    """The two name lookups a written-out document needs, fetched together."""
 
-    products: ItemCatalogue
+    catalogue: ItemCatalogue
     method_name: Callable[[int | None], str]
-
-
-def _status_for(balance: Decimal, total: Decimal) -> str:
-    if balance <= 0:
-        return "Paid"
-    if balance >= total:
-        return "Unpaid"
-    return "Partial"
 
 
 class DashboardViewModel(BaseViewModel):
@@ -125,7 +122,7 @@ class DashboardViewModel(BaseViewModel):
     def load(self) -> None:
         self.run_async(self._load_sync, on_success=self.dashboardLoaded.emit)
 
-    def _catalogues(self) -> _Catalogues:
+    def _lookups(self) -> _Lookups:
         """Names for everything the cards below refer to.
 
         The dashboard writes out every document it lists, so it needs the
@@ -133,21 +130,23 @@ class DashboardViewModel(BaseViewModel):
         master-data tables next to the documents already fetched above,
         and reading them once here is what lets a card open from the
         dashboard without going back to the database for it.
+
+        `load_catalogues` is the one place that knows which item kinds
+        exist, so a special item module reaches this screen without it
+        being touched — see `presentation/item_types.py`.
         """
-        products = ItemCatalogue()
-        products.set_products(
-            self._container.list_cards_use_case().execute(_CATALOGUE_LIMIT),
-            self._container.list_inventory_items_use_case().execute(_CATALOGUE_LIMIT),
-        )
-     
+        catalogue = ItemCatalogue()
+        catalogue.set_catalogues(load_catalogues(self._container, _REFERENCE_LIMIT))
+
         methods = {
-            m.id: m.name for m in self._container.list_payment_methods_use_case().execute(100)
+            m.id: m.name
+            for m in self._container.list_payment_methods_use_case().execute(_METHOD_LIMIT)
         }
-        return _Catalogues(
-            products=products,
+        return _Lookups(
+            catalogue=catalogue,
             method_name=lambda method_id: payment_method_name(methods.get(method_id)),
         )
-    
+
     def _load_sync(self) -> DashboardData:
         start, end = self._period.range()
         date_range = DateRangeQuery(start=start, end=end, limit=_DOCUMENT_LIMIT)
@@ -155,27 +154,30 @@ class DashboardViewModel(BaseViewModel):
         sales = self._container.list_sales_by_date_range_use_case().execute(date_range)
         purchases = self._container.list_purchases_by_date_range_use_case().execute(date_range)
         expenses = self._container.list_expenses_by_date_range_use_case().execute(date_range)
-        low_stock_cards = self._container.list_low_stock_cards_use_case().execute(500)
         low_stock_items = self._container.list_low_stock_inventory_items_use_case().execute(500)
 
         # Name lookups for the document rows below — an empty term lists all.
-        all_parties = SearchQuery(term="", limit=1000)
-        customers = {c.id: c.name for c in self._container.search_customers_use_case().execute(all_parties)}
-        suppliers = {s.id: s.name for s in self._container.search_suppliers_use_case().execute(all_parties)}
-        names = self._catalogues()
+        all_parties = SearchQuery(term="", limit=_REFERENCE_LIMIT)
+        customers = {
+            c.id: c.name for c in self._container.search_customers_use_case().execute(all_parties)
+        }
+        suppliers = {
+            s.id: s.name for s in self._container.search_suppliers_use_case().execute(all_parties)
+        }
+        lookups = self._lookups()
         documents: list[DocumentRow] = []
         activity: list[ActivityRow] = []
 
         for sale in sales:
-            party = customers.get(sale.customer_id, "Walk-in customer") if sale.customer_id else "Walk-in customer"
+            party = customers.get(sale.customer_id, WALK_IN) if sale.customer_id else WALK_IN
             card = sale_card(
                 sale,
                 customer=party,
-                items=names.products.lines_of(sale),
+                items=lookups.catalogue.lines_of(sale),
                 payments=payment_lines(
                     sale,
                     dated=lambda payment: payment.received_at or payment.created_at,
-                    method_name=names.method_name,
+                    method_name=lookups.method_name,
                 ),
             )
             documents.append(
@@ -186,7 +188,7 @@ class DashboardViewModel(BaseViewModel):
                     date=sale.created_at,
                     total=sale.grand_total,
                     balance=sale.balance_amount,
-                    status=_status_for(sale.balance_amount, sale.grand_total),
+                    status=payment_status_text(sale),
                     route=Route.SALES,
                     card=card,
                 )
@@ -210,15 +212,19 @@ class DashboardViewModel(BaseViewModel):
             )
 
         for purchase in purchases:
-            party = suppliers.get(purchase.supplier_id, "Unknown supplier") if purchase.supplier_id else "Unknown supplier"
+            party = (
+                suppliers.get(purchase.supplier_id, NO_SUPPLIER)
+                if purchase.supplier_id
+                else NO_SUPPLIER
+            )
             card = purchase_card(
                 purchase,
                 supplier=party,
-                items=names.products.lines_of(purchase),
+                items=lookups.catalogue.lines_of(purchase),
                 payments=payment_lines(
                     purchase,
                     dated=lambda payment: payment.paid_at or payment.created_at,
-                    method_name=names.method_name,
+                    method_name=lookups.method_name,
                 ),
             )
             documents.append(
@@ -229,7 +235,7 @@ class DashboardViewModel(BaseViewModel):
                     date=purchase.created_at,
                     total=purchase.grand_total,
                     balance=purchase.balance_amount,
-                    status=_status_for(purchase.balance_amount, purchase.grand_total),
+                    status=payment_status_text(purchase),
                     route=Route.PURCHASES,
                     card=card,
                 )
@@ -268,7 +274,7 @@ class DashboardViewModel(BaseViewModel):
             sales_count=len(sales),
             purchases_total=sum((p.grand_total for p in purchases), Decimal("0.00")),
             purchases_count=len(purchases),
-            low_stock_count=len(low_stock_cards) + len(low_stock_items),
+            low_stock_count=len(low_stock_items),
             receivable=receivable,
             payable=payable,
             recent_documents=documents[:_RECENT_DOCUMENTS],
@@ -396,8 +402,6 @@ def _payment_activity(
                 meta=f"{party} • {pkr(payment.amount)}",
                 when=when,
                 card=card,
-                # route=route,
-                # reference=reference,
             )
         )
     return rows

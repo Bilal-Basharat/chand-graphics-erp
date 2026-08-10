@@ -16,7 +16,16 @@ class InventoryItemRepository(Repository[InventoryItem], ABC):
     def list_low_stock(self, limit: int = 100) -> list[InventoryItem]:
         """Return items at or below minimum stock."""
         raise NotImplementedError
-    
+
     @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[InventoryItem]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def clear_cabinet_id(self, cabinet_id: int) -> int:
+        """Unfile every item in a cabinet, and return how many.
+
+        A cabinet is where an item is kept, not what it is, so removing the
+        cabinet leaves the items themselves untouched and merely unfiled.
+        """
         raise NotImplementedError

@@ -1,16 +1,18 @@
 """
-View model factories for the master-data screens.
+View models for the master-data screens.
 
-These five modules are all "list, search, create", so they share
+These modules are all "list, search, create", so they share
 `CollectionViewModel` and differ only in the use cases wired in here.
 Keeping the wiring in one file means the views stay free of container
 knowledge and MainWindow stays a composition root rather than a place
-where five blocks of plumbing accumulate.
+where six blocks of plumbing accumulate.
 
 Each callable runs on a worker thread, so it builds *and* executes its
 use case — see `CollectionSource`.
 """
 from __future__ import annotations
+
+from PySide6.QtCore import Signal
 
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
@@ -79,18 +81,36 @@ def suppliers_view_model(container: AppContainer) -> CollectionViewModel:
     )
 
 
-def inventory_items_view_model(container: AppContainer) -> CollectionViewModel:
-    return CollectionViewModel(
-        CollectionSource(
-            list_all=lambda: container.list_inventory_items_use_case().execute(_LIST_LIMIT),
-            search=lambda term: container.search_inventory_items_use_case().execute(
-                SearchQuery(term=term, limit=_SEARCH_LIMIT)
-            ),
-            create=lambda command: container.create_inventory_item_use_case().execute(command),
-            update=lambda command: container.update_inventory_item_use_case().execute(command),
-            delete=lambda item_id: container.delete_inventory_item_use_case().execute(item_id),
+class InventoryViewModel(CollectionViewModel):
+    """The inventory list, plus the cabinet lookup its screen needs.
+
+    A class rather than a factory because inventory is the one master-data
+    screen that names records from a second table: an item says which
+    cabinet it is filed in, and cabinets are maintained on their own
+    screen, so the list and its dialog both need them by name.
+    """
+
+    cabinetsLoaded = Signal(list)  # list[Cabinet]
+
+    def __init__(self, container: AppContainer) -> None:
+        super().__init__(
+            CollectionSource(
+                list_all=lambda: container.list_inventory_items_use_case().execute(_LIST_LIMIT),
+                search=lambda term: container.search_inventory_items_use_case().execute(
+                    SearchQuery(term=term, limit=_SEARCH_LIMIT)
+                ),
+                create=lambda command: container.create_inventory_item_use_case().execute(command),
+                update=lambda command: container.update_inventory_item_use_case().execute(command),
+                delete=lambda item_id: container.delete_inventory_item_use_case().execute(item_id),
+            )
         )
-    )
+        self._container = container
+
+    def load_cabinets(self) -> None:
+        self.run_async(
+            lambda: self._container.list_cabinets_use_case().execute(_LIST_LIMIT),
+            on_success=self.cabinetsLoaded.emit,
+        )
 
 
 def expense_categories_view_model(container: AppContainer) -> CollectionViewModel:

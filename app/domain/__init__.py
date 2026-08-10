@@ -1,6 +1,5 @@
 # from .entities import (
 #     Cabinet,
-#     Card,
 #     Customer,
 #     Expense,
 #     InventoryItem,

@@ -44,6 +44,20 @@ from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
 
 
+def _item_column(line_model, item_type: ItemType):
+    """The foreign key a line of `item_type` carries.
+
+    The one place a line's item type turns into a column. A special item
+    module adds its column to this mapping, and every query below reaches
+    it without a branch of its own.
+    """
+    columns = {ItemType.INVENTORY_ITEM: line_model.inventory_item_id}
+    try:
+        return columns[item_type]
+    except KeyError:
+        raise ValueError(f"Unsupported item type: {item_type}") from None
+
+
 def _count_documents_holding_item(
     session: Session,
     line_model,
@@ -51,16 +65,15 @@ def _count_documents_holding_item(
     item_type: ItemType,
     item_id: int,
 ) -> int:
-    """How many documents have a line pointing at one card or inventory item.
+    """How many documents have a line pointing at one catalogue item.
 
     Sale lines and purchase lines are the same shape, so the query is
-    written once. Documents rather than lines: a card listed twice on one
+    written once. Documents rather than lines: an item listed twice on one
     invoice is still one invoice standing in the way of deleting it.
     """
-    column = (
-        line_model.card_id if item_type is ItemType.CARD else line_model.inventory_item_id
+    stmt = select(func.count(func.distinct(document_column))).where(
+        _item_column(line_model, item_type) == item_id
     )
-    stmt = select(func.count(func.distinct(document_column))).where(column == item_id)
     return int(session.execute(stmt).scalar_one())
 
 
@@ -207,15 +220,10 @@ class SqlAlchemyPurchaseRepository(
         )
 
     def latest_unit_price(self, item_type: ItemType, item_id: int) -> Decimal | None:
-        column = (
-            PurchaseItemModel.card_id
-            if item_type is ItemType.CARD
-            else PurchaseItemModel.inventory_item_id
-        )
         stmt = (
             select(PurchaseItemModel.unit_price)
             .join(PurchaseModel, PurchaseItemModel.purchase_id == PurchaseModel.id)
-            .where(column == item_id)
+            .where(_item_column(PurchaseItemModel, item_type) == item_id)
             # Newest purchase wins; id breaks the tie when two land in the
             # same second, which bulk entry routinely does.
             .order_by(PurchaseModel.created_at.desc(), PurchaseItemModel.id.desc())
@@ -409,16 +417,6 @@ class SqlAlchemyInventoryMovementRepository(
             select(InventoryMovementModel)
             .where(InventoryMovementModel.source_document_type == source_document_type)
             .where(InventoryMovementModel.source_document_id == source_document_id)
-            .order_by(InventoryMovementModel.occurred_at.desc())
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [InventoryMovementMapper.to_entity(model) for model in models]
-
-    def list_by_card_id(self, card_id: int, limit: int = 200) -> list[InventoryMovement]:
-        stmt = (
-            select(InventoryMovementModel)
-            .where(InventoryMovementModel.card_id == card_id)
             .order_by(InventoryMovementModel.occurred_at.desc())
             .limit(limit)
         )

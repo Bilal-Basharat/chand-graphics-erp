@@ -1,6 +1,5 @@
 # from app.infrastructure.mappers.base import copy_shared_fields
 # from app.infrastructure.mappers.cabinet_mapper import CabinetMapper
-# from app.infrastructure.mappers.card_mapper import CardMapper
 # from app.infrastructure.mappers.company_settings_mapper import CompanySettingsMapper
 # from app.infrastructure.mappers.customer_mapper import CustomerMapper
 # from app.infrastructure.mappers.expense_category_mapper import ExpenseCategoryMapper

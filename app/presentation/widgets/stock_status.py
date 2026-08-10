@@ -1,6 +1,6 @@
 """
 Stock status wording and colour, shared by every screen that shows a
-stocked record (wedding cards, inventory items, movement history).
+stocked record (the inventory list, its movement history).
 
 Both stocked entities expose `current_stock` / `is_low_stock`, so one
 formatter keeps "Low stock" meaning the same thing — and rendering the

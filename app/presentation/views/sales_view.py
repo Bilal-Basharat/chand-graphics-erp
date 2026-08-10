@@ -133,7 +133,7 @@ class SalesView(CollectionView):
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
         # Refreshed on every visit, not just at construction: customers and
-        # products are created on other screens during the same session,
+        # items are created on other screens during the same session,
         # and a dialog offering a stale catalogue is worse than a reload.
         self._sales_view_model.load_reference_data()
 
@@ -159,15 +159,14 @@ class SalesView(CollectionView):
     def open_create_dialog(self) -> None:
         if not self._reference:
             self._sales_view_model.errorOccurred.emit(
-                "Still loading customers and products — try again in a moment."
+                "Still loading customers and items — try again in a moment."
             )
             return
         NewSaleDialog(
             self._sales_view_model,
             customers=self._reference["customers"],
             payment_methods=self._reference["payment_methods"],
-            cards=self._reference["cards"],
-            inventory_items=self._reference["inventory_items"],
+            catalogues=self._reference["catalogues"],
             current_user_id=self._current_user_id_provider(),
             parent=self,
         ).exec()

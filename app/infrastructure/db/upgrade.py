@@ -148,9 +148,168 @@ def _is_nullable(connection: Connection, table: str, column: str) -> bool:
     return any(row[1] == column and not row[3] for row in rows)
 
 
+def _table_exists(connection: Connection, table: str) -> bool:
+    row = connection.exec_driver_sql(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    ).fetchone()
+    return row is not None
+
+
+def _add_column(connection: Connection, table: str, column: str, definition: str) -> None:
+    """Add a column if this database has not got it yet."""
+    if column in _table_columns(connection, table):
+        return
+    logger.info("Adding %s.%s", table, column)
+    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _rebuild_to_match_model(connection: Connection, table: str, carried: tuple[str, ...]) -> None:
+    """Recreate a table from its model, carrying `carried` across.
+
+    SQLite will not drop a column that an index or a CHECK constraint
+    names, and both stood in the way of dropping `card_id`. Its own answer
+    is to rebuild the table — done here from `Base.metadata` rather than
+    from hand-written DDL, so the result is exactly the table the rest of
+    this build expects rather than a second description of it that can
+    drift.
+    """
+    from app.infrastructure.db.base import Base
+
+    logger.info("Rebuilding %s to match its model", table)
+    # The old table's indexes keep their names through the rename, and
+    # would collide with the ones the new table creates.
+    for (index,) in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? "
+        "AND sql IS NOT NULL",
+        (table,),
+    ).fetchall():
+        connection.exec_driver_sql(f"DROP INDEX {index}")
+
+    connection.exec_driver_sql(f"ALTER TABLE {table} RENAME TO {table}_old")
+    Base.metadata.tables[table].create(bind=connection)
+    columns = ", ".join(carried)
+    connection.exec_driver_sql(
+        f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {table}_old"
+    )
+    connection.exec_driver_sql(f"DROP TABLE {table}_old")
+
+
+_LINE_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "sale_items",
+        (
+            "id", "sale_id", "item_type", "inventory_item_id", "quantity", "unit_price",
+            "discount_amount", "line_total", "previous_stock", "resulting_stock", "note",
+            "created_at", "updated_at",
+        ),
+    ),
+    (
+        "purchase_items",
+        (
+            "id", "purchase_id", "item_type", "inventory_item_id", "quantity", "unit_price",
+            "discount_amount", "line_total", "previous_stock", "resulting_stock", "note",
+            "created_at", "updated_at",
+        ),
+    ),
+    (
+        "inventory_movements",
+        (
+            "id", "movement_type", "item_type", "inventory_item_id", "source_document_type",
+            "source_document_id", "quantity", "unit_price", "previous_stock",
+            "resulting_stock", "reference_no", "reason", "note", "occurred_at",
+            "created_by_user_id", "updated_by_user_id", "created_at", "updated_at",
+        ),
+    ),
+)
+"""Every table that carried a `card_id`, and what survives the rebuild."""
+
+
+def _fold_cards_into_inventory(connection: Connection) -> None:
+    """Wedding cards stop being a module of their own and become stock.
+
+    The app trades in one kind of item now, so each card becomes an
+    inventory item under the cabinet it was filed in, and every sale line,
+    purchase line and stock movement that named a card is repointed at it.
+    Nothing is deleted: a shop's trading history reads exactly as it did,
+    under the item's new name.
+
+    The `cards` table itself is left where it is rather than dropped.
+    Databases in the field still carry tables from features removed before
+    this one — `job_materials` among them — which no model describes and
+    no code reads, and one of them holds a row pointing at a card. Dropping
+    `cards` would mean deleting that row first, which is a decision about
+    somebody else's data and not this step's to make. An unread table costs
+    nothing; the columns that pointed at it are gone either way.
+
+    Safe to rerun: a database whose line tables have no `card_id` left has
+    already been through this, and only the cabinet column is reapplied —
+    guarded in its own right.
+    """
+    _add_column(connection, "inventory_items", "cabinet_id", "INTEGER REFERENCES cabinets(id)")
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_inventory_items_cabinet_id "
+        "ON inventory_items (cabinet_id)"
+    )
+
+    if not _table_exists(connection, "cards") or "card_id" not in _table_columns(
+        connection, "sale_items"
+    ):
+        return
+
+    taken = {
+        name for (name,) in connection.exec_driver_sql("SELECT name FROM inventory_items")
+    }
+    cards = connection.exec_driver_sql(
+        "SELECT id, card_number, name, current_stock, minimum_stock, description, "
+        "cabinet_id, created_by_user_id, updated_by_user_id, created_at, updated_at "
+        "FROM cards"
+    ).fetchall()
+
+    for card in cards:
+        card_id, card_number, name = card[0], card[1], card[2]
+        item_name = _free_name(f"{card_number} — {name}" if name else str(card_number), taken)
+        taken.add(item_name)
+
+        result = connection.exec_driver_sql(
+            "INSERT INTO inventory_items (name, current_stock, minimum_stock, description, "
+            "cabinet_id, unit, created_by_user_id, updated_by_user_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
+            (item_name, *card[3:]),
+        )
+        logger.info("Card '%s' is now inventory item '%s'", card_number, item_name)
+
+        for table, _columns in _LINE_TABLES:
+            # `card_id` is cleared in the same statement, not left for the
+            # rebuild below: while it is still there, the exclusive-arc
+            # CHECK these tables carry refuses a row naming both.
+            connection.exec_driver_sql(
+                f"UPDATE {table} SET inventory_item_id = ?, card_id = NULL, "
+                "item_type = 'INVENTORY_ITEM' WHERE card_id = ?",
+                (result.lastrowid, card_id),
+            )
+
+    for table, columns in _LINE_TABLES:
+        _rebuild_to_match_model(connection, table, columns)
+
+
+def _free_name(wanted: str, taken: set[str]) -> str:
+    """`wanted`, or the first numbered variant of it nothing else holds.
+
+    Item names are unique, and a card's number is not guaranteed to be
+    free among items that were already there.
+    """
+    if wanted not in taken:
+        return wanted
+    suffix = 2
+    while f"{wanted} ({suffix})" in taken:
+        suffix += 1
+    return f"{wanted} ({suffix})"
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
     _relax_payment_method_links,
+    _fold_cards_into_inventory,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

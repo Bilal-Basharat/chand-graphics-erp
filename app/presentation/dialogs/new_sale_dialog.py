@@ -9,8 +9,6 @@ equivalent of — you cannot sell stock you do not have.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLineEdit, QWidget
 
 from app.application.dto.commands import CreateSaleCommand, SaleItemCommand, SalePaymentCommand
@@ -35,19 +33,19 @@ class NewSaleDialog(DocumentDialog):
         *,
         customers: list,
         payment_methods: list,
-        cards: list,
-        inventory_items: list,
+        catalogues: dict[ItemType, list],
         current_user_id: int | None,
         parent: QWidget | None = None,
     ) -> None:
         # Set before super(), which calls the build hooks below.
         self._customers = customers
-        self._cards = cards
-        self._inventory_items = inventory_items
-        # The product behind each line, so the stock rules below can be
-        # answered without going back to the two lists to find it.
-        self._products = {(ItemType.CARD, card.id): card for card in cards} | {
-            (ItemType.INVENTORY_ITEM, item.id): item for item in inventory_items
+        self._catalogues = catalogues
+        # The record behind each line, so the stock rules below can be
+        # answered without going back to the catalogues to find it.
+        self._products = {
+            (item_type, record.id): record
+            for item_type, records in catalogues.items()
+            for record in records
         }
 
         super().__init__(
@@ -84,7 +82,7 @@ class NewSaleDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        self._picker = ItemPickerRow(self._cards, self._inventory_items)
+        self._picker = ItemPickerRow(self._catalogues)
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
         self._picker.itemChanged.connect(self._on_item_changed)
@@ -99,7 +97,7 @@ class NewSaleDialog(DocumentDialog):
     def _add_line(self, picked: PickedItem) -> None:
         product = self._products.get((picked.item_type, picked.item_id))
         if product is None:
-            self.warn("That product is no longer in the catalogue. Refresh and try again.")
+            self.warn("That item is no longer in the catalogue. Refresh and try again.")
             return
 
         # Mirrors CreateSaleUseCase, which refuses to sell anything at or
@@ -169,8 +167,7 @@ class NewSaleDialog(DocumentDialog):
                     item_type=line.item_type,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
-                    card_id=line.item_id if line.item_type is ItemType.CARD else None,
-                    inventory_item_id=None if line.item_type is ItemType.CARD else line.item_id,
+                    inventory_item_id=line.item_id,
                 )
                 for line in self.lines
             ],

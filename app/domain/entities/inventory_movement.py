@@ -14,7 +14,6 @@ class InventoryMovement(AuditEntity):
     item_type: ItemType
     quantity: int
 
-    card_id: int | None = None
     inventory_item_id: int | None = None
 
     source_document_type: str | None = None
@@ -35,14 +34,6 @@ class InventoryMovement(AuditEntity):
         if self.quantity <= 0:
             raise ValueError("quantity must be greater than zero")
 
-        if self.item_type == ItemType.CARD:
-            if self.card_id is None:
-                raise ValueError("card_id is required for CARD movements")
-            if self.inventory_item_id is not None:
-                raise ValueError("inventory_item_id must be None for CARD movements")
-
-        elif self.item_type == ItemType.INVENTORY_ITEM:
-            if self.inventory_item_id is None:
-                raise ValueError("inventory_item_id is required for INVENTORY_ITEM movements")
-            if self.card_id is not None:
-                raise ValueError("card_id must be None for INVENTORY_ITEM movements")
+        # See SaleItem: the movement carries the id its own item type names.
+        if self.item_type is ItemType.INVENTORY_ITEM and self.inventory_item_id is None:
+            raise ValueError("inventory_item_id is required for INVENTORY_ITEM movements")

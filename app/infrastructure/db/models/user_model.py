@@ -50,12 +50,6 @@ class UserModel(Base, AuditMixin):
         back_populates="created_by_user",
         foreign_keys="CabinetModel.created_by_user_id",
     )
-    
-    cards = relationship(
-        "CardModel",
-        back_populates="created_by_user",
-        foreign_keys="CardModel.created_by_user_id",
-    )
 
     inventory_items = relationship(
         "InventoryItemModel",

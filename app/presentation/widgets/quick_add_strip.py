@@ -1,8 +1,8 @@
 """
 The one-line "add another" row pinned below a list.
 
-Master data arrives in runs — a delivery of card designs, the cabinets to
-file them in, the categories a month's expenses fall under. Reopening a
+Master data arrives in runs — a delivery of stock, the cabinets to file
+it in, the categories a month's expenses fall under. Reopening a
 modal for each one is the wrong shape for that work: the dialog is right
 when a record needs thought, and in the way when it needs typing.
 

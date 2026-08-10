@@ -6,11 +6,13 @@ from app.domain.entities.base import AuditEntity
 @dataclass(slots=True, kw_only=True)
 class InventoryItem(AuditEntity):
     """
-    Non-card inventory catalog record (paper, ink, etc.).
+    A stocked catalogue record: paper, ink, packaging, anything counted.
 
-    Deliberately carries no price — see Card for why: price is only
-    meaningful per transaction (PurchaseItem/SaleItem.unit_price), not as
-    a single mutable "current price" on the catalog record.
+    Deliberately carries no price: purchase/selling price is only
+    meaningful per transaction (PurchaseItem.unit_price /
+    SaleItem.unit_price), since the same item is bought and sold at
+    different prices over time. A single "current price" field here would
+    silently overwrite that history every time a new price was recorded.
     """
 
     id: int | None = None
@@ -18,6 +20,9 @@ class InventoryItem(AuditEntity):
     current_stock: int = 0
     minimum_stock: int = 0
     description: str | None = None
+
+    cabinet_id: int | None = None
+    """Where it is kept. Optional: an item nobody files still counts."""
 
     unit: str | None = None
     """What one of these is, in the shop's own words — "sheets", "ml",

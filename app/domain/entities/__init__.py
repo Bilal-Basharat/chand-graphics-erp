@@ -1,5 +1,4 @@
 # from .cabinet import Cabinet
-# from .card import Card
 # from .customer import Customer
 # from .expense import Expense
 # from .inventory_item import InventoryItem

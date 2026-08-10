@@ -4,7 +4,6 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.domain.entities.cabinet import Cabinet
-from app.domain.entities.card import Card
 from app.domain.entities.company_settings import CompanySettings
 from app.domain.entities.customer import Customer
 from app.domain.entities.expense_category import ExpenseCategory
@@ -13,7 +12,6 @@ from app.domain.entities.payment_method import PaymentMethod
 from app.domain.entities.supplier import Supplier
 from app.domain.entities.user import User
 from app.domain.repositories.cabinet_repository import CabinetRepository as CabinetRepositoryPort
-from app.domain.repositories.card_repository import CardRepository as CardRepositoryPort
 from app.domain.repositories.company_settings_repository import (
     CompanySettingsRepository as CompanySettingsRepositoryPort,
 )
@@ -30,7 +28,6 @@ from app.domain.repositories.payment_method_repository import (
 from app.domain.repositories.supplier_repository import SupplierRepository as SupplierRepositoryPort
 from app.domain.repositories.user_repository import UserRepository as UserRepositoryPort
 from app.infrastructure.db.models.cabinet_model import CabinetModel
-from app.infrastructure.db.models.card_model import CardModel
 from app.infrastructure.db.models.company_settings_model import CompanySettingsModel
 from app.infrastructure.db.models.customer_model import CustomerModel
 from app.infrastructure.db.models.expense_category_model import ExpenseCategoryModel
@@ -39,7 +36,6 @@ from app.infrastructure.db.models.payment_method_model import PaymentMethodModel
 from app.infrastructure.db.models.supplier_model import SupplierModel
 from app.infrastructure.db.models.user_model import UserModel
 from app.infrastructure.mappers.cabinet_mapper import CabinetMapper
-from app.infrastructure.mappers.card_mapper import CardMapper
 from app.infrastructure.mappers.company_settings_mapper import CompanySettingsMapper
 from app.infrastructure.mappers.customer_mapper import CustomerMapper
 from app.infrastructure.mappers.expense_category_mapper import ExpenseCategoryMapper
@@ -51,69 +47,6 @@ from app.infrastructure.repositories.base import SQLAlchemyRepository
 
 
 ############################################################
-################### Card Repository ######################
-############################################################
-class SqlAlchemyCardRepository(
-    SQLAlchemyRepository[Card, CardModel],
-    CardRepositoryPort,
-):
-    """
-    Persistence for wedding card master records.
-    """
-
-    def __init__(self, session: Session) -> None:
-        super().__init__(session, CardModel, CardMapper)
-
-    def get_by_card_number(self, card_number: str) -> Card | None:
-        return self.find_one_by("card_number", card_number)
-
-    def list_low_stock(self, limit: int = 100) -> list[Card]:
-        stmt = (
-            select(CardModel)
-            .where(CardModel.current_stock <= CardModel.minimum_stock)
-            .order_by(CardModel.card_number.asc())
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [CardMapper.to_entity(model) for model in models]
-
-    def search_by_term(self, term: str, limit: int = 50) -> list[Card]:
-        pattern = f"%{term.strip()}%"
-        stmt = (
-            select(CardModel)
-            .where(
-                or_(
-                    CardModel.card_number.ilike(pattern),
-                    CardModel.name.ilike(pattern),
-                    CardModel.description.ilike(pattern),
-                )
-            )
-            .order_by(CardModel.card_number.asc())
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [CardMapper.to_entity(model) for model in models]
-
-    def list_by_cabinet_id(self, cabinet_id: int, limit: int = 200) -> list[Card]:
-        stmt = (
-            select(CardModel)
-            .where(CardModel.cabinet_id == cabinet_id)
-            .order_by(CardModel.card_number.asc())
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [CardMapper.to_entity(model) for model in models]
-
-    def clear_cabinet_id(self, cabinet_id: int) -> int:
-        stmt = (
-            update(CardModel)
-            .where(CardModel.cabinet_id == cabinet_id)
-            .values(cabinet_id=None)
-        )
-        return int(self.session.execute(stmt).rowcount)
-
-
-############################################################
 ############### Inventory Items Repository #################
 ############################################################
 class SqlAlchemyInventoryItemRepository(
@@ -121,7 +54,7 @@ class SqlAlchemyInventoryItemRepository(
     InventoryItemRepositoryPort,
 ):
     """
-    Persistence for non-card inventory master records.
+    Persistence for inventory master records.
     """
 
     def __init__(self, session: Session) -> None:
@@ -155,6 +88,14 @@ class SqlAlchemyInventoryItemRepository(
         )
         models = self.session.execute(stmt).scalars().all()
         return [InventoryItemMapper.to_entity(model) for model in models]
+
+    def clear_cabinet_id(self, cabinet_id: int) -> int:
+        stmt = (
+            update(InventoryItemModel)
+            .where(InventoryItemModel.cabinet_id == cabinet_id)
+            .values(cabinet_id=None)
+        )
+        return int(self.session.execute(stmt).rowcount)
 
 
 ############################################################

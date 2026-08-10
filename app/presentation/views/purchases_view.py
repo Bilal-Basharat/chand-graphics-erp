@@ -19,6 +19,7 @@ from app.application.dto.commands import CreatePurchaseCommand
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.dialogs.new_purchase_dialog import NewPurchaseDialog
+from app.presentation.item_types import load_catalogues
 from app.presentation.formatting import (
     DASH,
     NO_SUPPLIER,
@@ -49,9 +50,9 @@ _ZERO = Decimal("0.00")
 
 class PurchasesViewModel(CollectionViewModelBase):
     """
-    Listing is by date range, and the create dialog needs four catalogues,
-    so this doesn't fit `CollectionSource` — it implements the collection
-    contract directly instead.
+    Listing is by date range, and the create dialog needs several
+    catalogues, so this doesn't fit `CollectionSource` — it implements the
+    collection contract directly instead.
     """
 
     referenceLoaded = Signal(dict)
@@ -102,15 +103,12 @@ class PurchasesViewModel(CollectionViewModelBase):
                     SearchQuery(term="", limit=_REFERENCE_LIMIT)
                 ),
                 "payment_methods": self._container.list_payment_methods_use_case().execute(100),
-                "cards": self._container.list_cards_use_case().execute(_REFERENCE_LIMIT),
-                "inventory_items": self._container.list_inventory_items_use_case().execute(
-                    _REFERENCE_LIMIT
-                ),
+                "catalogues": load_catalogues(self._container, _REFERENCE_LIMIT),
             }
 
         def _on_success(reference: dict) -> None:
             self._method_names = {m.id: m.name for m in reference["payment_methods"]}
-            self._catalogue.set_products(reference["cards"], reference["inventory_items"])
+            self._catalogue.set_catalogues(reference["catalogues"])
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)
@@ -205,7 +203,7 @@ class PurchasesView(CollectionView):
                 columns,
                 {
                     # The item name goes in the widest column there is, so
-                    # a card's number and design both fit on the line.
+                    # a long one still fits on the line.
                     "SUPPLIER": ("ITEM", lambda line: line.label),
                     "REFERENCE": ("", lambda _line: ""),
                     "ITEMS": ("QTY", lambda line: line.quantity),
@@ -275,8 +273,7 @@ class PurchasesView(CollectionView):
             self._purchases_view_model,
             suppliers=self._reference["suppliers"],
             payment_methods=self._reference["payment_methods"],
-            cards=self._reference["cards"],
-            inventory_items=self._reference["inventory_items"],
+            catalogues=self._reference["catalogues"],
             current_user_id=self._current_user_id_provider(),
             parent=self,
         ).exec()

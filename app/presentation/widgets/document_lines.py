@@ -3,9 +3,9 @@ The line items and money arithmetic shared by sales and purchases.
 
 A sale ticket and a purchase both come down to the same thing: a list of
 (item, quantity, unit price) lines, a discount, and an amount paid now.
-Only the picking differs — a sale picks from card tiles, a purchase from
-dropdowns — so the lines, their table, and the totals live here and the
-two screens keep just their own way of choosing an item.
+Only the rules on the picking differ — a sale cannot sell stock that
+isn't there, a purchase has no such limit — so the lines, their table,
+and the totals live here and the two screens keep just their own rules.
 """
 from __future__ import annotations
 

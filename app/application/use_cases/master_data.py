@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.application.dto.commands import (
     CreateCabinetCommand,
-    CreateCardCommand,
     CreateCompanySettingsCommand,
     CreateCustomerCommand,
     CreateExpenseCategoryCommand,
@@ -126,7 +125,7 @@ class DeleteCabinetUseCase(AuthorizedUnitOfWorkUseCase[int, int]):
     """
     Remove a cabinet, unfiling whatever was in it.
 
-    A cabinet is where a card is kept, not what it is, so the cards
+    A cabinet is where an item is kept, not what it is, so the items
     themselves survive — they simply stop naming a cabinet that no longer
     exists. Returns how many were unfiled.
     """
@@ -136,13 +135,13 @@ class DeleteCabinetUseCase(AuthorizedUnitOfWorkUseCase[int, int]):
 
         with self.uow as uow:
             cabinets = self.require(uow.cabinets, "cabinets")
-            cards = self.require(uow.cards, "cards")
+            items = self.require(uow.inventory_items, "inventory_items")
 
             cabinet = cabinets.get_by_id(request)
             if cabinet is None:
                 raise NotFoundError(f"Cabinet id={request} not found")
 
-            unfiled = cards.clear_cabinet_id(request)
+            unfiled = items.clear_cabinet_id(request)
             cabinets.delete(request)
             return unfiled
 
@@ -430,7 +429,7 @@ class UpdatePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[UpdatePaymentMethod
 class DeletePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
     """Remove a payment method. Payments made through it are kept.
 
-    Unlike a card or a customer, this is not refused while it is in use.
+    Unlike an item or a customer, this is not refused while it is in use.
     A method is a label on how money moved, not part of the money itself,
     and a shop that stops taking cheques should be able to say so without
     its old cheque payments standing in the way. Those payments keep their

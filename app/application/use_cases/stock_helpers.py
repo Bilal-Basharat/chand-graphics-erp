@@ -1,9 +1,16 @@
+"""
+Finding the stocked record a document line moves, and moving it.
+
+The one place that turns an `ItemType` into the catalogue behind it. A
+special item module adds a branch to `load_stock_target` and nothing
+else: sales, purchases and stock movements all reach their record through
+here, so none of them has to know how many kinds there are.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.entities.card import Card
 from app.domain.entities.inventory_item import InventoryItem
 from app.domain.enums.item_type import ItemType
 from app.domain.uow import UnitOfWork
@@ -12,28 +19,16 @@ from app.application.exceptions import NotFoundError
 
 @dataclass(slots=True)
 class ResolvedStockTarget:
-    entity: Card | InventoryItem
+    entity: InventoryItem
     repository: Any
 
 
 def load_stock_target(
     uow: UnitOfWork,
     item_type: ItemType,
-    card_id: int | None,
     inventory_item_id: int | None,
 ) -> ResolvedStockTarget:
-    if item_type == ItemType.CARD:
-        cards = getattr(uow, "cards", None)
-        if cards is None:
-            raise RuntimeError("cards repository is not initialized")
-        if card_id is None:
-            raise ValueError("card_id is required for CARD items")
-        entity = cards.get_by_id(card_id)
-        if entity is None:
-            raise NotFoundError(f"Card id={card_id} not found")
-        return ResolvedStockTarget(entity=entity, repository=cards)
-
-    if item_type == ItemType.INVENTORY_ITEM:
+    if item_type is ItemType.INVENTORY_ITEM:
         inventory_items = getattr(uow, "inventory_items", None)
         if inventory_items is None:
             raise RuntimeError("inventory_items repository is not initialized")
@@ -47,13 +42,13 @@ def load_stock_target(
     raise ValueError(f"Unsupported item type: {item_type}")
 
 
-def increase_stock(entity: Card | InventoryItem, quantity: int) -> tuple[int, int]:
+def increase_stock(entity: InventoryItem, quantity: int) -> tuple[int, int]:
     previous_stock = entity.current_stock
     entity.receive_stock(quantity)
     return previous_stock, entity.current_stock
 
 
-def decrease_stock(entity: Card | InventoryItem, quantity: int) -> tuple[int, int]:
+def decrease_stock(entity: InventoryItem, quantity: int) -> tuple[int, int]:
     previous_stock = entity.current_stock
     entity.issue_stock(quantity)
     return previous_stock, entity.current_stock

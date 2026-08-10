@@ -8,7 +8,6 @@ from app.infrastructure.db.session import SessionLocal
 
 from app.infrastructure.repositories.master_data_repositories import (
     SqlAlchemyCabinetRepository,
-    SqlAlchemyCardRepository,
     SqlAlchemyCompanySettingsRepository,
     SqlAlchemyCustomerRepository,
     SqlAlchemyExpenseCategoryRepository,
@@ -39,7 +38,6 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self._session_factory = session_factory or SessionLocal
         self.session: Session | None = None
 
-        self.cards: SqlAlchemyCardRepository | None = None
         self.inventory_items: SqlAlchemyInventoryItemRepository | None = None
         self.cabinets: SqlAlchemyCabinetRepository | None = None
         self.customers: SqlAlchemyCustomerRepository | None = None
@@ -70,7 +68,6 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
             raise RuntimeError("UnitOfWork session is not initialized")
 
         self.login_audits = SqlAlchemyLoginAuditRepository(self.session)
-        self.cards = SqlAlchemyCardRepository(self.session)
         self.inventory_items = SqlAlchemyInventoryItemRepository(self.session)
         self.cabinets = SqlAlchemyCabinetRepository(self.session)
         self.customers = SqlAlchemyCustomerRepository(self.session)

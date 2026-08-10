@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from app.application.dto.commands import (
-    CreateCardCommand,
+    CreateInventoryItemCommand,
     CreatePurchaseCommand,
     InventoryMovementCommand,
     PurchaseItemCommand,
 )
-from app.application.use_cases.cards import CreateCardUseCase, GetCardByNumberUseCase
+from app.application.use_cases.inventory_items import (
+    CreateInventoryItemUseCase,
+    GetInventoryItemByNameUseCase,
+)
 from app.application.use_cases.inventory_movements import RecordInventoryMovementUseCase
 from app.application.use_cases.purchases import CreatePurchaseUseCase
 from app.domain.enums.item_type import ItemType
@@ -15,23 +18,23 @@ from decimal import Decimal
 
 
 def test_record_inventory_adjustment(uow, admin_session):
-    card = CreateCardUseCase(uow, admin_session).execute(
-        CreateCardCommand(
-            card_number="1111",
-            name="1111 Card",
+    item = CreateInventoryItemUseCase(uow, admin_session).execute(
+        CreateInventoryItemCommand(
+            name="A4 Ivory Sheet 250gsm",
+            unit="sheets",
             current_stock=0,
             minimum_stock=20,
         )
     )
 
-    # cards start at zero stock; bring stock to 100 via a purchase before adjusting it down
+    # items start at zero stock; bring stock to 100 via a purchase before adjusting it down
     CreatePurchaseUseCase(uow, admin_session).execute(
         CreatePurchaseCommand(
             purchase_no="PUR-SETUP",
             items=[
                 PurchaseItemCommand(
-                    item_type=ItemType.CARD,
-                    card_id=card.id,
+                    item_type=ItemType.INVENTORY_ITEM,
+                    inventory_item_id=item.id,
                     quantity=100,
                     unit_price=Decimal("10.00"),
                 )
@@ -43,10 +46,10 @@ def test_record_inventory_adjustment(uow, admin_session):
     movement = RecordInventoryMovementUseCase(uow, admin_session).execute(
         InventoryMovementCommand(
             movement_type=MovementType.ADJUSTMENT,
-            item_type=ItemType.CARD,
+            item_type=ItemType.INVENTORY_ITEM,
             quantity_change=-5,
-            card_id=card.id,
-            reason="Damaged cards",
+            inventory_item_id=item.id,
+            reason="Damaged sheets",
         )
     )
 
@@ -54,6 +57,6 @@ def test_record_inventory_adjustment(uow, admin_session):
     assert movement.previous_stock == 100
     assert movement.resulting_stock == 95
 
-    fresh_card = GetCardByNumberUseCase(uow).execute("1111")
-    assert fresh_card is not None
-    assert fresh_card.current_stock == 95
+    fresh_item = GetInventoryItemByNameUseCase(uow).execute("A4 Ivory Sheet 250gsm")
+    assert fresh_item is not None
+    assert fresh_item.current_stock == 95

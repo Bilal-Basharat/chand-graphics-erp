@@ -28,24 +28,18 @@ class UpdateCabinetCommand:
 
 
 @dataclass(slots=True)
-class CreateCardCommand:
-    card_number: str
-    name: str | None = None
+class CreateInventoryItemCommand:
+    name: str
     minimum_stock: int = 0
     current_stock: int = 0
-    cabinet_id: int | None = None
     description: str | None = None
-
-
-@dataclass(slots=True)
-class UpdateCardCabinetCommand:
-    card_id: int
     cabinet_id: int | None = None
+    unit: str | None = None
 
 
 @dataclass(slots=True)
-class UpdateCardCommand:
-    """Corrections to a card's catalogue details.
+class UpdateInventoryItemCommand:
+    """Corrections to an item's catalogue details.
 
     Stock is absent on purpose: it moves through purchases, sales and
     stock adjustments, and a field that silently overwrote it here would
@@ -53,28 +47,10 @@ class UpdateCardCommand:
     """
 
     id: int
-    card_number: str
-    name: str | None = None
+    name: str
     minimum_stock: int = 0
+    description: str | None = None
     cabinet_id: int | None = None
-    description: str | None = None
-
-
-@dataclass(slots=True)
-class CreateInventoryItemCommand:
-    name: str
-    minimum_stock: int = 0
-    current_stock: int = 0
-    description: str | None = None
-    unit: str | None = None
-
-
-@dataclass(slots=True)
-class UpdateInventoryItemCommand:
-    id: int
-    name: str
-    minimum_stock: int = 0
-    description: str | None = None
     unit: str | None = None
 
 
@@ -174,7 +150,6 @@ class PurchaseItemCommand:
     item_type: ItemType
     quantity: int
     unit_price: Decimal
-    card_id: int | None = None
     inventory_item_id: int | None = None
     note: str | None = None
 
@@ -214,7 +189,6 @@ class SaleItemCommand:
     item_type: ItemType
     quantity: int
     unit_price: Decimal
-    card_id: int | None = None
     inventory_item_id: int | None = None
     note: str | None = None
 
@@ -253,7 +227,6 @@ class InventoryMovementCommand:
     movement_type: MovementType
     item_type: ItemType
     quantity_change: int
-    card_id: int | None = None
     inventory_item_id: int | None = None
     source_document_type: str | None = None
     source_document_id: int | None = None

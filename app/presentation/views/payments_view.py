@@ -33,6 +33,7 @@ from app.presentation.formatting import (
     money,
     payment_method_name,
 )
+from app.presentation.item_types import load_catalogues
 from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
@@ -210,7 +211,7 @@ class PaymentsViewModel(CollectionViewModelBase):
 
 
 class _ProductCatalogueMixin:
-    """The card and inventory names a sale or purchase line points at.
+    """The item names a sale or purchase line points at.
 
     Both payment screens need exactly what their document screen needs,
     and the catalogue that answers it is already shared — so this is the
@@ -218,15 +219,10 @@ class _ProductCatalogueMixin:
     """
 
     def _fetch_catalogues(self) -> dict:
-        return {
-            "cards": self._container.list_cards_use_case().execute(_REFERENCE_LIMIT),
-            "inventory_items": self._container.list_inventory_items_use_case().execute(
-                _REFERENCE_LIMIT
-            ),
-        }
+        return {"catalogues": load_catalogues(self._container, _REFERENCE_LIMIT)}
 
     def _catalogues_loaded(self, reference: dict) -> None:
-        self._catalogue.set_products(reference["cards"], reference["inventory_items"])
+        self._catalogue.set_catalogues(reference["catalogues"])
 
 
 class SalePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):

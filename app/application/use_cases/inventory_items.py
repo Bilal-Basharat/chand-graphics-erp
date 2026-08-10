@@ -45,16 +45,21 @@ class CreateInventoryItemUseCase(AuthorizedUseCase[CreateInventoryItemCommand, I
 
         with self.uow as uow:
             items = self.require(uow.inventory_items, "inventory_items")
+            cabinets = self.require(uow.cabinets, "cabinets")
 
             name = request.name.strip()
             if items.get_by_name(name) is not None:
                 raise DuplicateEntityError(f"Inventory item '{name}' already exists")
+
+            if request.cabinet_id is not None and cabinets.get_by_id(request.cabinet_id) is None:
+                raise NotFoundError(f"Cabinet id={request.cabinet_id} not found")
 
             item = InventoryItem(
                 name=name,
                 current_stock=request.current_stock,
                 minimum_stock=request.minimum_stock,
                 description=request.description,
+                cabinet_id=request.cabinet_id,
                 unit=request.unit,
                 created_by_user_id=current_user_id
             )
@@ -72,6 +77,7 @@ class UpdateInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[UpdateInventoryItem
 
         with self.uow as uow:
             items = self.require(uow.inventory_items, "inventory_items")
+            cabinets = self.require(uow.cabinets, "cabinets")
 
             item = items.get_by_id(request.id)
             if item is None:
@@ -82,9 +88,13 @@ class UpdateInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[UpdateInventoryItem
             if clash is not None and clash.id != request.id:
                 raise DuplicateEntityError(f"Inventory item '{name}' already exists")
 
+            if request.cabinet_id is not None and cabinets.get_by_id(request.cabinet_id) is None:
+                raise NotFoundError(f"Cabinet id={request.cabinet_id} not found")
+
             item.name = name
             item.minimum_stock = request.minimum_stock
             item.description = request.description
+            item.cabinet_id = request.cabinet_id
             item.unit = request.unit
             item.updated_by_user_id = current_user_id
 
@@ -92,8 +102,11 @@ class UpdateInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[UpdateInventoryItem
 
 
 class DeleteInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
-    """Remove an item, unless it has been bought or sold — see
-    `DeleteCardUseCase` for why that is refused rather than cascaded."""
+    """Remove an item, unless it has been bought or sold.
+
+    Those documents record what was traded at what price. Deleting the
+    item they name would leave them describing something that no longer
+    exists, so the caller is told what is holding it instead."""
 
     def execute(self, request: int) -> None:
         self.require_permission(Permission.MANAGE_MASTER_DATA)

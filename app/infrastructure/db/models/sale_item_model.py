@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -10,14 +10,6 @@ from app.infrastructure.db.mixins import TimestampMixin
 
 class SaleItemModel(Base, TimestampMixin):
     __tablename__ = "sale_items"
-
-    __table_args__ = (
-        CheckConstraint(
-            "(card_id IS NOT NULL AND inventory_item_id IS NULL) OR "
-            "(card_id IS NULL AND inventory_item_id IS NOT NULL)",
-            name="ck_sale_items_exclusive_target",
-        ),
-    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -33,17 +25,14 @@ class SaleItemModel(Base, TimestampMixin):
         index=True,
     )
 
-    card_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id"),
-        nullable=True,
-        index=True,
-    )
-
-    inventory_item_id: Mapped[int | None] = mapped_column(
+    inventory_item_id: Mapped[int] = mapped_column(
         ForeignKey("inventory_items.id"),
-        nullable=True,
+        nullable=False,
         index=True,
     )
+    """Which catalogue record the line sold. A special item module adds
+    its own nullable column beside this one, and a CHECK constraint
+    naming exactly one of them — see ItemType."""
 
     quantity: Mapped[int] = mapped_column(
         Integer,
@@ -89,5 +78,4 @@ class SaleItemModel(Base, TimestampMixin):
     #############################################################
 
     sale = relationship("SaleModel", back_populates="items")
-    card = relationship("CardModel", back_populates="sale_items")
     inventory_item = relationship("InventoryItemModel", back_populates="sale_items")

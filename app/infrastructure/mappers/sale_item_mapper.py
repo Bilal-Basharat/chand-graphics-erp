@@ -15,7 +15,6 @@ class SaleItemMapper:
             quantity=model.quantity,
             unit_price=model.unit_price,
             sale_id=model.sale_id,
-            card_id=model.card_id,
             inventory_item_id=model.inventory_item_id,
             previous_stock=model.previous_stock,
             resulting_stock=model.resulting_stock,
@@ -29,7 +28,6 @@ class SaleItemMapper:
         model = SaleItemModel(
             sale_id=entity.sale_id,
             item_type=entity.item_type,
-            card_id=entity.card_id,
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
             unit_price=entity.unit_price,
