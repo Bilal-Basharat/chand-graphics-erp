@@ -56,6 +56,18 @@ def money(value: Decimal | int | float | None) -> str:
     return f"{Decimal(value):,.2f}"
 
 
+def money_or_blank(value: Decimal | int | float) -> str:
+    """A figure, or nothing at all when there isn't one.
+
+    For a pair of columns where each row fills exactly one — a ledger's
+    debit and credit. A column of "0.00"s beside the figures that matter
+    reads as data; a blank reads as "not this one", which is what it is.
+    Distinct from `money(None)`, which is a dash: that says the value is
+    unknown, this says it does not apply.
+    """
+    return money(value) if value else ""
+
+
 def pkr(value: Decimal | int | float) -> str:
     """A headline figure: "PKR 12,500".
 

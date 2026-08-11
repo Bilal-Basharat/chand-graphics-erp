@@ -20,6 +20,8 @@ class Route(StrEnum):
     INVENTORY_MOVEMENT = "inventory_movement"
     CUSTOMERS = "customers"
     SUPPLIERS = "suppliers"
+    CUSTOMER_LEDGER = "customer_ledger"
+    SUPPLIER_LEDGER = "supplier_ledger"
     EXPENSES = "expenses"
     EXPENSE_CATEGORIES = "expense_categories"
     COMPANY_SETTINGS = "company_settings"

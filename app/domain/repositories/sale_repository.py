@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from datetime import datetime
+from decimal import Decimal
 
 from app.domain.entities.sale import Sale
 from app.domain.enums.item_type import ItemType
@@ -41,4 +43,38 @@ class SaleRepository(Repository[Sale], ABC):
     @abstractmethod
     def count_by_customer(self, customer_id: int) -> int:
         """How many sales are recorded against one customer."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_by_customer(
+        self,
+        customer_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[Sale]:
+        """One customer's sales in a date range, oldest first.
+
+        Oldest first because this feeds a statement, which is read from
+        the top down.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def numbers_by_id(self, sale_ids: Collection[int]) -> dict[int, str]:
+        """Invoice numbers for a set of sales, keyed by id.
+
+        For listing payments without loading the sales they settle: a
+        statement names the invoice each receipt was against, and nothing
+        else about it.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def total_by_customer(self, customer_id: int, before: datetime) -> Decimal:
+        """Total billed to one customer before a moment in time.
+
+        The half of an opening balance that the sales themselves account
+        for.
+        """
         raise NotImplementedError

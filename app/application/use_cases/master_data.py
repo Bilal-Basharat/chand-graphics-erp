@@ -176,6 +176,7 @@ class CreateCustomerUseCase(AuthorizedUseCase[CreateCustomerCommand, Customer]):
                 phone=request.phone,
                 address=request.address,
                 notes=request.notes,
+                opening_balance=request.opening_balance,
                 created_by_user_id=current_user_id,
             )
             return customers.add(customer)
@@ -224,6 +225,7 @@ class UpdateCustomerUseCase(AuthorizedUseCase[UpdateCustomerCommand, Customer]):
             customer.phone = request.phone
             customer.address = request.address
             customer.notes = request.notes
+            customer.opening_balance = request.opening_balance
             customer.updated_by_user_id = current_user_id
 
             return customers.update(customer)
@@ -285,6 +287,7 @@ class CreateSupplierUseCase(AuthorizedUseCase[CreateSupplierCommand, Supplier]):
                 phone=request.phone,
                 address=request.address,
                 notes=request.notes,
+                opening_balance=request.opening_balance,
                 created_by_user_id=current_user_id,
             )
             return suppliers.add(supplier)
@@ -333,6 +336,7 @@ class UpdateSupplierUseCase(AuthorizedUseCase[UpdateSupplierCommand, Supplier]):
             supplier.phone = request.phone
             supplier.address = request.address
             supplier.notes = request.notes
+            supplier.opening_balance = request.opening_balance
             supplier.updated_by_user_id = current_user_id
 
             return suppliers.update(supplier)

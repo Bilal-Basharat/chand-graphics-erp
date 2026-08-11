@@ -312,6 +312,35 @@ class AppContainer:
         return ListInventoryMovementsByInventoryItemUseCase(self.create_uow(), self.current_user_session)
 
     ############################################################
+    ##################### Account Ledger Use Cases #################
+    ############################################################
+    # The two ledgers are one use case assembled two ways. This is the
+    # only place the application says "a customer's account is moved by
+    # sales" — a build where job orders do that too adds its source to
+    # the tuple below and changes nothing else.
+    def get_customer_ledger_use_case(self):
+        from app.application.ledger.sources import CustomerLookup, SaleLedgerSource
+        from app.application.use_cases.ledger import GetPartyLedgerUseCase
+        return GetPartyLedgerUseCase(
+            self.create_uow(),
+            self.current_user_session,
+            self.authorization_service(),
+            party=CustomerLookup(),
+            sources=(SaleLedgerSource(),),
+        )
+
+    def get_supplier_ledger_use_case(self):
+        from app.application.ledger.sources import PurchaseLedgerSource, SupplierLookup
+        from app.application.use_cases.ledger import GetPartyLedgerUseCase
+        return GetPartyLedgerUseCase(
+            self.create_uow(),
+            self.current_user_session,
+            self.authorization_service(),
+            party=SupplierLookup(),
+            sources=(PurchaseLedgerSource(),),
+        )
+
+    ############################################################
     ###################### Search Use Cases ########################
     ############################################################
     def search_inventory_items_use_case(self):

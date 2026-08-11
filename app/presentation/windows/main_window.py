@@ -26,6 +26,13 @@ from app.presentation.viewmodels.master_data_viewmodels import (
     payment_methods_view_model,
     suppliers_view_model,
 )
+from app.presentation.views.account_ledger_view import (
+    CUSTOMER_LEDGER_PAGE,
+    SUPPLIER_LEDGER_PAGE,
+    AccountLedgerView,
+    CustomerLedgerViewModel,
+    SupplierLedgerViewModel,
+)
 from app.presentation.views.collection_view import CollectionView
 from app.presentation.views.company_settings_view import CompanySettingsView
 from app.presentation.views.dashboard_view import DashboardView
@@ -153,16 +160,7 @@ class MainWindow(QMainWindow):
             CabinetsView(cabinets_view_model(self._container)),
             "Cabinets",
         )
-        self._add_page(
-            Route.CUSTOMERS,
-            CustomersView(customers_view_model(self._container)),
-            "Customers",
-        )
-        self._add_page(
-            Route.SUPPLIERS,
-            SuppliersView(suppliers_view_model(self._container)),
-            "Suppliers",
-        )
+        self._register_party_views()
         self._add_page(
             Route.PAYMENT_METHODS,
             PaymentMethodsView(payment_methods_view_model(self._container)),
@@ -249,6 +247,60 @@ class MainWindow(QMainWindow):
             ProfileView(self._session_view_model),
             "My profile",
         )
+
+    def _register_party_views(self) -> None:
+        """The two party lists and the two ledgers behind them.
+
+        Registered together because the Ledger button on a row of one
+        opens the other, and that wiring is the only reason either knows
+        the other exists.
+        """
+        customers = CustomersView(customers_view_model(self._container))
+        customers.ledgerRequested.connect(
+            lambda party_id: self._open_ledger(Route.CUSTOMER_LEDGER, party_id)
+        )
+        self._add_page(Route.CUSTOMERS, customers, "Customers")
+
+        suppliers = SuppliersView(suppliers_view_model(self._container))
+        suppliers.ledgerRequested.connect(
+            lambda party_id: self._open_ledger(Route.SUPPLIER_LEDGER, party_id)
+        )
+        self._add_page(Route.SUPPLIERS, suppliers, "Suppliers")
+
+        customer_ledger_period = PeriodSelection()
+        self._add_page(
+            Route.CUSTOMER_LEDGER,
+            AccountLedgerView(
+                CUSTOMER_LEDGER_PAGE,
+                CustomerLedgerViewModel(self._container, customer_ledger_period),
+                customer_ledger_period,
+            ),
+            "Customer ledger",
+        )
+
+        supplier_ledger_period = PeriodSelection()
+        self._add_page(
+            Route.SUPPLIER_LEDGER,
+            AccountLedgerView(
+                SUPPLIER_LEDGER_PAGE,
+                SupplierLedgerViewModel(self._container, supplier_ledger_period),
+                supplier_ledger_period,
+            ),
+            "Supplier ledger",
+        )
+
+    def _open_ledger(self, route: Route, party_id: int) -> None:
+        """Open a party's ledger from the row that named them.
+
+        By id rather than by search, unlike `_open_record`: this screen
+        picks its subject from a dropdown rather than filtering a table.
+        Navigating first lets its `showEvent` start the party list
+        loading; the ledger holds on to the request until that lands.
+        """
+        self.navigate(route)
+        page = self._pages.get(route)
+        if isinstance(page, AccountLedgerView):
+            page.select_party(party_id)
 
     def _open_change_password(self) -> None:
         ChangePasswordDialog(self._session_view_model, parent=self).exec()

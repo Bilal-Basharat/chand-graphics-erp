@@ -306,10 +306,23 @@ def _free_name(wanted: str, taken: set[str]) -> str:
     return f"{wanted} ({suffix})"
 
 
+def _add_party_opening_balance(connection: Connection) -> None:
+    """Parties carry a balance from before the software was installed.
+
+    Nothing in the database can tell us what a customer already owed on the
+    day the shop started using this, so it is entered by hand and stored.
+    Existing rows take the default of zero, which is what they meant
+    before the column existed.
+    """
+    for table in ("customers", "suppliers"):
+        _add_column(connection, table, "opening_balance", "NUMERIC(12, 2) NOT NULL DEFAULT 0")
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
     _relax_payment_method_links,
     _fold_cards_into_inventory,
+    _add_party_opening_balance,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

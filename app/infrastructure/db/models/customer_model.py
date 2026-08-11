@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -31,7 +33,16 @@ class CustomerModel(Base, AuditMixin):
         String(500),
         nullable=True,
     )
-    
+
+    # What was owed before this software existed. Not derived from any
+    # sale, so it has to be stored rather than computed.
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default="0",
+    )
+
     #############################################################
     #################### relationship methods ###################
     #############################################################

@@ -13,6 +13,7 @@ a dialog is in, and it is the only thing that does.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
@@ -33,6 +34,7 @@ from app.application.dto.commands import (
 )
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
+from app.presentation.widgets.document_lines import parse_balance
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 
 _NO_CABINET = "— None —"
@@ -273,21 +275,44 @@ class _PartyDialog(_CollectionFormDialog):
         self._name = self.add_row("Name", QLineEdit(), required=True)
         self._phone = self.add_row("Phone", QLineEdit())
         self._address = self.add_row("Address", QLineEdit())
+
+        # Typed, not stepped: money is entered through a line edit
+        # everywhere else in this app (see the payment dialogs), and a
+        # spin box would also refuse the minus sign this field needs — a
+        # negative opening balance means the party is in credit.
+        self._opening_balance = self.add_row("Opening balance", QLineEdit("0.00"))
+        self._opening_balance.setPlaceholderText("0.00")
+
         self._notes = self.add_row("Notes", QTextEdit())
         self._notes.setFixedHeight(64)
+
+        self.add_note(
+            f"Opening balance is what this {noun} already owed before you started "
+            "using this app. Leave it at 0 if nothing was outstanding."
+        )
 
         if record is not None:
             self._name.setText(record.name)
             self._phone.setText(record.phone or "")
             self._address.setText(record.address or "")
+            self._opening_balance.setText(f"{record.opening_balance:.2f}")
             self._notes.setPlainText(record.notes or "")
 
-    def _fields(self) -> tuple[str, str | None, str | None, str | None]:
+    def _fields(self) -> tuple[str, str | None, str | None, str | None, Decimal] | None:
+        """This form's values, or None having pointed at what to fix."""
+        opening_balance = parse_balance(self._opening_balance.text())
+        if opening_balance is None:
+            self.reject_with(
+                "Enter an opening balance as a number, or leave it blank for none.",
+                self._opening_balance,
+            )
+            return None
         return (
             self._name.text().strip(),
             _optional(self._phone),
             _optional(self._address),
             _optional(self._notes),
+            opening_balance,
         )
 
 
@@ -307,12 +332,26 @@ class CustomerDialog(_PartyDialog):
             parent=parent,
         )
 
-    def build_command(self) -> CreateCustomerCommand | UpdateCustomerCommand:
-        name, phone, address, notes = self._fields()
+    def build_command(self) -> CreateCustomerCommand | UpdateCustomerCommand | None:
+        fields = self._fields()
+        if fields is None:
+            return None
+        name, phone, address, notes, opening_balance = fields
         if self._record is None:
-            return CreateCustomerCommand(name=name, phone=phone, address=address, notes=notes)
+            return CreateCustomerCommand(
+                name=name,
+                phone=phone,
+                address=address,
+                notes=notes,
+                opening_balance=opening_balance,
+            )
         return UpdateCustomerCommand(
-            id=self._record.id, name=name, phone=phone, address=address, notes=notes
+            id=self._record.id,
+            name=name,
+            phone=phone,
+            address=address,
+            notes=notes,
+            opening_balance=opening_balance,
         )
 
 
@@ -335,10 +374,24 @@ class SupplierDialog(_PartyDialog):
             parent=parent,
         )
 
-    def build_command(self) -> CreateSupplierCommand | UpdateSupplierCommand:
-        name, phone, address, notes = self._fields()
+    def build_command(self) -> CreateSupplierCommand | UpdateSupplierCommand | None:
+        fields = self._fields()
+        if fields is None:
+            return None
+        name, phone, address, notes, opening_balance = fields
         if self._record is None:
-            return CreateSupplierCommand(name=name, phone=phone, address=address, notes=notes)
+            return CreateSupplierCommand(
+                name=name,
+                phone=phone,
+                address=address,
+                notes=notes,
+                opening_balance=opening_balance,
+            )
         return UpdateSupplierCommand(
-            id=self._record.id, name=name, phone=phone, address=address, notes=notes
+            id=self._record.id,
+            name=name,
+            phone=phone,
+            address=address,
+            notes=notes,
+            opening_balance=opening_balance,
         )

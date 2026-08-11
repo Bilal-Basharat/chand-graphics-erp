@@ -17,10 +17,12 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from app.presentation.formatting import (
+    DASH,
     counted,
     date_only,
     date_time,
     money,
+    money_or_blank,
     or_dash,
 )
 from app.presentation.records.card import (
@@ -58,6 +60,17 @@ _PAYMENT_HEADINGS = (
     Heading("AMOUNT", "right", 120),
     Heading("BALANCE", "right", 120),
 )
+
+_LEDGER_HEADINGS = (
+    Heading("DATE", width=170),
+    Heading("REFERENCE", width=150),
+    Heading("DETAIL"),
+    Heading("DEBIT", "right", 120),
+    Heading("CREDIT", "right", 120),
+    Heading("BALANCE", "right", 130),
+)
+"""Debit and credit are named the same on both statements — which side a
+line lands on is the caller's `sides`, not the heading's."""
 
 
 def _payment_tone(document) -> Tone:
@@ -178,6 +191,69 @@ def expense_card(expense, *, category: str) -> RecordCard:
         ),
         totals=(Total("Total", money(expense.total_amount), strong=True),),
         note=expense.remarks or "",
+    )
+
+
+def ledger_card(ledger, *, party_kind: str, period_label: str, sides) -> RecordCard:
+    """A party's account as a statement, ready to hand over or post.
+
+    `sides` maps `(charge, payment)` to `(debit, credit)` and is the
+    caller's to supply: a sale is a debit on a customer's statement and a
+    purchase is a credit on a supplier's, and that is the only difference
+    between the two. One function so the lines and the totals cannot
+    disagree about which side they are on.
+
+    The opening balance leads the table as a line of its own. Without it
+    the first running balance appears to come from nowhere, which is the
+    first thing anyone checking a statement asks about.
+    """
+    # No date and no document of its own: it is what was carried in.
+    opening_row = (DASH, DASH, "Opening balance", "", "", money(ledger.opening_balance))
+    total_debit, total_credit = sides(ledger.total_charges, ledger.total_payments)
+    return RecordCard(
+        kind="Account statement",
+        reference=ledger.party_name,
+        subtitle=f"{party_kind} • {period_label}",
+        fields=(
+            Field(party_kind, ledger.party_name),
+            Field("Period", period_label),
+            Field("Opening balance", money(ledger.opening_balance)),
+            Field("Entries", counted(len(ledger.lines), "entry", "entries")),
+        ),
+        sections=(
+            Section(
+                title="Account activity",
+                headings=_LEDGER_HEADINGS,
+                rows=(
+                    opening_row,
+                    *(
+                        (
+                            date_time(line.occurred_at),
+                            or_dash(line.reference),
+                            line.detail,
+                            *(
+                                money_or_blank(amount)
+                                for amount in sides(line.charge, line.payment)
+                            ),
+                            money(line.balance),
+                        )
+                        for line in ledger.lines
+                    ),
+                ),
+                empty="Nothing happened on this account in this period.",
+            ),
+        ),
+        totals=(
+            Total("Opening balance", money(ledger.opening_balance), tone="muted"),
+            Total("Debit", money(total_debit)),
+            Total("Credit", money(total_credit)),
+            Total(
+                "Closing balance",
+                money(ledger.closing_balance),
+                tone="success" if ledger.closing_balance <= _ZERO else "danger",
+                strong=True,
+            ),
+        ),
     )
 
 

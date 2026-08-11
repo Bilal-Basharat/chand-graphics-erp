@@ -207,6 +207,36 @@ Run a specific test module:
 pytest tests/unit/test_services.py
 ```
 
+### Test data
+
+`scripts/seed` fills a database with believable trading so the lists,
+period selectors, ledgers and reports have something to show.
+
+```bash
+python -m scripts.seed --reset --yes     # six months of trading
+python -m scripts.seed --profile smoke   # the fixtures only, no filler
+python -m scripts.seed --data-dir .\scratch   # somewhere other than data\
+python -m scripts.seed --help
+```
+
+It refuses to seed on top of a database that already holds documents,
+because the document numbers would collide — pass `--reset` to start from
+an empty one. The same `--seed` always produces the same data.
+
+Everything goes in through the application's own use cases, so seeded
+data obeys every rule the app enforces. The one exception is dating: no
+use case takes "record this as of last March", so rows are created
+normally and their dates are corrected afterwards in a single pass, by
+`scripts/seed/backdating.py` — the only place in the seeder that writes
+SQL.
+
+The dataset is split on purpose. `scripts/seed/dataset.py` writes out by
+hand every case a screen has to be able to draw — a part-paid invoice, a
+bill with nothing paid against it, a walk-in sale belonging to no
+customer, a payment received a month after its invoice, a customer in
+credit, an item that is genuinely low on stock — and generates the
+routine months around them.
+
 ## Security and compliance goals
 
 This project should be built with:

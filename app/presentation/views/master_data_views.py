@@ -9,14 +9,17 @@ you the shape of the others.
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from app.application.dto.commands import (
     CreateCabinetCommand,
+    CreateCustomerCommand,
     CreateExpenseCategoryCommand,
     CreateInventoryItemCommand,
     CreatePaymentMethodCommand,
+    CreateSupplierCommand,
 )
 from app.presentation.dialogs.master_data_dialogs import (
     CabinetDialog,
@@ -26,10 +29,13 @@ from app.presentation.dialogs.master_data_dialogs import (
     PaymentMethodDialog,
     SupplierDialog,
 )
+from app.presentation.formatting import money
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
 from app.presentation.viewmodels.master_data_viewmodels import InventoryViewModel
 from app.presentation.views.collection_view import CollectionPage, EditableCollectionView
+from app.presentation.widgets.document_lines import parse_balance
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.quick_add_strip import QuickAddField, combo, line_edit, refill
 from app.presentation.widgets.stock_status import (
     stock_filters,
@@ -40,6 +46,9 @@ from app.presentation.widgets.table_model import Column
 
 _DASH = "—"
 _NO_CABINET = "— None —"
+
+_LEDGER = "ledger"
+_LEDGER_ACTION = RowAction(_LEDGER, "", icon="ledger", hint="Open this account's ledger")
 
 
 def _or_dash(value) -> str:
@@ -91,7 +100,7 @@ class CabinetsView(EditableCollectionView):
 
     def delete_warning(self, row) -> str:
         return (
-            "Cards filed under it are kept — they simply stop naming a cabinet.\n\n"
+            "Items filed under it are kept — they simply stop naming a cabinet.\n\n"
             "This cannot be undone."
         )
 
@@ -137,7 +146,84 @@ class PaymentMethodsView(EditableCollectionView):
         PaymentMethodDialog(self.view_model, method=row, parent=self).exec()
 
 
-class CustomersView(EditableCollectionView):
+class _PartyView(EditableCollectionView):
+    """Customers and suppliers: the same list, and the same way in to an
+    account.
+
+    Both carry an opening balance and both have a ledger behind them, so
+    the extra column, the extra row action and the quick-add row are
+    stated once here. The screen that hosts it decides where the ledger
+    lives — this only says which party was asked for.
+    """
+
+    ledgerRequested = Signal(int)
+
+    quick_add_command: type[CreateCustomerCommand | CreateSupplierCommand]
+    """What the quick-add row builds. The two commands are field-for-field
+    identical — the same reason `_PartyDialog` is one class — so naming
+    the type is the whole of the difference."""
+
+    quick_add_placeholder: str
+    """The example in the name box. Concrete, like every other strip in
+    the app: "e.g. A4 Ivory Sheet 250gsm" tells you more than "Name"."""
+
+    # ---------------- quick-add strip ----------------
+
+    def quick_add_fields(self):
+        # In the order the columns above read: who they are, how to reach
+        # them, where they are, and what they already owed. Notes are the
+        # one field left to the dialog — a note is a thought rather than a
+        # keystroke, and it is the only one of the five nobody needs to
+        # find a party again.
+        self._new_name = line_edit(self.quick_add_placeholder)
+        self._new_phone = line_edit("Phone")
+        self._new_address = line_edit("Address")
+        self._new_opening = line_edit("Opening balance")
+        return (
+            QuickAddField(self._new_name, 3),
+            QuickAddField(self._new_phone, 2),
+            QuickAddField(self._new_address, 3),
+            QuickAddField(self._new_opening, 2),
+        )
+
+    def build_quick_add(self):
+        name = self._new_name.text().strip()
+        if not name:
+            self._new_name.setFocus()
+            return None
+
+        opening_balance = parse_balance(self._new_opening.text())
+        if opening_balance is None:
+            self._new_opening.setFocus()
+            self._new_opening.selectAll()
+            return None
+
+        return self.quick_add_command(
+            name=name,
+            phone=self._new_phone.text().strip() or None,
+            address=self._new_address.text().strip() or None,
+            opening_balance=opening_balance,
+        )
+
+    # ---------------- ledger ----------------
+
+    def row_actions(self):
+        # Before Edit and Remove: reading an account is the common,
+        # harmless thing to do to a row, and the destructive one stays
+        # last.
+        return (_LEDGER_ACTION, *super().row_actions())
+
+    def on_row_action(self, key: str, row) -> None:
+        if key == _LEDGER:
+            self.ledgerRequested.emit(row.id)
+            return
+        super().on_row_action(key, row)
+
+
+class CustomersView(_PartyView):
+    quick_add_command = CreateCustomerCommand
+    quick_add_placeholder = "e.g. Ahmad Traders"
+
     def __init__(self, view_model: CollectionViewModel, parent: QWidget | None = None) -> None:
         super().__init__(
             CollectionPage(
@@ -145,7 +231,10 @@ class CustomersView(EditableCollectionView):
                 title="Customers",
                 subtitle="People and businesses you sell to. Attach one to a sale to track its balance.",
                 panel_title="Customer list",
-                empty_message="No customers yet. Add one, or record walk-in sales without a customer.",
+                empty_message=(
+                    "No customers yet. Add one in the row below, or record walk-in "
+                    "sales without a customer."
+                ),
                 unit="customer",
                 search_placeholder="Search customers by name",
                 create_label="Add customer",
@@ -155,6 +244,13 @@ class CustomersView(EditableCollectionView):
                 Column("PHONE", lambda c: _or_dash(c.phone), width=160),
                 Column("ADDRESS", lambda c: _or_dash(c.address)),
                 Column("NOTES", lambda c: _or_dash(c.notes)),
+                Column(
+                    "OPENING",
+                    lambda c: money(c.opening_balance),
+                    align="right",
+                    sort_key=lambda c: c.opening_balance,
+                    width=130,
+                ),
             ],
             view_model,
             parent,
@@ -167,7 +263,10 @@ class CustomersView(EditableCollectionView):
         CustomerDialog(self.view_model, customer=row, parent=self).exec()
 
 
-class SuppliersView(EditableCollectionView):
+class SuppliersView(_PartyView):
+    quick_add_command = CreateSupplierCommand
+    quick_add_placeholder = "e.g. Paper Mill Co"
+
     def __init__(self, view_model: CollectionViewModel, parent: QWidget | None = None) -> None:
         super().__init__(
             CollectionPage(
@@ -175,7 +274,10 @@ class SuppliersView(EditableCollectionView):
                 title="Suppliers",
                 subtitle="People and businesses you buy from. Attach one to a purchase to track its balance.",
                 panel_title="Supplier list",
-                empty_message="No suppliers yet. Add one to record purchases against them.",
+                empty_message=(
+                    "No suppliers yet. Add one in the row below to record purchases "
+                    "against them."
+                ),
                 unit="supplier",
                 search_placeholder="Search suppliers by name",
                 create_label="Add supplier",
@@ -185,6 +287,13 @@ class SuppliersView(EditableCollectionView):
                 Column("PHONE", lambda s: _or_dash(s.phone), width=160),
                 Column("ADDRESS", lambda s: _or_dash(s.address)),
                 Column("NOTES", lambda s: _or_dash(s.notes)),
+                Column(
+                    "OPENING",
+                    lambda s: money(s.opening_balance),
+                    align="right",
+                    sort_key=lambda s: s.opening_balance,
+                    width=130,
+                ),
             ],
             view_model,
             parent,

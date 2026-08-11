@@ -15,6 +15,7 @@ class CustomerMapper:
             phone=model.phone,
             address=model.address,
             notes=model.notes,
+            opening_balance=model.opening_balance,
         )
         copy_shared_fields(model, entity)
         return entity
@@ -26,6 +27,7 @@ class CustomerMapper:
             phone=entity.phone,
             address=entity.address,
             notes=entity.notes,
+            opening_balance=entity.opening_balance,
         )
         copy_shared_fields(entity, model)
         return model

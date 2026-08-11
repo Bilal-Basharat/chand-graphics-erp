@@ -60,6 +60,7 @@ class CreateCustomerCommand:
     phone: str | None = None
     address: str | None = None
     notes: str | None = None
+    opening_balance: Decimal = Decimal("0.00")
 
 
 @dataclass(slots=True)
@@ -69,6 +70,7 @@ class UpdateCustomerCommand:
     phone: str | None = None
     address: str | None = None
     notes: str | None = None
+    opening_balance: Decimal = Decimal("0.00")
 
 
 @dataclass(slots=True)
@@ -77,6 +79,7 @@ class CreateSupplierCommand:
     phone: str | None = None
     address: str | None = None
     notes: str | None = None
+    opening_balance: Decimal = Decimal("0.00")
 
 
 @dataclass(slots=True)
@@ -86,6 +89,7 @@ class UpdateSupplierCommand:
     phone: str | None = None
     address: str | None = None
     notes: str | None = None
+    opening_balance: Decimal = Decimal("0.00")
 
 
 @dataclass(slots=True)

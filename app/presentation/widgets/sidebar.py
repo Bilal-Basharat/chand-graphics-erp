@@ -77,6 +77,10 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
     ("Parties", (
         NavItem("Customers", Route.CUSTOMERS),
         NavItem("Suppliers", Route.SUPPLIERS),
+        NavItem("Ledger", icon="ledger", children=(
+            NavItem("Customer ledger", Route.CUSTOMER_LEDGER),
+            NavItem("Supplier ledger", Route.SUPPLIER_LEDGER),
+        )),
     )),
     ("Finance", (
         NavItem("Expenses", Route.EXPENSES),

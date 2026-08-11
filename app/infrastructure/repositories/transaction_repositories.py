@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from decimal import Decimal
 
@@ -231,6 +232,47 @@ class SqlAlchemyPurchaseRepository(
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def list_by_supplier(
+        self,
+        supplier_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[Purchase]:
+        stmt = (
+            select(PurchaseModel)
+            .where(PurchaseModel.supplier_id == supplier_id)
+            .where(PurchaseModel.created_at >= start)
+            .where(PurchaseModel.created_at <= end)
+            .order_by(PurchaseModel.created_at.asc())
+            # `Purchase.grand_total` is computed from the lines, so they
+            # have to travel with the header or every row costs a query.
+            .options(
+                selectinload(PurchaseModel.items),
+                selectinload(PurchaseModel.payments),
+            )
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [PurchaseMapper.to_entity(model) for model in models]
+
+    def numbers_by_id(self, purchase_ids: Collection[int]) -> dict[int, str]:
+        ids = set(purchase_ids)
+        if not ids:
+            return {}
+        stmt = select(PurchaseModel.id, PurchaseModel.purchase_no).where(PurchaseModel.id.in_(ids))
+        return {row.id: row.purchase_no for row in self.session.execute(stmt)}
+
+    def total_by_supplier(self, supplier_id: int, before: datetime) -> Decimal:
+        # The stored `grand_total`, not the computed one: this is an
+        # aggregate over rows we deliberately do not load. It is written on
+        # every save and a purchase is never edited afterwards.
+        stmt = select(func.coalesce(func.sum(PurchaseModel.grand_total), 0)).where(
+            PurchaseModel.supplier_id == supplier_id,
+            PurchaseModel.created_at < before,
+        )
+        return Decimal(self.session.execute(stmt).scalar_one())
+
     def count_by_supplier(self, supplier_id: int) -> int:
         stmt = select(func.count(PurchaseModel.id)).where(
             PurchaseModel.supplier_id == supplier_id
@@ -329,6 +371,47 @@ class SqlAlchemySaleRepository(
         stmt = select(func.count(SaleModel.id)).where(SaleModel.customer_id == customer_id)
         return int(self.session.execute(stmt).scalar_one())
 
+    def list_by_customer(
+        self,
+        customer_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[Sale]:
+        stmt = (
+            select(SaleModel)
+            .where(SaleModel.customer_id == customer_id)
+            .where(SaleModel.created_at >= start)
+            .where(SaleModel.created_at <= end)
+            .order_by(SaleModel.created_at.asc())
+            # `Sale.grand_total` is computed from the lines, so they have
+            # to travel with the header or every row costs a query.
+            .options(
+                selectinload(SaleModel.items),
+                selectinload(SaleModel.payments),
+            )
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [SaleMapper.to_entity(model) for model in models]
+
+    def numbers_by_id(self, sale_ids: Collection[int]) -> dict[int, str]:
+        ids = set(sale_ids)
+        if not ids:
+            return {}
+        stmt = select(SaleModel.id, SaleModel.invoice_no).where(SaleModel.id.in_(ids))
+        return {row.id: row.invoice_no for row in self.session.execute(stmt)}
+
+    def total_by_customer(self, customer_id: int, before: datetime) -> Decimal:
+        # The stored `grand_total`, not the computed one: this is an
+        # aggregate over rows we deliberately do not load. It is written on
+        # every save and a sale is never edited afterwards.
+        stmt = select(func.coalesce(func.sum(SaleModel.grand_total), 0)).where(
+            SaleModel.customer_id == customer_id,
+            SaleModel.created_at < before,
+        )
+        return Decimal(self.session.execute(stmt).scalar_one())
+
 
 ############################################################
 ############### Purhcase Payment Repository ################
@@ -360,6 +443,36 @@ class SqlAlchemyPurchasePaymentRepository(
         total = self.session.execute(stmt).scalar_one()
         return Decimal(total)
 
+    def list_by_supplier(
+        self,
+        supplier_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[PurchasePayment]:
+        # A payment reaches its supplier through the purchase it settles;
+        # bounded by when it was paid, not by when that purchase was made.
+        stmt = (
+            select(PurchasePaymentModel)
+            .join(PurchaseModel, PurchasePaymentModel.purchase_id == PurchaseModel.id)
+            .where(PurchaseModel.supplier_id == supplier_id)
+            .where(PurchasePaymentModel.paid_at >= start)
+            .where(PurchasePaymentModel.paid_at <= end)
+            .order_by(PurchasePaymentModel.paid_at.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [PurchasePaymentMapper.to_entity(model) for model in models]
+
+    def total_by_supplier(self, supplier_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(PurchasePaymentModel.amount), 0))
+            .join(PurchaseModel, PurchasePaymentModel.purchase_id == PurchaseModel.id)
+            .where(PurchaseModel.supplier_id == supplier_id)
+            .where(PurchasePaymentModel.paid_at < before)
+        )
+        return Decimal(self.session.execute(stmt).scalar_one())
+
 
 ############################################################
 ################### Sale Payment Repository ################
@@ -390,6 +503,36 @@ class SqlAlchemySalePaymentRepository(
         )
         total = self.session.execute(stmt).scalar_one()
         return Decimal(total)
+
+    def list_by_customer(
+        self,
+        customer_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[SalePayment]:
+        # A payment reaches its customer through the sale it settles;
+        # bounded by when it was received, not by when that sale was made.
+        stmt = (
+            select(SalePaymentModel)
+            .join(SaleModel, SalePaymentModel.sale_id == SaleModel.id)
+            .where(SaleModel.customer_id == customer_id)
+            .where(SalePaymentModel.received_at >= start)
+            .where(SalePaymentModel.received_at <= end)
+            .order_by(SalePaymentModel.received_at.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [SalePaymentMapper.to_entity(model) for model in models]
+
+    def total_by_customer(self, customer_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(SalePaymentModel.amount), 0))
+            .join(SaleModel, SalePaymentModel.sale_id == SaleModel.id)
+            .where(SaleModel.customer_id == customer_id)
+            .where(SalePaymentModel.received_at < before)
+        )
+        return Decimal(self.session.execute(stmt).scalar_one())
 
 
 ############################################################

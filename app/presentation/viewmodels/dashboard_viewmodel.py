@@ -16,13 +16,15 @@ from PySide6.QtCore import Signal
 from app.application.dto.commands import DateRangeQuery
 from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
-from app.presentation.formatting import NO_SUPPLIER, WALK_IN, payment_method_name, pkr
-from app.presentation.item_types import load_catalogues
+from app.presentation.formatting import NO_SUPPLIER, WALK_IN, pkr
 from app.presentation.navigation.routes import Route
-from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
+from app.presentation.records.documents import (
+    DocumentNames,
+    purchase_record_card,
+    sale_record_card,
+)
 from app.presentation.viewmodels.base import BaseViewModel
-from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
 from app.presentation.widgets.payment_status import payment_status_text
 from app.presentation.widgets.period_selector import PeriodSelection
 
@@ -98,18 +100,6 @@ _REFERENCE_LIMIT = 500
 """How much master data a card can name. The same figure every screen
 that loads these catalogues uses."""
 
-_METHOD_LIMIT = 100
-"""Payment methods are a short hand-kept list, as the payment screens
-also assume."""
-
-
-@dataclass(slots=True)
-class _Lookups:
-    """The two name lookups a written-out document needs, fetched together."""
-
-    catalogue: ItemCatalogue
-    method_name: Callable[[int | None], str]
-
 
 class DashboardViewModel(BaseViewModel):
     dashboardLoaded = Signal(object)  # DashboardData
@@ -121,31 +111,6 @@ class DashboardViewModel(BaseViewModel):
 
     def load(self) -> None:
         self.run_async(self._load_sync, on_success=self.dashboardLoaded.emit)
-
-    def _lookups(self) -> _Lookups:
-        """Names for everything the cards below refer to.
-
-        The dashboard writes out every document it lists, so it needs the
-        same catalogues the document screens hold. They are small
-        master-data tables next to the documents already fetched above,
-        and reading them once here is what lets a card open from the
-        dashboard without going back to the database for it.
-
-        `load_catalogues` is the one place that knows which item kinds
-        exist, so a special item module reaches this screen without it
-        being touched — see `presentation/item_types.py`.
-        """
-        catalogue = ItemCatalogue()
-        catalogue.set_catalogues(load_catalogues(self._container, _REFERENCE_LIMIT))
-
-        methods = {
-            m.id: m.name
-            for m in self._container.list_payment_methods_use_case().execute(_METHOD_LIMIT)
-        }
-        return _Lookups(
-            catalogue=catalogue,
-            method_name=lambda method_id: payment_method_name(methods.get(method_id)),
-        )
 
     def _load_sync(self) -> DashboardData:
         start, end = self._period.range()
@@ -164,22 +129,17 @@ class DashboardViewModel(BaseViewModel):
         suppliers = {
             s.id: s.name for s in self._container.search_suppliers_use_case().execute(all_parties)
         }
-        lookups = self._lookups()
+        # The dashboard writes out every document it lists, so it needs
+        # the same names the document screens hold. Read once here, next
+        # to the documents themselves, which is what lets a card open
+        # from the dashboard without going back to the database for it.
+        names = DocumentNames.load(self._container, _REFERENCE_LIMIT)
         documents: list[DocumentRow] = []
         activity: list[ActivityRow] = []
 
         for sale in sales:
             party = customers.get(sale.customer_id, WALK_IN) if sale.customer_id else WALK_IN
-            card = sale_card(
-                sale,
-                customer=party,
-                items=lookups.catalogue.lines_of(sale),
-                payments=payment_lines(
-                    sale,
-                    dated=lambda payment: payment.received_at or payment.created_at,
-                    method_name=lookups.method_name,
-                ),
-            )
+            card = sale_record_card(sale, customer=party, names=names)
             documents.append(
                 DocumentRow(
                     document_no=sale.invoice_no,
@@ -217,16 +177,7 @@ class DashboardViewModel(BaseViewModel):
                 if purchase.supplier_id
                 else NO_SUPPLIER
             )
-            card = purchase_card(
-                purchase,
-                supplier=party,
-                items=lookups.catalogue.lines_of(purchase),
-                payments=payment_lines(
-                    purchase,
-                    dated=lambda payment: payment.paid_at or payment.created_at,
-                    method_name=lookups.method_name,
-                ),
-            )
+            card = purchase_record_card(purchase, supplier=party, names=names)
             documents.append(
                 DocumentRow(
                     document_no=purchase.purchase_no,

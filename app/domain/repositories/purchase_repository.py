@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from datetime import datetime
 from decimal import Decimal
 
@@ -43,4 +44,37 @@ class PurchaseRepository(Repository[Purchase], ABC):
     @abstractmethod
     def count_by_supplier(self, supplier_id: int) -> int:
         """How many purchases are recorded against one supplier."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_by_supplier(
+        self,
+        supplier_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[Purchase]:
+        """One supplier's purchases in a date range, oldest first.
+
+        Oldest first because this feeds a statement, which is read from
+        the top down.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def numbers_by_id(self, purchase_ids: Collection[int]) -> dict[int, str]:
+        """Purchase numbers for a set of purchases, keyed by id.
+
+        For listing payments without loading the purchases they settle.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def total_by_supplier(self, supplier_id: int, before: datetime) -> Decimal:
+        """Total billed by one supplier before a moment in time.
+
+        Unlike `sum_by_supplier`, which is every purchase ever, this is
+        bounded — it is the half of an opening balance that the purchases
+        themselves account for.
+        """
         raise NotImplementedError

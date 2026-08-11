@@ -130,6 +130,21 @@ def _receipt(painter: QPainter) -> None:
         painter.drawLine(QPointF(_BOX.left() + 4, y), QPointF(_BOX.right() - 4, y))
 
 
+def _ledger(painter: QPainter) -> None:
+    """A ruled book: a page with a spine down one side.
+
+    Deliberately not the receipt's plain page — a ledger is the running
+    account, not one document, and the two sit close enough in the rail
+    that they have to be told apart at a glance.
+    """
+    painter.drawRect(_BOX)
+    spine = _BOX.left() + 3.5
+    painter.drawLine(QPointF(spine, _BOX.top()), QPointF(spine, _BOX.bottom()))
+    for index in range(3):
+        y = _BOX.top() + 3.5 + index * 3.5
+        painter.drawLine(QPointF(spine + 2.5, y), QPointF(_BOX.right() - 2, y))
+
+
 def _tag(painter: QPainter) -> None:
     painter.drawRect(QRectF(_BOX.left(), _BOX.top() + 2.5, _BOX.width() - 2, _BOX.height() - 5))
     painter.drawPoint(QPointF(_BOX.right() - 4, _BOX.center().y()))
@@ -202,6 +217,9 @@ _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "inventory_movement": _up_down,
     "customers": _person,
     "suppliers": _people,
+    "ledger": _ledger,
+    "customer_ledger": _ledger,
+    "supplier_ledger": _ledger,
     "expenses": _receipt,
     "expense_categories": _tag,
     "reports": _bars,

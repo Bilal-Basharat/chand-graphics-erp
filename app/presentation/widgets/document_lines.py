@@ -81,6 +81,20 @@ def parse_amount_or_zero(text: str) -> Decimal:
     return value if value is not None and value >= ZERO else ZERO
 
 
+def parse_balance(text: str) -> Decimal | None:
+    """A money figure that may be left blank, and may be negative.
+
+    Blank reads as zero — a balance nobody typed is nothing owed. A
+    negative is kept rather than clamped, unlike `parse_amount_or_zero`:
+    on a party's account it means they are in credit. None means the text
+    was not a number at all, which is the caller's to report.
+    """
+    if not text.strip():
+        return ZERO
+    value = parse_amount(text)
+    return None if value is None else value.quantize(ZERO)
+
+
 _EDIT = "edit"
 _REMOVE = "remove"
 
