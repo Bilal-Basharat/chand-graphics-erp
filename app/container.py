@@ -341,6 +341,45 @@ class AppContainer:
         )
 
     ############################################################
+    ##################### Report Use Cases #########################
+    ############################################################
+    # Each enforces Permission.VIEW_REPORTS, so each needs the
+    # authorization service — without it there is nothing to check.
+    def profit_and_loss_use_case(self):
+        from app.application.use_cases.reports import GetProfitAndLossUseCase
+        return GetProfitAndLossUseCase(
+            self.create_uow(), self.current_user_session, self.authorization_service()
+        )
+
+    def item_profitability_use_case(self):
+        from app.application.use_cases.reports import GetItemProfitabilityUseCase
+        return GetItemProfitabilityUseCase(
+            self.create_uow(), self.current_user_session, self.authorization_service()
+        )
+
+    # Two ageing reports, one use case — the same arrangement as the two
+    # ledgers, and the only place the app says receivables are invoices.
+    def receivables_ageing_use_case(self):
+        from app.application.reporting.sources import ReceivablesSource
+        from app.application.use_cases.reports import GetAgeingUseCase
+        return GetAgeingUseCase(
+            self.create_uow(),
+            self.current_user_session,
+            self.authorization_service(),
+            source=ReceivablesSource(),
+        )
+
+    def payables_ageing_use_case(self):
+        from app.application.reporting.sources import PayablesSource
+        from app.application.use_cases.reports import GetAgeingUseCase
+        return GetAgeingUseCase(
+            self.create_uow(),
+            self.current_user_session,
+            self.authorization_service(),
+            source=PayablesSource(),
+        )
+
+    ############################################################
     ###################### Search Use Cases ########################
     ############################################################
     def search_inventory_items_use_case(self):

@@ -272,9 +272,9 @@ ITEMS = (
              Decimal("1450.00"), Decimal("1900.00"), (2, 6), sold=False),
     ItemSeed("Black Offset Ink 1kg", "tins", "B2", 60, 12,
              Decimal("1250.00"), Decimal("1700.00"), (2, 8), sold=False),
-    ItemSeed("Lamination Roll 12in", "rolls", "C3", 150, 10,
+    ItemSeed("Lamination Roll 12in", "rolls", "C3", 400, 10,
              Decimal("2600.00"), Decimal("3400.00"), (1, 4)),
-    ItemSeed("Binding Wire Spool", "spools", "C3", 200, 20,
+    ItemSeed("Binding Wire Spool", "spools", "C3", 600, 20,
              Decimal("850.00"), Decimal("1200.00"), (2, 10)),
     # Below its own minimum and kept out of every document, so the
     # low-stock screen is never empty.
@@ -286,6 +286,19 @@ ITEMS = (
 # ---------------------------------------------------------------- fixtures
 
 FIXTURE_PURCHASES = (
+    # The oldest bill in the file, and the only one Metro Board appears
+    # on. It is here so the paper that sells most is costed from near the
+    # start: without a purchase behind it, every sale of an item reports
+    # unknown margin, and a demo where a fifth of the revenue is uncosted
+    # reads as a broken report rather than an honest one.
+    DocumentSeed(
+        reference="PUR-1000",
+        party="Metro Board Suppliers",
+        days_ago=170,
+        lines=(LineSeed("Matt Paper 130gsm (20x30)", 8_000),),
+        reference_no="MB/2291",
+        payments=(PaymentSeed(days_ago=170, amount=Decimal("100000.00"), method="Cheque"),),
+    ),
     # Settled in two goes, the second nearly two weeks after the bill.
     DocumentSeed(
         reference="PUR-1001",
@@ -435,7 +448,7 @@ FIXTURE_MOVEMENTS = (
 
 _FILLER_MONTHS: dict[Profile, int] = {Profile.SMOKE: 0, Profile.DEMO: 6}
 
-_SALES_PER_MONTH = 10
+_SALES_PER_MONTH = 18
 _PURCHASES_PER_MONTH = 3
 _EXPENSES_PER_MONTH = 5
 
@@ -448,16 +461,22 @@ _METHOD_CHOICES = (None, None, None, None, "Bank transfer", "Easypaisa", "Cheque
 _PRICE_JITTER = (Decimal("0.95"), Decimal("1.00"), Decimal("1.00"), Decimal("1.05"), Decimal("1.10"))
 
 _ROUTINE_EXPENSES = (
-    ("Electricity bill", "Utilities", 18_000, 42_000),
+    ("Electricity bill", "Utilities", 9_000, 21_000),
     ("Internet bill", "Utilities", 4_500, 4_500),
-    ("Staff salaries", "Salaries", 120_000, 155_000),
+    ("Staff salaries", "Salaries", 42_000, 56_000),
     ("Delivery charges", "Transport", 1_500, 6_000),
-    ("Press servicing", "Machine maintenance", 3_500, 22_000),
+    ("Press servicing", "Machine maintenance", 3_500, 12_000),
     ("Tea and refreshments", "Miscellaneous", 800, 3_000),
     ("Packing material", "Miscellaneous", 2_000, 9_000),
 )
+"""Sized against what the filler sales actually bill.
 
-_MONTHLY_RENT = Decimal("65000.00")
+A shop turning over what this dataset turns over does not pay a
+six-figure wage bill, and a demo that opens on a heavy loss teaches the
+reader to distrust the report rather than read it.
+"""
+
+_MONTHLY_RENT = Decimal("28000.00")
 
 
 def build(profile: Profile, rng: Random) -> Dataset:

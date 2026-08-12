@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
@@ -62,6 +64,19 @@ class SqlAlchemyInventoryItemRepository(
 
     def get_by_name(self, name: str) -> InventoryItem | None:
         return self.find_one_by("name", name)
+
+    def names_by_id(self, item_ids: Collection[int]) -> dict[int, str]:
+        """Item names for a set of items, keyed by id.
+
+        For naming what a report grouped by, without loading the items.
+        """
+        ids = set(item_ids)
+        if not ids:
+            return {}
+        stmt = select(InventoryItemModel.id, InventoryItemModel.name).where(
+            InventoryItemModel.id.in_(ids)
+        )
+        return {row.id: row.name for row in self.session.execute(stmt)}
 
     def list_low_stock(self, limit: int = 100) -> list[InventoryItem]:
         stmt = (

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from app.application.dto.commands import (
     CreateSaleCommand,
     DateRangeQuery,
@@ -52,6 +54,7 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
             customers = self.require(uow.customers, "customers")
             payment_methods = self.require(uow.payment_methods, "payment_methods")
             users = self.require(uow.users, "users")
+            purchases = self.require(uow.purchases, "purchases")
 
             if request.customer_id is not None and customers.get_by_id(request.customer_id) is None:
                 raise NotFoundError(f"Customer id={request.customer_id} not found")
@@ -77,6 +80,9 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
             # same item draws down the running count rather than starting
             # again from what was on the shelf when the sale began.
             targets: dict[tuple[ItemType, int | None], ResolvedStockTarget] = {}
+            # ...and one cost lookup per item, for the same reason: two
+            # lines of the same thing on one invoice cost the same.
+            costs: dict[tuple[ItemType, int | None], Decimal | None] = {}
 
             for item in request.items:
                 key = (item.item_type, item.inventory_item_id)
@@ -84,6 +90,15 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                 if target is None:
                     target = load_stock_target(uow, item.item_type, item.inventory_item_id)
                     targets[key] = target
+                if key not in costs:
+                    # Recorded on the line rather than looked up when a
+                    # report is run: buying this item again next month must
+                    # not rewrite the margin on an invoice already handed
+                    # over. None when it has never been bought — see
+                    # `SaleItem.unit_cost`.
+                    costs[key] = purchases.weighted_average_cost(
+                        item.item_type, item.inventory_item_id
+                    )
 
                 if target.entity.is_low_stock:
                     raise ValueError(
@@ -98,6 +113,7 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                         item_type=item.item_type,
                         quantity=item.quantity,
                         unit_price=item.unit_price,
+                        unit_cost=costs[key],
                         inventory_item_id=item.inventory_item_id,
                         previous_stock=previous_stock,
                         resulting_stock=resulting_stock,

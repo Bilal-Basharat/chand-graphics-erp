@@ -52,6 +52,23 @@ class SaleItemModel(Base, TimestampMixin):
         default=0,
     )
 
+    unit_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+    """What one of these had cost to buy, as at the moment it was sold.
+
+    Written once, when the sale is raised, and never revisited — buying
+    the item again next month must not rewrite last month's margin. It is
+    the quantity-weighted average of every purchase of the item up to that
+    day, which is what an ERP calls a valuation rate.
+
+    Nullable because an item that has never been bought has no such
+    figure. **That is not zero.** Read as zero it would report the whole
+    line as profit, so every report counts these lines and says so rather
+    than quietly adding them in.
+    """
+
     line_total: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,

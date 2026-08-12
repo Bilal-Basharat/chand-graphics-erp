@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.entities.expense import Expense
@@ -14,6 +14,13 @@ from app.domain.entities.purchase_payment import PurchasePayment
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_payment import SalePayment
 from app.domain.enums.item_type import ItemType
+from app.domain.repositories.aggregates import (
+    CategorySpendRow,
+    CostTotals,
+    ItemMarginRow,
+    OutstandingRow,
+    RevenueTotals,
+)
 from app.domain.repositories.expense_repository import ExpenseRepository as ExpenseRepositoryPort
 from app.domain.repositories.inventory_movement_repository import (
     InventoryMovementRepository as InventoryMovementRepositoryPort,
@@ -43,6 +50,21 @@ from app.infrastructure.mappers.purchase_payment_mapper import PurchasePaymentMa
 from app.infrastructure.mappers.sale_mapper import SaleMapper
 from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
+
+
+_PAISA = Decimal("0.01")
+"""What money rounds to here, matching `presentation.formatting.money`."""
+
+
+def _money(value) -> Decimal:
+    """A driver's answer as an amount of money.
+
+    SQLite hands back a float rather than a numeric whenever an aggregate
+    mixes a column with a literal — which every CASE below does — and
+    `Decimal(0.05)` is not 0.05 but forty digits of binary approximation.
+    Rounding it here is what stops that reaching a total on screen.
+    """
+    return Decimal(value).quantize(_PAISA, rounding=ROUND_HALF_UP)
 
 
 def _item_column(line_model, item_type: ItemType):
@@ -123,6 +145,31 @@ class SqlAlchemyExpenseRepository(
             ExpenseModel.category_id == category_id
         )
         return int(self.session.execute(stmt).scalar_one())
+
+    def total_by_category_between(
+        self, start: datetime, end: datetime
+    ) -> list[CategorySpendRow]:
+        """What was spent in a period, grouped by category.
+
+        No limit: a report that answers about the first few hundred
+        expenses is not a report. One row per category is a handful of
+        rows however many expenses are behind them.
+        """
+        stmt = (
+            select(
+                ExpenseModel.category_id,
+                func.count(ExpenseModel.id),
+                func.coalesce(func.sum(ExpenseModel.total_amount), 0),
+            )
+            .where(ExpenseModel.created_at >= start, ExpenseModel.created_at <= end)
+            .group_by(ExpenseModel.category_id)
+        )
+        return [
+            # A null category is spending nobody filed — a real group, not
+            # a missing one.
+            CategorySpendRow(category_id=category_id, count=int(count), total=_money(total))
+            for category_id, count, total in self.session.execute(stmt)
+        ]
 
 
 ############################################################
@@ -220,17 +267,29 @@ class SqlAlchemyPurchaseRepository(
             self.session, PurchaseItemModel, PurchaseItemModel.purchase_id, item_type, item_id
         )
 
-    def latest_unit_price(self, item_type: ItemType, item_id: int) -> Decimal | None:
-        stmt = (
-            select(PurchaseItemModel.unit_price)
-            .join(PurchaseModel, PurchaseItemModel.purchase_id == PurchaseModel.id)
-            .where(_item_column(PurchaseItemModel, item_type) == item_id)
-            # Newest purchase wins; id breaks the tie when two land in the
-            # same second, which bulk entry routinely does.
-            .order_by(PurchaseModel.created_at.desc(), PurchaseItemModel.id.desc())
-            .limit(1)
+    def weighted_average_cost(self, item_type: ItemType, item_id: int) -> Decimal | None:
+        """What one of these has cost, averaged over everything bought so far.
+
+        Weighted by quantity, not a plain average of prices: a hundred
+        sheets at 10 and one at 100 cost about 10 each, not 55.
+
+        Returns None when the item has never been bought. That is not
+        zero, and callers must not fold it into a total as if it were.
+        """
+        stmt = select(
+            func.sum(PurchaseItemModel.line_total),
+            func.sum(PurchaseItemModel.quantity),
+        ).where(
+            _item_column(PurchaseItemModel, item_type) == item_id,
+            PurchaseItemModel.quantity > 0,
         )
-        return self.session.execute(stmt).scalar_one_or_none()
+        total, quantity = self.session.execute(stmt).one()
+        if not quantity:
+            return None
+        # Quantized here, and the same way the migration's backfill rounds,
+        # so a line written today and one reconstructed by the migration
+        # cannot disagree in the last paisa.
+        return (Decimal(total) / Decimal(quantity)).quantize(_PAISA, rounding=ROUND_HALF_UP)
 
     def list_by_supplier(
         self,
@@ -278,6 +337,43 @@ class SqlAlchemyPurchaseRepository(
             PurchaseModel.supplier_id == supplier_id
         )
         return int(self.session.execute(stmt).scalar_one())
+
+    def spend_between(self, start: datetime, end: datetime) -> Decimal:
+        """What was spent on stock in a period.
+
+        Context for a profit and loss, not a cost of one: stock bought and
+        not yet sold is money moved, not money gone.
+        """
+        stmt = select(func.coalesce(func.sum(PurchaseModel.grand_total), 0)).where(
+            PurchaseModel.created_at >= start, PurchaseModel.created_at <= end
+        )
+        return _money(self.session.execute(stmt).scalar_one())
+
+    def outstanding_before(self, as_at: datetime) -> list[OutstandingRow]:
+        """Bills with money still on them, oldest first."""
+        stmt = (
+            select(
+                PurchaseModel.purchase_no,
+                SupplierModel.name,
+                PurchaseModel.created_at,
+                PurchaseModel.balance_amount,
+            )
+            .join(SupplierModel, PurchaseModel.supplier_id == SupplierModel.id, isouter=True)
+            .where(
+                PurchaseModel.balance_amount > 0,
+                PurchaseModel.created_at <= as_at,
+            )
+            .order_by(PurchaseModel.created_at.asc())
+        )
+        return [
+            OutstandingRow(
+                reference=reference,
+                party_name=party,
+                occurred_at=occurred_at,
+                outstanding=_money(outstanding),
+            )
+            for reference, party, occurred_at, outstanding in self.session.execute(stmt)
+        ]
 
 
 ############################################################
@@ -370,6 +466,120 @@ class SqlAlchemySaleRepository(
     def count_by_customer(self, customer_id: int) -> int:
         stmt = select(func.count(SaleModel.id)).where(SaleModel.customer_id == customer_id)
         return int(self.session.execute(stmt).scalar_one())
+
+    ####################### reporting aggregates #######################
+    # None of these takes a limit. A report that answers about the first
+    # page of a period is a report that is quietly wrong, which is what
+    # the screen these replaced did at two thousand documents.
+
+    def revenue_between(self, start: datetime, end: datetime) -> RevenueTotals:
+        """What was invoiced in a period, before and after discounts."""
+        stmt = select(
+            func.coalesce(func.sum(SaleModel.subtotal), 0),
+            func.coalesce(func.sum(SaleModel.discount_amount), 0),
+            func.coalesce(func.sum(SaleModel.grand_total), 0),
+            func.count(SaleModel.id),
+        ).where(SaleModel.created_at >= start, SaleModel.created_at <= end)
+
+        gross, discounts, net, count = self.session.execute(stmt).one()
+        return RevenueTotals(
+            gross=_money(gross),
+            discounts=_money(discounts),
+            net=_money(net),
+            invoice_count=int(count),
+        )
+
+    def cost_of_sales_between(self, start: datetime, end: datetime) -> CostTotals:
+        """What the stock sold in a period had cost.
+
+        Lines with no recorded cost are counted and their revenue
+        reported, never added in as zero — that would turn "we don't know"
+        into "it was free".
+        """
+        costed = SaleItemModel.unit_cost.is_not(None)
+        stmt = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (costed, SaleItemModel.unit_cost * SaleItemModel.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(case((costed, 0), else_=1)), 0),
+                func.coalesce(
+                    func.sum(case((costed, 0), else_=SaleItemModel.line_total)), 0
+                ),
+            )
+            .join(SaleModel, SaleItemModel.sale_id == SaleModel.id)
+            .where(SaleModel.created_at >= start, SaleModel.created_at <= end)
+        )
+
+        cost, uncosted_lines, uncosted_revenue = self.session.execute(stmt).one()
+        return CostTotals(
+            cost_of_goods_sold=_money(cost),
+            uncosted_lines=int(uncosted_lines),
+            uncosted_revenue=_money(uncosted_revenue),
+        )
+
+    def margin_by_item_between(self, start: datetime, end: datetime) -> list[ItemMarginRow]:
+        """Every item sold in a period, one row each."""
+        costed = SaleItemModel.unit_cost.is_not(None)
+        stmt = (
+            select(
+                SaleItemModel.inventory_item_id,
+                func.coalesce(func.sum(SaleItemModel.quantity), 0),
+                func.coalesce(func.sum(SaleItemModel.line_total), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (costed, SaleItemModel.unit_cost * SaleItemModel.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(case((costed, 0), else_=1)), 0),
+            )
+            .join(SaleModel, SaleItemModel.sale_id == SaleModel.id)
+            .where(SaleModel.created_at >= start, SaleModel.created_at <= end)
+            .group_by(SaleItemModel.inventory_item_id)
+        )
+        return [
+            ItemMarginRow(
+                item_id=item_id,
+                quantity_sold=int(quantity),
+                revenue=_money(revenue),
+                cost=_money(cost),
+                uncosted_lines=int(uncosted),
+            )
+            for item_id, quantity, revenue, cost, uncosted in self.session.execute(stmt)
+        ]
+
+    def outstanding_before(self, as_at: datetime) -> list[OutstandingRow]:
+        """Invoices with money still on them, oldest first."""
+        stmt = (
+            select(
+                SaleModel.invoice_no,
+                CustomerModel.name,
+                SaleModel.created_at,
+                SaleModel.balance_amount,
+            )
+            .join(CustomerModel, SaleModel.customer_id == CustomerModel.id, isouter=True)
+            .where(SaleModel.balance_amount > 0, SaleModel.created_at <= as_at)
+            .order_by(SaleModel.created_at.asc())
+        )
+        return [
+            OutstandingRow(
+                reference=reference,
+                party_name=party,
+                occurred_at=occurred_at,
+                outstanding=_money(outstanding),
+            )
+            for reference, party, occurred_at, outstanding in self.session.execute(stmt)
+        ]
 
     def list_by_customer(
         self,

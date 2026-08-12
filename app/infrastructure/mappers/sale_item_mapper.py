@@ -14,6 +14,7 @@ class SaleItemMapper:
             item_type=model.item_type,
             quantity=model.quantity,
             unit_price=model.unit_price,
+            unit_cost=model.unit_cost,
             sale_id=model.sale_id,
             inventory_item_id=model.inventory_item_id,
             previous_stock=model.previous_stock,
@@ -31,6 +32,10 @@ class SaleItemMapper:
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
             unit_price=entity.unit_price,
+            # Carried deliberately, not incidentally: `update()` rebuilds
+            # this model from the entity and merges it by id, so a column
+            # missing here is a column erased on the next payment.
+            unit_cost=entity.unit_cost,
             line_total=entity.total_amount,
             previous_stock=entity.previous_stock,
             resulting_stock=entity.resulting_stock,

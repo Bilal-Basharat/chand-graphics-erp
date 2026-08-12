@@ -697,6 +697,18 @@ def build_stylesheet() -> str:
         border-radius: {t.RADIUS_SM}px;
     }}
 
+    /* ---------------- Uncosted-profit caveat (views/profit_and_loss_view.py)
+       A warning about the figures directly above it, so it is tinted
+       rather than quiet: a profit that does not know what some of its
+       stock cost must not be read as if it did. */
+    QLabel#uncostedCaveat {{
+        background: {t.WARNING_TINT};
+        color: {t.WARNING};
+        border: 1px solid {t.WARNING};
+        border-radius: {t.RADIUS_SM}px;
+        padding: 10px 14px;
+    }}
+
     /* ---------------- Quick-add row ---------------- */
     QFrame#AddRowStrip {{
         background: {t.PRIMARY_TINT};

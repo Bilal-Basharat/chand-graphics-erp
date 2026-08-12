@@ -75,6 +75,25 @@ def uow(session_factory):
 
 
 @pytest.fixture()
+def staff_session(uow):
+    """
+    A signed-in staff CurrentUserSession — a real role that genuinely
+    lacks VIEW_REPORTS, for checking that a guard actually guards.
+    """
+    from app.application.auth.session import CurrentUserSession
+    from app.domain.entities.user import User
+
+    with uow as u:
+        user = u.users.add(
+            User(email="staff@test.local", password_hash="x", full_name="Test Staff", role="staff")
+        )
+
+    session = CurrentUserSession()
+    session.set_user(user)
+    return session
+
+
+@pytest.fixture()
 def admin_session(uow):
     """
     A signed-in admin CurrentUserSession for use cases that require authentication/authorization.

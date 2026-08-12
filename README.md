@@ -33,8 +33,9 @@ The architecture is intentionally designed to support:
 - sales and purchases with partial payments
 - stock movement ledger (adjustment, damage, return, transfer)
 - expense tracking
-- daily profit/loss reports
-- revenue summaries
+- customer and supplier account ledgers
+- profit & loss with real cost of goods sold, and margin by item
+- receivables and payables ageing
 - audit trail
 - local database storage
 - backup/export utilities
@@ -236,6 +237,36 @@ bill with nothing paid against it, a walk-in sale belonging to no
 customer, a payment received a month after its invoice, a customer in
 credit, an item that is genuinely low on stock — and generates the
 routine months around them.
+
+## How profit is worked out
+
+A sale line records `unit_cost` — the quantity-weighted average of every
+purchase of that item made up to the day the sale was raised. It is
+written once, when the sale is created (`CreateSaleUseCase`), and never
+revisited, so buying the item again next month cannot rewrite the margin
+on an invoice already handed over. This is what an ERP calls a valuation
+rate; weighted average rather than FIFO because FIFO needs a cost-layer
+table, and IAS 2 permits either.
+
+Cost of goods sold is then the sum of those line costs, and:
+
+```
+gross profit = revenue − cost of goods sold
+net profit   = gross profit − expenses
+```
+
+Stock **bought** is not in that arithmetic. Paper on a shelf is money
+moved, not money gone; it becomes a cost when it is sold. It is shown
+beside the figures as context.
+
+An item that has never been purchased has no average, so its `unit_cost`
+is NULL. **NULL is not zero** — read as zero it would report the whole
+line as profit. Every report counts those lines and says so on screen and
+on paper rather than quietly adding them in.
+
+Databases written before this existed are backfilled by migration step 5,
+which reconstructs each line the same way the live path computes it,
+bounded by that sale's own date.
 
 ## Security and compliance goals
 

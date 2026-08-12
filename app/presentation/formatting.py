@@ -56,6 +56,27 @@ def money(value: Decimal | int | float | None) -> str:
     return f"{Decimal(value):,.2f}"
 
 
+def percent(value: Decimal | None) -> str:
+    """A margin, or a dash where there is nothing to take a share of."""
+    return DASH if value is None else f"{value}%"
+
+
+def uncosted_caveat(lines: int, revenue: Decimal) -> str:
+    """What a profit figure does not know, or "" when it knows everything.
+
+    Said in one place because it is said in two: on the screen under the
+    tiles, and in the note on the printed statement. Two wordings of the
+    same warning is one of them going stale.
+    """
+    if not lines:
+        return ""
+    return (
+        f"{counted(lines, 'sale line')} had no recorded cost "
+        f"({money(revenue)} of revenue). Profit is overstated by whatever that "
+        f"stock cost — record a purchase for the item to fix it."
+    )
+
+
 def money_or_blank(value: Decimal | int | float) -> str:
     """A figure, or nothing at all when there isn't one.
 

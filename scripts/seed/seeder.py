@@ -262,6 +262,12 @@ class Seeder:
         moves the way it really would: the previous and resulting counts
         recorded on each line are then the counts as of that date, not the
         counts after every purchase in the file had already been received.
+
+        The order is load-bearing for **cost** as well as for stock. A
+        sale records the average of what its item had been bought for *so
+        far*, so splitting this back into two loops would price every
+        seeded sale off the whole file's purchases and silently flatten
+        every margin the reports show.
         """
         documents = chain(
             ((document, True) for document in self.dataset.purchases),

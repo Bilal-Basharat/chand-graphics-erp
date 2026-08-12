@@ -58,7 +58,21 @@ from app.presentation.views.payments_view import (
 )
 from app.presentation.views.profile_view import ProfileView
 from app.presentation.views.purchases_view import PurchasesView, PurchasesViewModel
-from app.presentation.views.reports_view import ReportsView, ReportsViewModel
+from app.presentation.views.ageing_view import (
+    PAYABLES_PAGE,
+    RECEIVABLES_PAGE,
+    AgeingView,
+    PayablesAgeingViewModel,
+    ReceivablesAgeingViewModel,
+)
+from app.presentation.views.item_profitability_view import (
+    ItemProfitabilityView,
+    ItemProfitabilityViewModel,
+)
+from app.presentation.views.profit_and_loss_view import (
+    ProfitAndLossView,
+    ProfitAndLossViewModel,
+)
 from app.presentation.views.sales_view import SalesView
 from app.presentation.widgets.period_selector import PeriodSelection
 from app.presentation.widgets.sidebar import Sidebar
@@ -235,11 +249,38 @@ class MainWindow(QMainWindow):
             "Inventory movement",
         )
 
-        reports_period = PeriodSelection()
+        # Each report screen keeps its own period, like every other period
+        # screen: moving to last month on the profit & loss should not
+        # silently change what the item breakdown beside it is showing.
+        profit_period = PeriodSelection()
         self._add_page(
-            Route.REPORTS,
-            ReportsView(ReportsViewModel(self._container, reports_period), reports_period),
-            "Reports",
+            Route.PROFIT_AND_LOSS,
+            ProfitAndLossView(
+                ProfitAndLossViewModel(self._container, profit_period), profit_period
+            ),
+            "Profit & loss",
+        )
+
+        item_period = PeriodSelection()
+        self._add_page(
+            Route.ITEM_PROFITABILITY,
+            ItemProfitabilityView(
+                ItemProfitabilityViewModel(self._container, item_period), item_period
+            ),
+            "Item profitability",
+        )
+
+        # No period on either: an ageing report is everything unpaid as at
+        # now, whenever it was raised.
+        self._add_page(
+            Route.RECEIVABLES_AGEING,
+            AgeingView(RECEIVABLES_PAGE, ReceivablesAgeingViewModel(self._container)),
+            "Receivables ageing",
+        )
+        self._add_page(
+            Route.PAYABLES_AGEING,
+            AgeingView(PAYABLES_PAGE, PayablesAgeingViewModel(self._container)),
+            "Payables ageing",
         )
 
         self._add_page(

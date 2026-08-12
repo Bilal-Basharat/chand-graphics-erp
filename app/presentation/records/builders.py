@@ -24,6 +24,8 @@ from app.presentation.formatting import (
     money,
     money_or_blank,
     or_dash,
+    percent,
+    uncosted_caveat,
 )
 from app.presentation.records.card import (
     Field,
@@ -257,24 +259,39 @@ def ledger_card(ledger, *, party_kind: str, period_label: str, sides) -> RecordC
     )
 
 
-def report_card(summary, *, period_label: str, share_of_expenses) -> RecordCard:
-    """A period's trading, as the reports screen has just worked it out.
+_COST_NOTE = (
+    "Cost is the average price the stock had been bought at, recorded on each "
+    "sale as it was raised. Discounts given on a whole purchase are not "
+    "apportioned to it, so cost runs a little high."
+)
+
+
+def profit_and_loss_card(report, *, period_label: str) -> RecordCard:
+    """A period's trading, as an income statement.
 
     Deliberately the same card as a document. A report is a heading, some
     facts, a table and a column of totals like everything else, so it
     prints through the same page and needs no second design.
     """
-    net = summary.gross_profit
+    net = report.net_profit
+    caveat = uncosted_caveat(report.uncosted_lines, report.uncosted_revenue)
     return RecordCard(
-        kind="Report",
+        kind="Profit & loss",
         reference=period_label,
-        subtitle=f"{date_only(summary.start)} to {date_only(summary.end)}",
+        subtitle=f"{date_only(report.start)} to {date_only(report.end)}",
         fields=(
-            Field("Invoices raised", counted(summary.sales_count, "invoice")),
-            Field("Purchases recorded", counted(summary.purchases_count, "purchase")),
-            Field("Expenses recorded", counted(summary.expenses_count, "expense")),
-            Field("To collect from customers", money(summary.receivable), tone="danger"),
-            Field("To pay suppliers", money(summary.payable), tone="warning"),
+            Field("Invoices raised", counted(report.invoice_count, "invoice")),
+            Field("Gross margin", percent(report.gross_margin)),
+            # Beside the figures rather than among them: buying stock is
+            # not a cost of this period, it is money moved into it.
+            Field("Stock bought", money(report.stock_bought), tone="muted"),
+            Field("Invoice discounts", money(report.invoice_discounts), tone="muted"),
+            *(
+                (Field("Lines with no cost", counted(report.uncosted_lines, "line"),
+                       tone="warning"),)
+                if caveat
+                else ()
+            ),
         ),
         sections=(
             Section(
@@ -286,26 +303,127 @@ def report_card(summary, *, period_label: str, share_of_expenses) -> RecordCard:
                     Heading("SHARE", "right", 110),
                 ),
                 rows=tuple(
-                    (row.name, str(row.count), money(row.total), share_of_expenses(row))
-                    for row in summary.expense_breakdown
+                    (row.name, str(row.count), money(row.total), f"{row.share}%")
+                    for row in report.spending
                 ),
-                empty="No expenses recorded in this period.",
+                empty="Nothing was spent in this period.",
             ),
         ),
         totals=(
-            Total("Sales", money(summary.sales_total)),
-            Total("Purchases", money(summary.purchases_total), tone="muted"),
-            Total("Expenses", money(summary.expenses_total), tone="muted"),
+            Total("Revenue", money(report.revenue)),
+            Total("Cost of goods sold", money(report.cost_of_goods_sold), tone="muted"),
+            Total("Gross profit", money(report.gross_profit)),
+            Total("Expenses", money(report.expenses_total), tone="muted"),
             Total(
-                "Net movement",
+                "Net profit",
                 money(net),
                 tone="success" if net >= _ZERO else "danger",
                 strong=True,
             ),
         ),
+        note=f"{caveat} {_COST_NOTE}".strip(),
+    )
+
+
+def item_profitability_card(report, *, period_label: str) -> RecordCard:
+    """What each item earned over a period."""
+    return RecordCard(
+        kind="Item profitability",
+        reference=period_label,
+        subtitle=f"{date_only(report.start)} to {date_only(report.end)}",
+        fields=(
+            Field("Items sold", counted(len(report.rows), "item")),
+            Field("Margin", percent(report.margin)),
+            *(
+                (Field("Lines with no cost", counted(report.uncosted_lines, "line"),
+                       tone="warning"),)
+                if report.uncosted_lines
+                else ()
+            ),
+        ),
+        sections=(
+            Section(
+                title="Items sold",
+                headings=(
+                    Heading("ITEM"),
+                    Heading("QTY SOLD", "right", 100),
+                    Heading("REVENUE", "right", 130),
+                    Heading("COST", "right", 130),
+                    Heading("PROFIT", "right", 130),
+                    Heading("MARGIN", "right", 100),
+                ),
+                # A dash where a cost was never recorded — never a zero,
+                # which would read as free stock and a perfect margin.
+                rows=tuple(
+                    (
+                        row.name,
+                        f"{row.quantity_sold:,}",
+                        money(row.revenue),
+                        money(row.cost),
+                        money(row.profit),
+                        percent(row.margin),
+                    )
+                    for row in report.rows
+                ),
+                empty="Nothing was sold in this period.",
+            ),
+        ),
+        totals=(
+            Total("Revenue", money(report.revenue)),
+            Total("Cost", money(report.cost), tone="muted"),
+            Total(
+                "Profit",
+                money(report.profit),
+                tone="success" if report.profit >= _ZERO else "danger",
+                strong=True,
+            ),
+        ),
         note=(
-            "Net movement is sales less what was bought and spent in the same "
-            "window. It is a period measure, not margin: stock bought this "
-            "month may well be sold next."
+            "A dash means the item had never been bought, so what it cost is "
+            "not known and no margin can be worked out for it. Revenue here is "
+            "line totals; a discount given on a whole invoice belongs to the "
+            f"invoice, not to any one item on it. {_COST_NOTE}"
+        ),
+    )
+
+
+def ageing_card(report, *, title: str, party_noun: str) -> RecordCard:
+    """What is outstanding, and how long it has been."""
+    return RecordCard(
+        kind=title,
+        reference=f"as at {date_only(report.as_at)}",
+        subtitle=counted(len(report.lines), "document"),
+        fields=tuple(
+            Field(band.label, money(band.total)) for band in report.bands
+        ),
+        sections=(
+            Section(
+                title="Outstanding documents",
+                headings=(
+                    Heading(party_noun.upper()),
+                    Heading("REFERENCE", width=150),
+                    Heading("RAISED", width=170),
+                    Heading("AGE", "right", 100),
+                    Heading("BAND", width=130),
+                    Heading("OUTSTANDING", "right", 140),
+                ),
+                rows=tuple(
+                    (
+                        line.party,
+                        line.reference,
+                        date_time(line.occurred_at),
+                        counted(line.age_days, "day"),
+                        line.band,
+                        money(line.outstanding),
+                    )
+                    for line in report.lines
+                ),
+                empty="Nothing is outstanding.",
+            ),
+        ),
+        totals=(Total("Total outstanding", money(report.total), strong=True),),
+        note=(
+            "Aged from the day each document was raised. This app records no "
+            "payment terms, so these are ages, not overdue periods."
         ),
     )

@@ -318,11 +318,58 @@ def _add_party_opening_balance(connection: Connection) -> None:
         _add_column(connection, table, "opening_balance", "NUMERIC(12, 2) NOT NULL DEFAULT 0")
 
 
+def _add_sale_line_cost(connection: Connection) -> None:
+    """A sale line records what its stock had cost, so margin can be read.
+
+    Without it there is no profit in the database at all: the only
+    acquisition cost anywhere is on purchase lines, and nothing connects a
+    thing sold to the price it was bought at.
+
+    Nothing in an existing database says what a past sale cost, so it is
+    reconstructed the way new sales compute it — the quantity-weighted
+    average of every purchase of that item made *on or before the day the
+    sale was raised*. Bounded by that date rather than by the whole
+    history, because an item bought again this year must not rewrite last
+    year's margin. That is the entire reason the figure is stored on the
+    line instead of worked out when a report is run.
+
+    Dates come from `purchases`, not from `purchase_items`: a line row
+    carries the moment it was written, which for a backdated document is
+    not the day it was traded.
+
+    An item that had never been bought has no average, so the subquery
+    yields NULL and the column stays NULL. That is not zero and must never
+    be read as zero — a sale with no cost is unknown margin, not total
+    margin. The reports count these lines and say so.
+
+    Safe to rerun: only rows that still have no cost are touched.
+    """
+    _add_column(connection, "sale_items", "unit_cost", "NUMERIC(12, 2)")
+    connection.exec_driver_sql(
+        """
+        UPDATE sale_items
+           SET unit_cost = (
+                SELECT ROUND(SUM(pi.line_total) * 1.0 / SUM(pi.quantity), 2)
+                  FROM purchase_items pi
+                  JOIN purchases p ON p.id = pi.purchase_id
+                 WHERE pi.inventory_item_id = sale_items.inventory_item_id
+                   AND pi.item_type = sale_items.item_type
+                   AND pi.quantity > 0
+                   AND p.created_at <= (
+                        SELECT s.created_at FROM sales s WHERE s.id = sale_items.sale_id
+                   )
+           )
+         WHERE unit_cost IS NULL
+        """
+    )
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
     _relax_payment_method_links,
     _fold_cards_into_inventory,
     _add_party_opening_balance,
+    _add_sale_line_cost,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

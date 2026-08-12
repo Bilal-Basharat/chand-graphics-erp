@@ -7,6 +7,12 @@ from decimal import Decimal
 
 from app.domain.entities.sale import Sale
 from app.domain.enums.item_type import ItemType
+from app.domain.repositories.aggregates import (
+    CostTotals,
+    ItemMarginRow,
+    OutstandingRow,
+    RevenueTotals,
+)
 from app.domain.repositories.base import Repository
 
 
@@ -77,4 +83,32 @@ class SaleRepository(Repository[Sale], ABC):
         The half of an opening balance that the sales themselves account
         for.
         """
+        raise NotImplementedError
+
+    ####################### reporting aggregates #######################
+    # Unbounded on purpose. A report that answers about the first page of
+    # a period is a report that is quietly wrong.
+
+    @abstractmethod
+    def revenue_between(self, start: datetime, end: datetime) -> RevenueTotals:
+        """What was invoiced in a period, before and after discounts."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def cost_of_sales_between(self, start: datetime, end: datetime) -> CostTotals:
+        """What the stock sold in a period had cost.
+
+        Lines with no recorded cost are reported separately rather than
+        counted as nothing, so a report can say what it does not know.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def margin_by_item_between(self, start: datetime, end: datetime) -> list[ItemMarginRow]:
+        """Every item sold in a period, one row each."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def outstanding_before(self, as_at: datetime) -> list[OutstandingRow]:
+        """Invoices with money still on them, oldest first."""
         raise NotImplementedError

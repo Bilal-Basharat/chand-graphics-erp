@@ -42,6 +42,16 @@ class PurchaseRepository(Repository[Purchase], ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def weighted_average_cost(self, item_type: ItemType, item_id: int) -> Decimal | None:
+        """What one unit of an item has cost on average across every purchase.
+
+        None when it has never been bought — which is not zero. It is what
+        a sale line records as its cost, so that margin can be read later
+        without the answer changing every time the item is bought again.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def count_by_supplier(self, supplier_id: int) -> int:
         """How many purchases are recorded against one supplier."""
         raise NotImplementedError

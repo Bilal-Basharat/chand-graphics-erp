@@ -85,7 +85,12 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
     ("Finance", (
         NavItem("Expenses", Route.EXPENSES),
         NavItem("Expense categories", Route.EXPENSE_CATEGORIES),
-        NavItem("Reports", Route.REPORTS),
+        NavItem("Reports", icon="reports", children=(
+            NavItem("Profit & loss", Route.PROFIT_AND_LOSS),
+            NavItem("Item profitability", Route.ITEM_PROFITABILITY),
+            NavItem("Receivables ageing", Route.RECEIVABLES_AGEING),
+            NavItem("Payables ageing", Route.PAYABLES_AGEING),
+        )),
     )),
     ("System", (
         NavItem("Company settings", Route.COMPANY_SETTINGS),
@@ -155,7 +160,11 @@ class _NavButton(QPushButton):
         self._collapsed = collapsed
         # The tooltip only carries the label when the label isn't visible;
         # a tooltip repeating text already on screen is just noise.
-        text = f"   {self._label}{f'   {self._suffix}' if self._suffix else ''}"
+        # Doubled: a button reads a lone "&" as the mnemonic marker, so
+        # "Profit & loss" would appear as "Profit _loss" with the L
+        # underlined. Nothing here wants keyboard accelerators.
+        label = self._label.replace("&", "&&")
+        text = f"   {label}{f'   {self._suffix}' if self._suffix else ''}"
         self.setText("" if collapsed else text)
         self.setToolTip(self._label if collapsed else "")
         self.setProperty("collapsed", collapsed)

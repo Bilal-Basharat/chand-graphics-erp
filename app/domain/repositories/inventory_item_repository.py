@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 
 from app.domain.entities.inventory_item import InventoryItem
 from app.domain.repositories.base import Repository
@@ -19,6 +20,15 @@ class InventoryItemRepository(Repository[InventoryItem], ABC):
 
     @abstractmethod
     def search_by_term(self, term: str, limit: int = 50) -> list[InventoryItem]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def names_by_id(self, item_ids: Collection[int]) -> dict[int, str]:
+        """Item names for a set of items, keyed by id.
+
+        For naming what a report grouped by, without loading the items —
+        the same idea as `SaleRepository.numbers_by_id`.
+        """
         raise NotImplementedError
 
     @abstractmethod
