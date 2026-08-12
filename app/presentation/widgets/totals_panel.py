@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -23,12 +22,11 @@ from PySide6.QtWidgets import (
 from app.presentation.formatting import money
 from app.presentation.theme import tokens as t
 from app.presentation.widgets.document_lines import (
-    ZERO,
     DocumentLine,
     DocumentTotals,
     compute_totals,
-    parse_amount_or_zero,
 )
+from app.presentation.widgets.input_validation import ZERO, MoneyInput, parse_amount_or_zero
 from app.presentation.widgets.payment_method_combo import PaymentMethodCombo
 
 _RIGHT = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -48,8 +46,7 @@ class TotalsPanel(QWidget):
         inputs.setHorizontalSpacing(14)
         inputs.setVerticalSpacing(6)
 
-        self._discount = QLineEdit("0")
-        self._discount.setPlaceholderText("0.00")
+        self._discount = MoneyInput(ZERO)
         # textChanged carries the new text; `changed` carries nothing. Wired
         # directly, Qt raises inside the slot and the totals silently stop
         # updating as the user types.
@@ -57,8 +54,7 @@ class TotalsPanel(QWidget):
 
         self._payment_method = PaymentMethodCombo()
 
-        self._paid = QLineEdit("0")
-        self._paid.setPlaceholderText("0.00")
+        self._paid = MoneyInput(ZERO)
         self._paid.textChanged.connect(lambda _text: self.changed.emit())
 
         for column, (caption, field) in enumerate(

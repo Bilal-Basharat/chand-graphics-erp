@@ -33,10 +33,17 @@ from app.presentation.formatting import money
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
 from app.presentation.viewmodels.master_data_viewmodels import InventoryViewModel
 from app.presentation.views.collection_view import CollectionPage, EditableCollectionView
-from app.presentation.widgets.document_lines import parse_balance
+from app.presentation.widgets.input_validation import parse_balance, parse_phone
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 from app.presentation.widgets.row_actions import RowAction
-from app.presentation.widgets.quick_add_strip import QuickAddField, combo, line_edit, refill
+from app.presentation.widgets.quick_add_strip import (
+    QuickAddField,
+    combo,
+    line_edit,
+    money_edit,
+    phone_edit,
+    refill,
+)
 from app.presentation.widgets.stock_status import (
     stock_filters,
     stock_status_color,
@@ -176,9 +183,9 @@ class _PartyView(EditableCollectionView):
         # keystroke, and it is the only one of the five nobody needs to
         # find a party again.
         self._new_name = line_edit(self.quick_add_placeholder)
-        self._new_phone = line_edit("Phone")
+        self._new_phone = phone_edit("Phone")
         self._new_address = line_edit("Address")
-        self._new_opening = line_edit("Opening balance")
+        self._new_opening = money_edit("Opening balance", signed=True)
         return (
             QuickAddField(self._new_name, 3),
             QuickAddField(self._new_phone, 2),
@@ -192,6 +199,12 @@ class _PartyView(EditableCollectionView):
             self._new_name.setFocus()
             return None
 
+        phone = parse_phone(self._new_phone.text())
+        if phone is None:
+            self._new_phone.setFocus()
+            self._new_phone.selectAll()
+            return None
+
         opening_balance = parse_balance(self._new_opening.text())
         if opening_balance is None:
             self._new_opening.setFocus()
@@ -200,7 +213,7 @@ class _PartyView(EditableCollectionView):
 
         return self.quick_add_command(
             name=name,
-            phone=self._new_phone.text().strip() or None,
+            phone=phone or None,
             address=self._new_address.text().strip() or None,
             opening_balance=opening_balance,
         )

@@ -34,7 +34,14 @@ from app.application.dto.commands import (
 )
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
-from app.presentation.widgets.document_lines import parse_balance
+from app.presentation.widgets.input_validation import (
+    NOT_A_PHONE,
+    ZERO,
+    MoneyInput,
+    PhoneInput,
+    parse_balance,
+    parse_phone,
+)
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 
 _NO_CABINET = "— None —"
@@ -273,15 +280,14 @@ class _PartyDialog(_CollectionFormDialog):
             parent=parent,
         )
         self._name = self.add_row("Name", QLineEdit(), required=True)
-        self._phone = self.add_row("Phone", QLineEdit())
+        self._phone = self.add_row("Phone", PhoneInput())
         self._address = self.add_row("Address", QLineEdit())
 
-        # Typed, not stepped: money is entered through a line edit
-        # everywhere else in this app (see the payment dialogs), and a
-        # spin box would also refuse the minus sign this field needs — a
-        # negative opening balance means the party is in credit.
-        self._opening_balance = self.add_row("Opening balance", QLineEdit("0.00"))
-        self._opening_balance.setPlaceholderText("0.00")
+        # Signed, unlike every other money field: a negative opening
+        # balance means the party is in credit.
+        self._opening_balance = self.add_row(
+            "Opening balance", MoneyInput(ZERO, signed=True)
+        )
 
         self._notes = self.add_row("Notes", QTextEdit())
         self._notes.setFixedHeight(64)
@@ -295,11 +301,16 @@ class _PartyDialog(_CollectionFormDialog):
             self._name.setText(record.name)
             self._phone.setText(record.phone or "")
             self._address.setText(record.address or "")
-            self._opening_balance.setText(f"{record.opening_balance:.2f}")
+            self._opening_balance.set_amount(record.opening_balance)
             self._notes.setPlainText(record.notes or "")
 
     def _fields(self) -> tuple[str, str | None, str | None, str | None, Decimal] | None:
         """This form's values, or None having pointed at what to fix."""
+        phone = parse_phone(self._phone.text())
+        if phone is None:
+            self.reject_with(NOT_A_PHONE, self._phone)
+            return None
+
         opening_balance = parse_balance(self._opening_balance.text())
         if opening_balance is None:
             self.reject_with(
@@ -307,9 +318,10 @@ class _PartyDialog(_CollectionFormDialog):
                 self._opening_balance,
             )
             return None
+
         return (
             self._name.text().strip(),
-            _optional(self._phone),
+            phone or None,
             _optional(self._address),
             _optional(self._notes),
             opening_balance,

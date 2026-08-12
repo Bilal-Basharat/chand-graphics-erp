@@ -21,13 +21,13 @@ from decimal import Decimal
 
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget, QStyledItemDelegate
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QWidget, QStyledItemDelegate
 
 from app.domain.enums.item_type import ItemType
 from app.presentation.item_types import item_name
-from app.presentation.widgets.document_lines import ZERO, parse_amount
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.item_type_combo import ItemTypeCombo
+from app.presentation.widgets.input_validation import MoneyInput, parse_amount
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 
 _NONE_AVAILABLE = "— none available —"
@@ -98,8 +98,7 @@ class ItemPickerRow(QWidget):
         self._quantity.setRange(1, _UNCAPPED)
         self._quantity.setValue(1)
 
-        self._unit_price = QLineEdit()
-        self._unit_price.setPlaceholderText("0.00")
+        self._unit_price = MoneyInput()
         self._unit_price.setMaximumWidth(120)
         # Enter at the end of the row does what the button beside it does:
         # the price is the last thing typed, every time.
@@ -171,7 +170,7 @@ class ItemPickerRow(QWidget):
             return
 
         unit_price = parse_amount(self._unit_price.text())
-        if unit_price is None or unit_price < ZERO:
+        if unit_price is None:
             self.rejected.emit("Enter a unit price for this item.")
             self._unit_price.setFocus()
             return

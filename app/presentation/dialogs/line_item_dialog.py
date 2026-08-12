@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.formatting import money
 from app.presentation.theme import tokens as t
-from app.presentation.widgets.document_lines import ZERO, parse_amount
+from app.presentation.widgets.input_validation import ZERO, MoneyInput, parse_amount
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
 
 MAX_QUANTITY = 1_000_000
@@ -48,8 +48,7 @@ class LineItemDialog(FormDialog):
         self._quantity.setValue(quantity)
         self._quantity.valueChanged.connect(self._update_line_total)
 
-        self._unit_price = QLineEdit("" if unit_price is None else f"{unit_price:.2f}")
-        self._unit_price.setPlaceholderText("0.00")
+        self._unit_price = MoneyInput(unit_price)
         self._unit_price.textChanged.connect(self._update_line_total)
 
         # One row: the two figures are read together, and stacking them
@@ -77,12 +76,14 @@ class LineItemDialog(FormDialog):
         self._unit_price.setFocus()
 
     def _update_line_total(self) -> None:
+        # The field only ever holds a non-negative figure, so a half-typed
+        # one ("12.") is the sole case left to stand in for.
         price = parse_amount(self._unit_price.text()) or ZERO
-        self._line_total.setText(money(max(price, ZERO) * self._quantity.value()))
+        self._line_total.setText(money(price * self._quantity.value()))
 
     def build_command(self) -> tuple[int, Decimal] | None:
         price = parse_amount(self._unit_price.text())
-        if price is None or price < ZERO:
+        if price is None:
             self.reject_with("Enter a unit price.", self._unit_price)
             return None
 

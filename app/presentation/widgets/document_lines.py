@@ -10,7 +10,7 @@ and the totals live here and the two screens keep just their own rules.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
@@ -18,10 +18,9 @@ from PySide6.QtWidgets import QWidget
 from app.domain.enums.item_type import ItemType
 from app.presentation.formatting import money
 from app.presentation.widgets.data_table import DataTable
+from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.row_actions import RowAction, RowActionsDelegate
 from app.presentation.widgets.table_model import Column
-
-ZERO = Decimal("0.00")
 
 
 @dataclass(slots=True)
@@ -66,33 +65,6 @@ def compute_totals(lines: list[DocumentLine], discount: Decimal, paid: Decimal) 
         paid=paid,
         balance=max(grand_total - paid, ZERO),
     )
-
-
-def parse_amount(text: str) -> Decimal | None:
-    """A money figure typed by a user, or None if it isn't one."""
-    try:
-        return Decimal(text.strip())
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def parse_amount_or_zero(text: str) -> Decimal:
-    value = parse_amount(text)
-    return value if value is not None and value >= ZERO else ZERO
-
-
-def parse_balance(text: str) -> Decimal | None:
-    """A money figure that may be left blank, and may be negative.
-
-    Blank reads as zero — a balance nobody typed is nothing owed. A
-    negative is kept rather than clamped, unlike `parse_amount_or_zero`:
-    on a party's account it means they are in credit. None means the text
-    was not a number at all, which is the caller's to report.
-    """
-    if not text.strip():
-        return ZERO
-    value = parse_amount(text)
-    return None if value is None else value.quantize(ZERO)
 
 
 _EDIT = "edit"

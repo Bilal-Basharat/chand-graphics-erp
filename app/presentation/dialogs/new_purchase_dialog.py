@@ -27,8 +27,9 @@ from app.application.dto.commands import (
 )
 from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.document_dialog import DocumentDialog, step_panel
-from app.presentation.widgets.document_lines import ZERO, DocumentTotals
+from app.presentation.widgets.document_lines import DocumentTotals
 from app.presentation.widgets.form_field import field
+from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.item_picker_row import ItemPickerRow, PickedItem
 from app.shared.datetimes import now_pkt
 

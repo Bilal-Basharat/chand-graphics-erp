@@ -35,11 +35,11 @@ from PySide6.QtWidgets import (
 from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.line_item_dialog import LineItemDialog
 from app.presentation.widgets.document_lines import (
-    ZERO,
     DocumentLine,
     DocumentTotals,
     LinesTable,
 )
+from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.totals_panel import TotalsPanel
 
 

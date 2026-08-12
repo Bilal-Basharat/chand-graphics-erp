@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
+from app.presentation.widgets.input_validation import NOT_A_PHONE, PhoneInput, parse_phone
 from app.presentation.widgets.page_scroll import page_scroll
 
 
@@ -61,12 +62,19 @@ class CompanySettingsView(QWidget):
         super().showEvent(event)
         self._view_model.load()
 
-    def _field(self, label_text: str, help_text: str = "") -> tuple[QVBoxLayout, QLineEdit]:
+    def _field(
+        self,
+        label_text: str,
+        help_text: str = "",
+        widget: QLineEdit | None = None,
+    ) -> tuple[QVBoxLayout, QLineEdit]:
+        """A labelled input for this page's grid. `widget` is for the
+        fields that police their own input, such as the phone."""
         layout = QVBoxLayout()
         layout.setSpacing(6)
         label = QLabel(label_text)
         label.setProperty("role", "fieldLabel")
-        field = QLineEdit()
+        field = widget if widget is not None else QLineEdit()
         layout.addWidget(label)
         layout.addWidget(field)
         if help_text:
@@ -98,7 +106,9 @@ class CompanySettingsView(QWidget):
         grid.setVerticalSpacing(14)
 
         name_layout, self._company_name = self._field("Company name *")
-        phone_layout, self._phone = self._field("Phone", "Primary contact number shown on invoices.")
+        phone_layout, self._phone = self._field(
+            "Phone", "Primary contact number shown on invoices.", PhoneInput()
+        )
         email_layout, self._email = self._field("Email")
         address_layout, self._address = self._field("Address")
 
@@ -162,21 +172,32 @@ class CompanySettingsView(QWidget):
         row.addWidget(self._save_btn)
         return row
 
+    def _reject(self, message: str, field: QWidget) -> None:
+        """Report what has to be fixed, and put the cursor on it — the same
+        thing `FormDialog.reject_with` does for the dialogs."""
+        QMessageBox.warning(self, "Company settings", message)
+        field.setFocus()
+
     def _save(self) -> None:
         company_name = self._company_name.text().strip()
         if not company_name:
-            QMessageBox.warning(self, "Company settings", "Company name is required.")
+            self._reject("Company name is required.", self._company_name)
+            return
+
+        phone = parse_phone(self._phone.text())
+        if phone is None:
+            self._reject(NOT_A_PHONE, self._phone)
             return
 
         footer_text = self._footer.toPlainText().strip()
         if len(footer_text) > 500:
-            QMessageBox.warning(self, "Company settings", "Invoice footer must be 500 characters or fewer.")
+            self._reject("Invoice footer must be 500 characters or fewer.", self._footer)
             return
 
         self._view_model.save(
             existing_id=self._existing_id,
             company_name=company_name,
-            phone=self._phone.text().strip() or None,
+            phone=phone or None,
             email=self._email.text().strip() or None,
             address=self._address.text().strip() or None,
             currency=self._currency.text().strip() or "PKR",

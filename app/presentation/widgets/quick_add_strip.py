@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.presentation.theme import tokens as t
+from app.presentation.widgets.input_validation import MoneyInput, PhoneInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +117,21 @@ def line_edit(placeholder: str) -> QLineEdit:
     """A strip field, since every screen wants the same one."""
     field = QLineEdit()
     field.setPlaceholderText(placeholder)
+    field.setClearButtonEnabled(True)
+    return field
+
+
+def money_edit(placeholder: str, *, signed: bool = False) -> MoneyInput:
+    """A strip field for an amount: `line_edit`'s chrome, but it will only
+    ever hold a number."""
+    field = MoneyInput(signed=signed, placeholder=placeholder)
+    field.setClearButtonEnabled(True)
+    return field
+
+
+def phone_edit(placeholder: str) -> PhoneInput:
+    """A strip field for a phone number, chrome to match the rest."""
+    field = PhoneInput(placeholder=placeholder)
     field.setClearButtonEnabled(True)
     return field
 

@@ -7,7 +7,7 @@ expenses are fetched by date range rather than listed whole.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
@@ -22,8 +22,15 @@ from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionSource, CollectionViewModel
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.widgets.list_controls import FilterOption
+from app.presentation.widgets.input_validation import ZERO, MoneyInput, parse_amount
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
-from app.presentation.widgets.quick_add_strip import QuickAddField, combo, line_edit, refill
+from app.presentation.widgets.quick_add_strip import (
+    QuickAddField,
+    combo,
+    line_edit,
+    money_edit,
+    refill,
+)
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column
@@ -141,7 +148,7 @@ class ExpensesView(CollectionView):
     def quick_add_fields(self):
         self._new_expense = line_edit("e.g. Electricity bill")
         self._new_category = combo(_NO_CATEGORY)
-        self._new_amount = line_edit("Amount")
+        self._new_amount = money_edit("Amount")
         return (
             QuickAddField(self._new_expense, 3),
             QuickAddField(self._new_category, 2),
@@ -227,15 +234,13 @@ class ExpenseDialog(FormDialog):
         self._mode.currentTextChanged.connect(self._on_mode_changed)
         self.add_row("Amount as", self._mode)
 
-        self._amount = self.add_row("Total amount", QLineEdit())
-        self._amount.setPlaceholderText("0.00")
+        self._amount = self.add_row("Total amount", MoneyInput())
 
         self._quantity = ModernSpinBox()
         self._quantity.setRange(1, 1_000_000)
         self.add_row("Quantity", self._quantity)
 
-        self._unit_price = self.add_row("Unit price", QLineEdit())
-        self._unit_price.setPlaceholderText("0.00")
+        self._unit_price = self.add_row("Unit price", MoneyInput())
 
         self._remarks = self.add_row("Remarks", QTextEdit())
         self._remarks.setFixedHeight(60)
@@ -282,8 +287,10 @@ class ExpenseDialog(FormDialog):
 
 
 def _positive_decimal(text: str) -> Decimal | None:
-    try:
-        value = Decimal(text.strip())
-    except (InvalidOperation, ValueError):
-        return None
-    return value if value > 0 else None
+    """What both amount modes need: a figure, and one worth recording.
+
+    The field already refuses anything that is not a number, so what is
+    left to catch here is a blank one and a typed zero.
+    """
+    value = parse_amount(text)
+    return value if value is not None and value > ZERO else None

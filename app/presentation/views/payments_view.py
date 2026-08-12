@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
@@ -46,6 +46,7 @@ from app.presentation.viewmodels.document_items import (
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import NOT_FULLY_PAID, payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
+from app.presentation.widgets.input_validation import ZERO, MoneyInput, parse_amount
 from app.presentation.widgets.payment_method_combo import PaymentMethodCombo
 from app.presentation.widgets.payment_status import payment_status_color, payment_status_text
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
@@ -53,7 +54,6 @@ from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
 _REFERENCE_LIMIT = 500
-_ZERO = Decimal("0.00")
 
 
 # ---------------------------------------------------------------- view models
@@ -493,8 +493,8 @@ class PaymentsView(CollectionView):
 
     def summary(self, rows: list):
         return (
-            ("Total", money(sum((d.grand_total for d in rows), _ZERO))),
-            ("Balance", money(sum((d.balance_amount for d in rows), _ZERO))),
+            ("Total", money(sum((d.grand_total for d in rows), ZERO))),
+            ("Balance", money(sum((d.balance_amount for d in rows), ZERO))),
         )
 
     def toolbar_extras(self) -> list[QWidget]:
@@ -514,7 +514,7 @@ class PaymentsView(CollectionView):
                 f"Select the {self._payments_page.document_noun} you're recording a payment for."
             )
             return
-        if document.balance_amount <= _ZERO:
+        if document.balance_amount <= ZERO:
             self._payments_view_model.errorOccurred.emit(
                 f"That {self._payments_page.document_noun} is fully paid — nothing left to record."
             )
@@ -559,7 +559,7 @@ class RecordPaymentDialog(FormDialog):
 
         # Defaulted to the full remaining balance: settling in full is the
         # common case, and a partial payment is a quick edit from there.
-        self._amount = QLineEdit(f"{self._balance:.2f}")
+        self._amount = MoneyInput(self._balance)
         self.add_row(page.amount_caption, self._amount, required=True)
 
         self._method = PaymentMethodCombo()
@@ -578,8 +578,8 @@ class RecordPaymentDialog(FormDialog):
         )
 
     def build_command(self) -> tuple | None:
-        amount = _decimal_or_none(self._amount.text())
-        if amount is None or amount <= _ZERO:
+        amount = parse_amount(self._amount.text())
+        if amount is None or amount <= ZERO:
             self.reject_with("Enter an amount greater than zero.", self._amount)
             return None
         # Mirrors the use case's own rule so the user hears it immediately
@@ -610,10 +610,3 @@ def _amount_label(text: str, tone: str = t.INK) -> QLabel:
     label = QLabel(text)
     label.setStyleSheet(f"color: {tone}; font-weight: {t.WEIGHT_SEMIBOLD}; font-size: 14px;")
     return label
-
-
-def _decimal_or_none(text: str) -> Decimal | None:
-    try:
-        return Decimal(text.strip())
-    except (InvalidOperation, ValueError):
-        return None
