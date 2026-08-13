@@ -25,6 +25,7 @@ class Route(StrEnum):
     EXPENSES = "expenses"
     EXPENSE_CATEGORIES = "expense_categories"
     COMPANY_SETTINGS = "company_settings"
+    LICENSE = "license"
     PROFIT_AND_LOSS = "profit_and_loss"
     ITEM_PROFITABILITY = "item_profitability"
     RECEIVABLES_AGEING = "receivables_ageing"

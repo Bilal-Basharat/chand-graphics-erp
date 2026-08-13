@@ -94,6 +94,7 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
     )),
     ("System", (
         NavItem("Company settings", Route.COMPANY_SETTINGS),
+        NavItem("Licence", Route.LICENSE),
         NavItem("My profile", Route.PROFILE),
     )),
 ]

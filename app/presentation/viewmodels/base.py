@@ -17,6 +17,7 @@ from app.application.auth.exceptions import (
     LoginThrottledError,
 )
 from app.application.exceptions import ApplicationError
+from app.domain.licensing.errors import LicenseError
 from app.presentation.services.async_runner import AsyncTaskRunner
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,11 @@ class BaseViewModel(QObject):
             return "Your session has ended. Please sign in again."
         if isinstance(exc, AuthorizationError):
             return "You don't have permission to do this."
+        # A refused licence key already says exactly what is wrong with it
+        # — the wrong installation, the wrong product, expired on a date —
+        # and that is the only thing the shop can act on.
+        if isinstance(exc, LicenseError):
+            return str(exc)
         if isinstance(exc, (ApplicationError, ValueError)):
             return str(exc)
         logger.error("Unexpected error in view model", exc_info=exc)

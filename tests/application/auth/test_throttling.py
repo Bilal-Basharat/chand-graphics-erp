@@ -22,12 +22,16 @@ def test_sign_in_gets_throttled_after_too_many_recent_failures(uow, session_fact
         company_name="Test Company",
         app_version="test",
         developed_by="Test Devs",
+        developer_email="dev@localhost",
+        developer_contact="0000",
         initial_admin_email="admin@localhost",
         initial_admin_password="admin123",
         initial_admin_full_name="Administrator",
         initial_admin_role="admin",
         max_login_attempts=1,
         login_lockout_minutes=15,
+        product_code="TEST_PRODUCT",
+        license_expiry_warning_days=14,
     )
 
     throttle_service = LoginThrottleService(uow, settings)

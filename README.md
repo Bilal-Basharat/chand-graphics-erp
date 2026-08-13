@@ -98,8 +98,9 @@ pip install -r requirements.txt
 ```
 
 ### 5. Configure environment
-Create a `.env` file. Every value below is required except the last two,
-which fall back to the defaults shown:
+Create a `.env` file. The application and initial-admin values are
+required; the login-throttle, licensing and `SMTP_*` blocks fall back to
+the defaults shown:
 
 ```env
 APP_NAME=Printing Press ERP
@@ -115,6 +116,9 @@ INITIAL_ADMIN_ROLE=admin
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=15
 
+PRODUCT_CODE=CHAND_GRAPHICS_ERP
+LICENSE_EXPIRY_WARNING_DAYS=14
+
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USERNAME=
@@ -124,6 +128,12 @@ SMTP_USE_TLS=true
 ```
 
 `APP_VERSION` and `DEVELOPED_BY` are shown in the application's footer.
+
+`PRODUCT_CODE` is which product a licence must name to be accepted here,
+and `LICENSE_EXPIRY_WARNING_DAYS` how early the app starts saying a
+licence is running out. Both are optional — an installation upgrading
+keeps the `.env` it was shipped with — and both are covered in
+[Licensing](#licensing).
 
 The `SMTP_*` block is optional and powers "Forgot password" on the sign-in
 screen, which emails a temporary password. Leave `SMTP_HOST` blank and the
@@ -195,6 +205,61 @@ a matter of registering it rather than rewriting them:
    "movements for this item" use case for the stock ledger.
 
 Nothing else should need to know how many kinds exist.
+
+## Licensing
+
+An installation runs on a signed entitlement — one licence key, verified
+on this machine with no Internet, checked once at startup and nowhere
+else. Sales, purchases, inventory and accounts know nothing about it.
+
+**The shape of it.** `LicenseManager` (application) reads a
+`LicenseProvider` (domain port). The only implementation today is
+`ManualLicenseProvider`: a key the shop was given and typed in. When the
+licensing server exists, a `LaravelLicenseProvider` implements the same
+three methods and `AppContainer.license_provider()` is the one line that
+changes — the rules, the states and both screens stay as they are. The
+server will own Product, Customer, Plan, Subscription, Payment, License,
+Activation, Entitlement and LicenseEvent; the desktop deliberately holds
+none of that, only the signed summary it needs to open offline.
+
+**What is enforced here**: the signature, the product, the expiry and its
+grace window, suspension, revocation, and the binding to this
+installation. What is not: a device count above one, which needs a view
+of every installation and waits for the server. `max_devices` is carried
+and reported so that arrives without the licence format changing.
+
+**Issuing a licence** (vendor side, dev-only — never shipped):
+
+```bash
+# Once, on your own machine. Keep the key OUT of this repository.
+python -m scripts.licensing.keygen --out C:\keys\chand-licensing.pem --key-id cg-2026-01
+# Paste the printed public key into app/infrastructure/licensing/public_keys.py
+
+# Per customer. The installation ID is on their activation dialog.
+python -m scripts.licensing.issue_license \
+    --private-key C:\keys\chand-licensing.pem \
+    --customer "Some Print Shop" \
+    --installation-id <their installation id> \
+    --expires 2027-08-13 \
+    --out shop.lic
+```
+
+Anyone holding the private key can license every installation in the
+field, for free, forever. It lives on the vendor's machine, is backed up
+there, and never reaches a build. Rotating means publishing a second
+public key beside the first and signing new licences with it; licences
+already out there keep working until they expire.
+
+**Local state** sits beside the database and never inside it —
+`license.json` (the activation) and `installation.json` (this machine's
+id). A licence must survive a schema migration and must not travel
+through a database restore.
+
+**Renewal, expiry, lockout.** A licence past `expires_at` keeps working
+through its `grace_days`, with a warning. After that the ERP does not
+open — but the activation dialog still offers both the renewal key and a
+backup of the shop's own data, which remains theirs whatever the state of
+the account.
 
 ## Testing
 

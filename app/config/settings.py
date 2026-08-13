@@ -9,6 +9,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 APP_FOLDER_NAME = "ChandGraphicsERP"
 
+# Which product this build is, as licences name it. One value, in one
+# place, so the licence a shop is issued and the licence this build
+# accepts cannot drift apart.
+DEFAULT_PRODUCT_CODE = "CHAND_GRAPHICS_ERP"
+
 
 def _resolve_env_file() -> Path:
     """The .env this installation reads its configuration from.
@@ -92,6 +97,15 @@ SESSION_FILE_PATH = DATA_DIR / "session.json"
 # password that pairs with it lives in the OS credential vault, never
 # here — see presentation/services/credential_store.py.
 SIGN_IN_PREFERENCES_PATH = DATA_DIR / "sign_in.json"
+
+# The licence this installation was activated with, and the identifier it
+# was issued against. Kept beside the database rather than inside it: a
+# licence must survive a schema migration and must not travel through a
+# database restore. Neither file holds a secret — the signature over the
+# licence is what makes it un-editable, not where it sits.
+LICENSE_FILE_PATH = DATA_DIR / "license.json"
+
+INSTALLATION_FILE_PATH = DATA_DIR / "installation.json"
 
 
 def _required(name: str) -> str:
@@ -194,6 +208,9 @@ class AppSettings:
     max_login_attempts: int
     login_lockout_minutes: int
 
+    product_code: str
+    license_expiry_warning_days: int
+
     smtp: SmtpSettings = field(default_factory=SmtpSettings.from_env)
 
     @classmethod
@@ -217,6 +234,15 @@ class AppSettings:
 
             max_login_attempts=_optional_int("MAX_LOGIN_ATTEMPTS", 5),
             login_lockout_minutes=_optional_int("LOGIN_LOCKOUT_MINUTES", 15),
+
+            # Which product a licence must name to be accepted here. The
+            # same key format will serve other products later, and this
+            # is what stops one product's licence unlocking another.
+            # Optional, like the developer fields above: an installation
+            # upgrading keeps the .env it was shipped with, and requiring
+            # a key that predates the build would stop it starting.
+            product_code=_optional("PRODUCT_CODE", DEFAULT_PRODUCT_CODE),
+            license_expiry_warning_days=_optional_int("LICENSE_EXPIRY_WARNING_DAYS", 14),
 
             smtp=SmtpSettings.from_env(),
         )

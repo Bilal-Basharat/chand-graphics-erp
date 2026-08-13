@@ -18,8 +18,12 @@ from app.application.auth.login_audit_use_cases import RecordLoginAuditUseCase, 
 from app.application.auth.session_store import SessionStore
 from app.domain.enums.login_event_type import LoginEventType
 from app.infrastructure.auth import FileSessionStore
-from app.config.settings import SESSION_FILE_PATH
+from app.config.settings import INSTALLATION_FILE_PATH, LICENSE_FILE_PATH, SESSION_FILE_PATH
 from app.application.auth.throttling import LoginThrottleService
+from app.application.licensing.manager import LicenseManager
+from app.domain.licensing.ports import InstallationIdentity, LicenseProvider
+from app.infrastructure.licensing.file_installation_identity import FileInstallationIdentity
+from app.infrastructure.licensing.file_license_store import FileLicenseStore
 
 @dataclass(slots=True)
 class AppContainer:
@@ -30,6 +34,7 @@ class AppContainer:
     current_user_session: CurrentUserSession = field(default_factory=CurrentUserSession)
     password_hasher: PasswordHasher = field(default_factory=BcryptPasswordHasher)
     session_store: SessionStore = field(default_factory=lambda: FileSessionStore(SESSION_FILE_PATH))
+    _license_manager: LicenseManager | None = field(default=None, init=False, repr=False)
 
     def create_uow(self) -> SqlAlchemyUnitOfWork:
         return SqlAlchemyUnitOfWork()
@@ -108,6 +113,45 @@ class AppContainer:
 
     def login_throttle_service(self) -> LoginThrottleService:
         return LoginThrottleService(self.create_uow(), self.settings)
+
+    ############################################################
+    ##################### Licensing #############################
+    ############################################################
+
+    def license_provider(self) -> LicenseProvider:
+        """Where this build gets its licence from.
+
+        The single seam the whole licensing feature turns on. Today it is
+        a key the shop typed in, verified offline. When the licensing
+        server exists, this method returns a `LaravelLicenseProvider`
+        instead and nothing else in the app changes — not the manager,
+        not the gate, not either screen.
+        """
+        from app.infrastructure.licensing.ed25519_verifier import Ed25519SignatureVerifier
+        from app.infrastructure.licensing.manual_provider import ManualLicenseProvider
+        from app.infrastructure.licensing.public_keys import LICENSE_PUBLIC_KEYS
+
+        return ManualLicenseProvider(
+            store=FileLicenseStore(LICENSE_FILE_PATH),
+            identity=self.installation_identity(),
+            verifier=Ed25519SignatureVerifier(LICENSE_PUBLIC_KEYS),
+            product_code=self.settings.product_code,
+            expiring_soon_days=self.settings.license_expiry_warning_days,
+        )
+
+    def installation_identity(self) -> InstallationIdentity:
+        return FileInstallationIdentity(INSTALLATION_FILE_PATH)
+
+    def license_manager(self) -> LicenseManager:
+        """Held for the run, unlike everything else here.
+
+        The gate, the licence screen and any feature check must all see
+        the same verdict; a fresh manager per caller would re-read the
+        file and could answer one of them differently from another.
+        """
+        if self._license_manager is None:
+            self._license_manager = LicenseManager(self.license_provider())
+        return self._license_manager
 
     ############################################################
     ##################### Inventory Use Cases ###################

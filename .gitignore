@@ -47,6 +47,17 @@ data/sign_in.json
 # UI assets generated at runtime (see presentation/theme/assets.py)
 data/ui/
 
+# Licence state belonging to this installation, not to the project
+data/license.json
+data/installation.json
+
+# Licence signing material. The private key must never reach this
+# repository — these patterns are a backstop, not the plan: keep it in a
+# folder outside the checkout (see scripts/licensing/keygen.py).
+*.pem
+*.key
+*.lic
+
 # Logs
 logs/
 *.log

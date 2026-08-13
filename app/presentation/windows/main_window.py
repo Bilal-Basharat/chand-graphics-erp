@@ -16,6 +16,7 @@ from app.presentation.navigation.routes import Route
 from app.presentation.records import paper
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
 from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
+from app.presentation.viewmodels.license_viewmodel import LicenseViewModel
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.viewmodels.master_data_viewmodels import (
@@ -45,6 +46,7 @@ from app.presentation.views.master_data_views import (
     SuppliersView,
 )
 from app.presentation.views.expenses_view import ExpensesView, expenses_view_model
+from app.presentation.views.license_view import LicenseView
 from app.presentation.views.inventory_movement_view import (
     InventoryMovementView,
     InventoryMovementViewModel,
@@ -281,6 +283,17 @@ class MainWindow(QMainWindow):
             Route.PAYABLES_AGEING,
             AgeingView(PAYABLES_PAGE, PayablesAgeingViewModel(self._container)),
             "Payables ageing",
+        )
+
+        self._add_page(
+            Route.LICENSE,
+            LicenseView(
+                LicenseViewModel(
+                    self._container.license_manager(),
+                    self._container.installation_identity(),
+                )
+            ),
+            "Licence",
         )
 
         self._add_page(

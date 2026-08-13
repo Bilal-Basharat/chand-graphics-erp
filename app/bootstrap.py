@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from app.config.settings import ENV_FILE
 from app.container import AppContainer
 from app.infrastructure.db import init_db
+from app.presentation.license_gate import LicenseGate
 from app.presentation.session_controller import SessionController
 from app.presentation.theme import tokens as t
 from app.presentation.theme.stylesheet import build_stylesheet
@@ -68,6 +69,14 @@ def bootstrap():
 
     app = QApplication(sys.argv)
     configure_application(app)
+
+    # Before the sign-in window, and after Qt is configured so the
+    # activation dialog is themed like the rest of the app. An
+    # installation with no usable licence never reaches the shell — and
+    # the check is made here, once, rather than inside business code that
+    # has no opinion about licensing.
+    if not LicenseGate(container).ensure_licensed():
+        sys.exit(0)
 
     # Held for the app's lifetime — it owns the only references to the
     # sign-in window and the shell.

@@ -186,6 +186,28 @@ def _eye(painter: QPainter) -> None:
     painter.drawEllipse(middle, 1.5, 1.5)
 
 
+def _shield(painter: QPainter) -> None:
+    """A licence: a shield, drawn as one closed path.
+
+    Not a key or a certificate — both need internal detail to be legible,
+    and at 14px that detail becomes noise. A shield reads at any size from
+    its outline alone.
+    """
+    top, bottom = _BOX.top() + 1.0, _BOX.bottom() - 0.5
+    left, right = _BOX.left() + 1.5, _BOX.right() - 1.5
+    shoulder = top + (bottom - top) * 0.55
+    middle = _BOX.center().x()
+
+    path = QPainterPath(QPointF(middle, top))
+    path.lineTo(QPointF(right, top + 2.0))
+    path.lineTo(QPointF(right, shoulder))
+    path.quadTo(QPointF(right, bottom - 1.0), QPointF(middle, bottom))
+    path.quadTo(QPointF(left, bottom - 1.0), QPointF(left, shoulder))
+    path.lineTo(QPointF(left, top + 2.0))
+    path.closeSubpath()
+    painter.drawPath(path)
+
+
 def _chevron_left(painter: QPainter) -> None:
     """A single chevron pointing at the edge the rail folds towards."""
     x, top, bottom = _BOX.center().x() + 2, _BOX.top() + 2, _BOX.bottom() - 2
@@ -224,6 +246,7 @@ _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "expense_categories": _tag,
     "reports": _bars,
     "company_settings": _sliders,
+    "license": _shield,
     "profile": _person,
 }
 
