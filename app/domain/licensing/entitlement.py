@@ -35,11 +35,11 @@ class LicenseEntitlement:
     # is the conclusion, and reading them as the same thing is how a
     # revoked licence ends up looking merely expired.
     issued_status: LicenseStatus
-    # The installation this key was issued for. `None` is a site licence:
-    # it runs anywhere, and how many "anywhere" may be is a count only the
-    # server can keep.
+    # The installation this key was issued for, which is how one licence
+    # is told from another: every installation has its own id and gets its
+    # own key. `None` is a site licence — it runs anywhere, and only the
+    # server can see where "anywhere" turned out to be.
     installation_id: str | None
-    max_devices: int
     features: frozenset[str]
     issued_at: datetime
     # `None` is perpetual — bought outright, never expires.
@@ -53,8 +53,6 @@ class LicenseEntitlement:
             raise ValueError("product_code cannot be empty")
         if self.issued_status not in ISSUABLE_STATUSES:
             raise ValueError(f"'{self.issued_status}' is not a licence status an issuer can set")
-        if self.max_devices < 1:
-            raise ValueError("max_devices must be at least 1")
         if self.grace_days < 0:
             raise ValueError("grace_days cannot be negative")
         if self.expires_at is not None and self.expires_at < self.issued_at:

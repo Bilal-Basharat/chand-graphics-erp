@@ -17,7 +17,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from app.config.settings import DATABASE_PATH
+from app.config.paths import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
 

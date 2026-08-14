@@ -23,10 +23,17 @@ from __future__ import annotations
 import logging
 import shutil
 from collections.abc import Callable
+from pathlib import Path
 
 from sqlalchemy import Connection, Engine
 
-from app.config.settings import DATA_DIR, DATABASE_PATH, legacy_data_dirs
+from app.config.paths import (
+    DATA_DIR,
+    DATABASE_PATH,
+    INSTALLATION_STATE_FILES,
+    legacy_data_dirs,
+    previous_database,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +48,53 @@ def adopt_previous_installation() -> None:
     does, so it happens once and never overwrites live data. The original
     is copied rather than moved: if anything about this build goes wrong,
     the customer's fortnight of trading is still sitting where it was.
+
+    The licence travels with the database. Without that, every shop in
+    the field would meet the activation dialog the first time they opened
+    the build that moved the folder.
+
+    The database is recognised by any name this application has ever
+    given one, and arrives under the name this build uses — so renaming
+    it in some later build is a matter of listing the old name, not of
+    leaving a shop's trading behind.
     """
     if DATABASE_PATH.exists():
         return
 
     for previous in legacy_data_dirs():
-        if previous == DATA_DIR or not (previous / DATABASE_PATH.name).exists():
+        if previous == DATA_DIR:
+            continue
+        database = previous_database(previous)
+        if database is None:
             continue
         logger.info("Adopting data from previous installation at %s", previous)
-        shutil.copytree(previous, DATA_DIR, dirs_exist_ok=True)
+        _copy_installation_files(previous, DATA_DIR, database)
         return
+
+
+def _copy_installation_files(source: Path, destination: Path, database: Path) -> None:
+    """Copy the files that make up an installation, and only those.
+
+    Named files rather than the whole tree, because one of the folders
+    checked is this one's own parent — the arrangement every build before
+    this one used. Copying that wholesale would walk into the destination
+    while creating it and nest the installation inside itself.
+
+    Left behind deliberately: the generated UI assets in `ui/`, which
+    `presentation/theme/assets.py` repaints on demand, and the
+    pre-migration `.backup` copies, which stay where they were taken.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+
+    # Under this build's name, whatever the file was called where it was
+    # found. `DATABASE_PATH` is known not to exist — the caller checked.
+    shutil.copy2(database, destination / DATABASE_PATH.name)
+
+    for name in INSTALLATION_STATE_FILES:
+        origin = source / name
+        target = destination / name
+        if origin.is_file() and not target.exists():
+            shutil.copy2(origin, target)
 
 
 # -------------------------------------------------------------- schema
@@ -386,6 +430,26 @@ def _backup(version: int) -> None:
     if DATABASE_PATH.exists() and not backup.exists():
         shutil.copy2(DATABASE_PATH, backup)
         logger.info("Backed up the database to %s before migrating", backup.name)
+
+
+def stamp_current_version(engine: Engine) -> None:
+    """Record a database that has just been created as already up to date.
+
+    `create_all` builds every table in its present shape, so a database
+    made a moment ago has, by definition, been through every step in
+    `_STEPS` — there is no legacy column to drop and no historical row to
+    fill in. Left unstamped it reports version 0, which sends `migrate`
+    through all of them and, worse, takes a `.v0.backup` copy of a file
+    holding nothing: a fresh installation would be born with a useless
+    duplicate of an empty database beside it.
+
+    Only ever called for a database with no tables in it. Stamping one
+    that has data would skip the steps it genuinely needs.
+    """
+    with engine.begin() as connection:
+        # Not parameterisable — PRAGMA takes a literal. The value is the
+        # length of a tuple defined above, never external input.
+        connection.exec_driver_sql(f"PRAGMA user_version = {len(_STEPS)}")
 
 
 def migrate(engine: Engine) -> None:

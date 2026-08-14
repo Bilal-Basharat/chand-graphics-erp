@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, event
 
-from app.config.settings import DATABASE_URL
+from app.config.paths import DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,

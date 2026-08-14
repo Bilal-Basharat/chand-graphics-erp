@@ -98,10 +98,9 @@ def test_a_payload_missing_a_required_field_is_refused(issuer: Issuer, field: st
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("max_devices", "two"),
-        # bool is an int in Python, and `true` is not a device limit.
-        ("max_devices", True),
         ("grace_days", 1.5),
+        # bool is an int in Python, and `true` is not a number of days.
+        ("grace_days", True),
         ("features", "reports"),
         ("features", [1, 2]),
         ("issued_at", "the first of never"),
@@ -129,12 +128,17 @@ def test_a_status_only_this_app_may_conclude_cannot_be_claimed_by_a_key(
         entitlement_from_payload(_payload_of(issuer.sign(payload)))
 
 
-@pytest.mark.parametrize("max_devices", [0, -1])
-def test_a_device_limit_below_one_is_refused(issuer: Issuer, max_devices: int) -> None:
-    payload = issuer.payload(max_devices=max_devices)
+def test_a_payload_carrying_fields_this_build_does_not_read_is_still_accepted(
+    issuer: Issuer,
+) -> None:
+    """Keys already in the field carry `max_devices`, which no longer
+    exists here. The signature covers the bytes as they travel, so an
+    extra field is something to ignore rather than to refuse."""
+    entitlement = entitlement_from_payload(
+        _payload_of(issuer.sign(issuer.payload(max_devices=25)))
+    )
 
-    with pytest.raises(InvalidLicenseError):
-        entitlement_from_payload(_payload_of(issuer.sign(payload)))
+    assert entitlement.license_id == "LIC-TEST-0001"
 
 
 def test_a_well_formed_payload_reads_into_an_entitlement(issuer: Issuer) -> None:
@@ -143,7 +147,6 @@ def test_a_well_formed_payload_reads_into_an_entitlement(issuer: Issuer) -> None
     assert entitlement.license_id == "LIC-TEST-0001"
     assert entitlement.issued_status is LicenseStatus.ACTIVE
     assert entitlement.features == frozenset({"reports"})
-    assert entitlement.max_devices == 1
     assert not entitlement.is_perpetual
 
 

@@ -3,11 +3,18 @@
 Opens in one of two situations, and the difference matters:
 
 * **Blocked** — the app cannot start. Nothing is behind this dialog, so
-  it also has to offer the two things a locked-out shop legitimately
-  needs: a way to enter the renewed key, and a way to take its own data
-  out. A shop that has stopped paying still owns its trading records.
+  closing it ends the session.
 * **Changing** — the app is running and the owner is entering a renewal
   from the licence screen. Cancel simply closes it.
+
+Backing up is offered in both. A shop owns its trading records whatever
+its licence says, so that button answers to the shop rather than to the
+licence — and a customer who only reaches this dialog when locked out
+would have to be locked out to take a copy of their own data.
+
+The supplier's details are here for the same reason: when a licence has
+run out this dialog is the whole of the application, and the one thing
+the shop needs from it is a way to ask for a key.
 """
 from __future__ import annotations
 
@@ -62,7 +69,7 @@ class ActivationDialog(QDialog):
         outer.setContentsMargins(24, 22, 24, 20)
         outer.setSpacing(14)
 
-        outer.addLayout(self._build_heading(state))
+        outer.addLayout(self._build_heading())
         outer.addLayout(self._build_installation_row())
         outer.addLayout(self._build_key_box())
 
@@ -72,15 +79,20 @@ class ActivationDialog(QDialog):
         self._error.hide()
         outer.addWidget(self._error)
 
+        outer.addWidget(self._build_support_line())
         outer.addLayout(self._build_actions())
 
         self._view_model.stateChanged.connect(self._on_state_changed)
+        self._view_model.activated.connect(self._on_activated)
         self._view_model.errorOccurred.connect(self._show_error)
         self._view_model.busyChanged.connect(self._on_busy)
 
+        # One place renders a verdict, and this is its first call.
+        self._on_state_changed(state)
+
     # ---------------- building ----------------
 
-    def _build_heading(self, state: LicenseState) -> QVBoxLayout:
+    def _build_heading(self) -> QVBoxLayout:
         column = QVBoxLayout()
         column.setSpacing(6)
 
@@ -88,19 +100,17 @@ class ActivationDialog(QDialog):
         title.setProperty("role", "pageTitle")
         column.addWidget(title)
 
-        self._pill = QLabel(status_label(state))
+        self._pill = QLabel()
         self._pill.setProperty("role", "tag")
-        self._pill.setProperty("tone", status_tone(state))
         row = QHBoxLayout()
         row.setSpacing(8)
         row.addWidget(self._pill)
         row.addStretch(1)
         column.addLayout(row)
 
-        self._reason = QLabel(state.message or "")
+        self._reason = QLabel()
         self._reason.setProperty("role", "pageSub")
         self._reason.setWordWrap(True)
-        self._reason.setVisible(bool(state.message))
         column.addWidget(self._reason)
 
         return column
@@ -143,15 +153,23 @@ class ActivationDialog(QDialog):
         block.addLayout(row)
         return block
 
+    def _build_support_line(self) -> QLabel:
+        details = " · ".join(value for _label, value in self._view_model.support_details)
+        label = QLabel(f"Need a key, or help? {details}" if details else "")
+        label.setProperty("role", "fieldHelp")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        label.setVisible(bool(details))
+        return label
+
     def _build_actions(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        if self._blocked:
-            backup = QPushButton("Back up my data")
-            backup.setProperty("variant", "outline")
-            backup.clicked.connect(self._back_up)
-            row.addWidget(backup)
+        backup = QPushButton("Back up my data")
+        backup.setProperty("variant", "outline")
+        backup.clicked.connect(self._back_up)
+        row.addWidget(backup)
 
         row.addStretch(1)
 
@@ -220,10 +238,24 @@ class ActivationDialog(QDialog):
     # ---------------- view model ----------------
 
     def _on_state_changed(self, state: LicenseState) -> None:
+        """Keep the heading true, and nothing more.
+
+        This also fires for the clock — the licence can expire, or its
+        grace period end, while this dialog is open — so it must not read
+        as an answer to anything the user did here. Closing on it shut the
+        dialog in the face of anyone renewing before the licence had
+        actually stopped working.
+        """
         self._pill.setText(status_label(state))
         self._pill.setProperty("tone", status_tone(state))
         repolish(self._pill)
 
+        self._reason.setText(state.message or "")
+        self._reason.setVisible(bool(state.message))
+
+    def _on_activated(self, state: LicenseState) -> None:
+        """The key entered here was accepted. This is the dialog's own
+        answer, so it is the only thing that closes it."""
         if state.is_usable:
             self.accept()
             return

@@ -97,21 +97,23 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 5. Configure environment
-Create a `.env` file. The application and initial-admin values are
-required; the login-throttle, licensing and `SMTP_*` blocks fall back to
-the defaults shown:
+### 5. Configure environment (optional)
+
+**Nothing needs configuring to run this.** Every setting has an answer
+without a file: application name, version, developer details, product
+code and the login-throttle limits all live in `app/config/constants.py`,
+which is what this build *is* rather than something a customer sets up.
+
+A `.env` in the checkout can override any of them while developing. It is
+loaded **only when running from source** — a packaged build reads no
+`.env`, and one must never be bundled into a build (see
+[Configuration](#configuration)):
 
 ```env
 APP_NAME=Printing Press ERP
 COMPANY_NAME=Chand Graphics
-APP_VERSION=1.0.0
-DEVELOPED_BY=Alvi-Devs
-
-INITIAL_ADMIN_EMAIL=admin@localhost
-INITIAL_ADMIN_PASSWORD=change-me
-INITIAL_ADMIN_FULL_NAME=Administrator
-INITIAL_ADMIN_ROLE=admin
+APP_VERSION=1.0.2
+DEVELOPED_BY=Alvi-Systems
 
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=15
@@ -122,31 +124,43 @@ LICENSE_EXPIRY_WARNING_DAYS=14
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USERNAME=
-SMTP_PASSWORD=
 SMTP_FROM=
 SMTP_USE_TLS=true
 ```
 
-`APP_VERSION` and `DEVELOPED_BY` are shown in the application's footer.
+There is no `SMTP_PASSWORD`, and no initial-admin block: the mail
+password lives in the OS credential vault, and the first administrator is
+created on any empty database — both are covered under
+[Configuration](#configuration).
 
-`PRODUCT_CODE` is which product a licence must name to be accepted here,
-and `LICENSE_EXPIRY_WARNING_DAYS` how early the app starts saying a
-licence is running out. Both are optional — an installation upgrading
-keeps the `.env` it was shipped with — and both are covered in
-[Licensing](#licensing).
-
-The `SMTP_*` block is optional and powers "Forgot password" on the sign-in
-screen, which emails a temporary password. Leave `SMTP_HOST` blank and the
-button explains what to fill in rather than failing. `SMTP_FROM` defaults
-to `SMTP_USERNAME`.
+The `SMTP_*` block powers "Forgot password" on the sign-in screen, which
+emails a temporary password. Leave `SMTP_HOST` blank and the button
+explains what is missing rather than failing. `SMTP_FROM` defaults to
+`SMTP_USERNAME`.
 
 ### 6. Where the data lives
 
-Run from source, the database is `data/erp.db` in this checkout.
+Run from source, everything is in this checkout: `data/erp.db`,
+`config/`, `logs/`.
 
-Installed, it is `%LOCALAPPDATA%\ChandGraphicsERP\erp.db` — deliberately
-not beside the executable, because replacing the application folder is
-exactly what an upgrade does. Set `ERP_DATA_DIR` to override either.
+Installed, it is all under `%LOCALAPPDATA%\ChandGraphicsERP\`:
+
+```
+data\    erp.db, session.json, sign_in.json, license.json, installation.json
+config\  settings.json
+logs\    erp.log (rotating, three kept)
+```
+
+Deliberately not beside the executable: replacing the application folder
+is exactly what an upgrade does, and `C:\Program Files` needs
+administrator rights to write to at all. `ERP_DATA_DIR` overrides the
+`data` folder alone — the testing and seeding escape hatch. It is read
+from the real environment, not from `.env`.
+
+An installation from an earlier build, which kept its database at the top
+of that folder rather than in `data\`, is carried across on first start:
+the database, the licence, the installation identity and the saved
+session move down together, and the originals are left where they were.
 
 Migrations run by themselves at startup; there is no separate command.
 The database records how far it has come in SQLite's `user_version`, and
@@ -157,6 +171,73 @@ the first launch of a build with pending changes copies the file to
 ```bash
 python -m app.main
 ```
+
+## Configuration
+
+Three sources, in order of precedence, and a packaged build uses only the
+last two:
+
+| Source | Holds | Present in production |
+|---|---|---|
+| Environment / `.env` | Anything, while developing | **No** |
+| `config/settings.json` | What varies per installation | Yes, if written |
+| `app/config/constants.py` | What this build is | Always |
+
+**`.env` is a development file.** It is loaded only when running from
+source, and a frozen build ignores one even if a copy is sitting beside
+the executable. It must not be added to a PyInstaller spec: bundling it
+would ship the mail password inside the installer, readable by anyone who
+unpacks it, and a file beside the executable is a file the next upgrade
+replaces.
+
+**`config/settings.json`** is written by whoever sets a machine up — not
+shipped, not required. Everything in it is optional:
+
+```json
+{
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "username": "shop@example.com",
+    "from": "shop@example.com",
+    "use_tls": true
+  }
+}
+```
+
+Nothing in that file is a secret. A value of the wrong type is ignored
+rather than obeyed, and a file that has been edited into invalid JSON
+leaves the application running on its defaults — a bad afternoon for
+whoever edited it, not a reason a shop cannot invoice.
+
+**Secrets go to the OS credential vault**, never to a file this
+application writes. The mail password is saved per machine, by the user
+who runs the app:
+
+```bash
+python -m scripts.set_smtp_password           # prompts, stores
+python -m scripts.set_smtp_password --show    # is one saved?
+python -m scripts.set_smtp_password --forget
+```
+
+The remembered sign-in password goes to the same vault, under the email
+address it belongs to.
+
+**The first administrator.** A database with no users in it gets one:
+
+```
+admin@example.com / change-me
+```
+
+Change that password immediately on any machine this is installed on. It
+is the same in every build — the licence gate stands in front of sign-in,
+so the exposure is to someone already at the keyboard, but a shared
+default is a shared default. Once any user exists, nothing recreates or
+resets it.
+
+**Logs** go to `logs/erp.log`, rotating at about 1 MB with three kept.
+That is the first place to look when a customer says the application
+closed on them.
 
 ## Development workflow
 
@@ -209,8 +290,9 @@ Nothing else should need to know how many kinds exist.
 ## Licensing
 
 An installation runs on a signed entitlement — one licence key, verified
-on this machine with no Internet, checked once at startup and nowhere
-else. Sales, purchases, inventory and accounts know nothing about it.
+on this machine with no Internet. Sales, purchases, inventory and
+accounts know nothing about it: the check happens at startup and in the
+shell around them, never inside a use case.
 
 **The shape of it.** `LicenseManager` (application) reads a
 `LicenseProvider` (domain port). The only implementation today is
@@ -224,9 +306,9 @@ none of that, only the signed summary it needs to open offline.
 
 **What is enforced here**: the signature, the product, the expiry and its
 grace window, suspension, revocation, and the binding to this
-installation. What is not: a device count above one, which needs a view
-of every installation and waits for the server. `max_devices` is carried
-and reported so that arrives without the licence format changing.
+installation. Every installation has its own id and is issued its own key
+against it, so one key is one machine and there is no separate device
+count to keep.
 
 **Issuing a licence** (vendor side, dev-only — never shipped):
 
@@ -240,9 +322,27 @@ python -m scripts.licensing.issue_license \
     --private-key C:\keys\chand-licensing.pem \
     --customer "Some Print Shop" \
     --installation-id <their installation id> \
-    --expires 2027-08-13 \
+    --expires "13-08-2027 17:30:00" \
     --out shop.lic
 ```
+
+**`--expires` is an instant, not a day**, because that is what the app
+enforces — it compares the clock against `expires_at` to the second, and
+grace runs from that same instant. Everything is Pakistan Standard Time
+(UTC+5), the clock the application itself reads:
+
+| Written | Signed as |
+| --- | --- |
+| *omitted* | perpetual |
+| `2027-08-13` or `13-08-2027` | `2027-08-13 23:59:59` — the whole of that day |
+| `13-08-2027 17:30:45` | exactly that |
+| `13-08-2027 17:30` | exactly that, `:00` seconds |
+| `2027-08-13T17:30:45` | exactly that (ISO, offset converted to PKT) |
+
+A date on its own means the **end** of that day: "expires 13 August" is
+sold and understood as covering 13 August. The tool prints the expiry and
+the moment access actually ends, so what was signed is never left to be
+worked out from the payload.
 
 Anyone holding the private key can license every installation in the
 field, for free, forever. It lives on the vendor's machine, is backed up
@@ -260,6 +360,41 @@ through its `grace_days`, with a warning. After that the ERP does not
 open — but the activation dialog still offers both the renewal key and a
 backup of the shop's own data, which remains theirs whatever the state of
 the account.
+
+**While the app is open.** None of that waits for a restart. When the
+licence is read, `next_transition_at` says exactly when the verdict
+changes next — the warning window opening, the expiry, the end of grace —
+and `LicenseWatcher` arms one single-shot timer for that instant. Nothing
+polls. What fires is a re-evaluation against the clock, never the state
+that was expected, so a machine that slept through a transition reaches
+the right answer anyway; the same re-check runs when the app or the shell
+window is activated, and after any activation or renewal.
+
+Each of the three situations is announced once per run — a warning while
+the licence still works, and the activation dialog itself once it does
+not — with a chip in the status bar carrying the current one for as long
+as it lasts. Once the licence stops opening the app, the shell locks: the
+two record-something buttons go dark, every destination but Licence and
+My profile is refused, and the Licence page is what is left on screen.
+Nothing closes and nothing is lost.
+
+**Testing expiry by hand.** Issue a licence a couple of minutes out and
+watch a running app deal with it:
+
+```bash
+# Locks the app at the printed instant — grace of 0 means expiry is the end.
+python -m scripts.licensing.issue_license --private-key C:\keys\chand-licensing.pem \
+    --customer "Test" --installation-id <your installation id> \
+    --expires "14-08-2026 15:42:00" --grace-days 0 --out test.lic
+
+# Or with grace, to see the amber chip and the "access continues" warning.
+#   --expires "14-08-2026 15:42:00" --grace-days 1
+```
+
+Paste it into **Settings → Licence → Enter licence key** and leave the app
+running. The automated equivalents, which need no waiting at all, are in
+`tests/licensing/test_expiry_schedule.py` — they move an injected clock
+rather than the system one.
 
 ## Testing
 

@@ -42,6 +42,14 @@ def no_backup(monkeypatch):
     monkeypatch.setattr(upgrade, "_backup", lambda version: None)
 
 
+@pytest.fixture()
+def recorded_backups(monkeypatch) -> list[int]:
+    """Which versions `migrate` decided were worth copying the file for."""
+    taken: list[int] = []
+    monkeypatch.setattr(upgrade, "_backup", taken.append)
+    return taken
+
+
 def _costs_by_invoice(engine) -> dict[str, list]:
     with engine.connect() as connection:
         rows = connection.execute(
@@ -110,6 +118,39 @@ def _forget_the_costs(engine) -> None:
     with engine.begin() as connection:
         connection.execute(text("UPDATE sale_items SET unit_cost = NULL"))
         connection.exec_driver_sql(f"PRAGMA user_version = {_VERSION_BEFORE}")
+
+
+def test_a_brand_new_database_is_not_backed_up_before_it_holds_anything(
+    db_engine, recorded_backups
+):
+    """`db_engine` is a database `create_all` has just built, which is
+    what a first run on a customer's machine has. Every step is already
+    satisfied, so copying the file would leave a fresh installation with
+    a duplicate of an empty database beside it."""
+    upgrade.stamp_current_version(db_engine)
+
+    upgrade.migrate(db_engine)
+
+    assert recorded_backups == []
+
+
+def test_a_brand_new_database_is_recorded_as_up_to_date(db_engine):
+    upgrade.stamp_current_version(db_engine)
+
+    with db_engine.connect() as connection:
+        version = connection.exec_driver_sql("PRAGMA user_version").scalar_one()
+    assert version == len(upgrade._STEPS)
+
+
+def test_a_database_with_history_is_still_backed_up(uow, admin_session, db_engine, recorded_backups):
+    """The other half of the same rule: a file that has something to lose
+    is copied before it is altered."""
+    _trading(uow, admin_session)
+    _forget_the_costs(db_engine)
+
+    upgrade.migrate(db_engine)
+
+    assert recorded_backups == [_VERSION_BEFORE]
 
 
 def test_the_backfill_reproduces_what_a_live_sale_records(

@@ -17,14 +17,16 @@ import logging
 
 from app.container import AppContainer
 from app.presentation.dialogs.activation_dialog import ActivationDialog
+from app.presentation.license_watch import LicenseWatcher
 from app.presentation.viewmodels.license_viewmodel import LicenseViewModel
 
 logger = logging.getLogger(__name__)
 
 
 class LicenseGate:
-    def __init__(self, container: AppContainer) -> None:
+    def __init__(self, container: AppContainer, watcher: LicenseWatcher) -> None:
         self._container = container
+        self._watcher = watcher
 
     def ensure_licensed(self) -> bool:
         """True when the app may go on to sign-in.
@@ -32,8 +34,7 @@ class LicenseGate:
         Read synchronously: a file and one signature check, and there is
         no window yet to keep responsive.
         """
-        manager = self._container.license_manager()
-        state = manager.state()
+        state = self._watcher.state()
 
         if state.is_usable:
             if state.message:
@@ -46,13 +47,17 @@ class LicenseGate:
         logger.warning("Licence check failed: %s", state.message)
 
         dialog = ActivationDialog(
-            LicenseViewModel(manager, self._container.installation_identity()),
+            LicenseViewModel(
+                self._watcher,
+                self._container.installation_identity(),
+                self._container.settings,
+            ),
             state=state,
             blocked=True,
         )
         dialog.exec()
 
-        # Asked of the manager rather than taken from the dialog's exit
-        # code: the manager is what the rest of the app will read, and a
+        # Asked of the watcher rather than taken from the dialog's exit
+        # code: the watcher is what the rest of the app will read, and a
         # dialog closed by the window's X button has no result to give.
-        return manager.state().is_usable
+        return self._watcher.state().is_usable

@@ -2,26 +2,40 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 
-from app.application.licensing.manager import LicenseManager
+from app.config.settings import AppSettings
 from app.domain.licensing.ports import InstallationIdentity
+from app.presentation.license_watch import LicenseWatcher
 from app.presentation.viewmodels.base import BaseViewModel
 
 
 class LicenseViewModel(BaseViewModel):
     """Backs the activation dialog and the licence screen.
 
-    Takes the manager rather than the container: licensing is the one
+    Takes the watcher rather than the container: licensing is the one
     thing that has to work before the container's other half — a
     database, a signed-in user — means anything, and the startup gate
     builds this view model when neither exists yet.
+
+    The watcher, rather than the manager, because it holds the one verdict
+    the whole app is running on. Every screen built on this therefore
+    shows the same answer at the same moment, including when the licence
+    changes underneath it, and no screen works expiry out for itself.
     """
 
-    stateChanged = Signal(object)  # LicenseState
+    stateChanged = Signal(object)  # LicenseState, whenever the verdict is re-read
+    activated = Signal(object)  # LicenseState, only after a key entered here was taken
 
-    def __init__(self, manager: LicenseManager, identity: InstallationIdentity) -> None:
+    def __init__(
+        self,
+        watcher: LicenseWatcher,
+        identity: InstallationIdentity,
+        settings: AppSettings,
+    ) -> None:
         super().__init__()
-        self._manager = manager
+        self._watcher = watcher
         self._identity = identity
+        self._settings = settings
+        self._watcher.stateChanged.connect(self.stateChanged.emit)
 
     @property
     def installation_id(self) -> str:
@@ -29,23 +43,51 @@ class LicenseViewModel(BaseViewModel):
         and it is a single small file read."""
         return self._identity.installation_id()
 
-    def load(self) -> None:
-        self.run_async(self._manager.state, on_success=self.stateChanged.emit)
+    @property
+    def support_details(self) -> list[tuple[str, str]]:
+        """Who to call for a key, a fault or a change to the app.
 
-    def refresh(self) -> None:
-        self.run_async(self._manager.refresh, on_success=self.stateChanged.emit)
+        Assembled here rather than in each screen so the licence page and
+        the activation dialog cannot end up quoting different numbers.
+        Rows nobody filled in are left out entirely — a support card
+        offering a dash to ring is worse than one that is shorter.
+
+        Contact only. The build version is on the status bar of every
+        screen already, and the one identifier support actually asks for
+        — the installation ID — is on both screens that show this.
+        """
+        rows = (
+            ("Developed by", self._settings.developed_by),
+            ("Email", self._settings.developer_email),
+            ("Phone", self._settings.developer_contact),
+        )
+        return [(label, value) for label, value in rows if value]
+
+    def load(self) -> None:
+        """The verdict already in hand. Synchronous — it has been read."""
+        self.stateChanged.emit(self._watcher.state())
 
     def activate(self, license_key: str) -> None:
         """A rejected key arrives back through `errorOccurred`, carrying
-        the reason it was refused."""
+        the reason it was refused.
+
+        An accepted one is announced on `activated` as well as on
+        `stateChanged`, and the difference is the point: `stateChanged`
+        also fires for the clock, so it says what the licence is now, not
+        that anybody did anything. Only a screen that asked for this can
+        close itself on the answer.
+        """
         self.run_async(
-            lambda: self._manager.activate(license_key),
-            on_success=self.stateChanged.emit,
+            lambda: self._watcher.manager.activate(license_key),
+            # `check()` arms a timer, so it must run on the UI thread —
+            # which is where `on_success` is delivered. It re-reads what
+            # was just written, so what is scheduled is what is on disk,
+            # and its verdict is the one reported back.
+            on_success=lambda _state: self.activated.emit(self._watcher.check()),
         )
 
     def deactivate(self) -> None:
-        def _deactivate():
-            self._manager.deactivate()
-            return self._manager.state()
-
-        self.run_async(_deactivate, on_success=self.stateChanged.emit)
+        self.run_async(
+            self._watcher.manager.deactivate,
+            on_success=lambda _result: self._watcher.check(),
+        )

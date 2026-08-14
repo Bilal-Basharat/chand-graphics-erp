@@ -10,3 +10,4 @@ class LoginEventType(StrEnum):
     SESSION_RESTORED = "session_restored"
     EMAIL_CHANGED = "email_changed"
     PASSWORD_RESET = "password_reset"
+    PASSWORD_CHANGED = "password_changed"

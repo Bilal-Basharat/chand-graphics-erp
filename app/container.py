@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Callable
 
 from app.application.auth.session import CurrentUserSession
 from app.domain.notifications.email_sender import EmailSender
 from app.domain.security.password_hasher import PasswordHasher
 from app.infrastructure.notifications.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.security.bcrypt_password_hasher import BcryptPasswordHasher
+from app.infrastructure.security.secret_vault import SecretVault
 from app.infrastructure.uow import SqlAlchemyUnitOfWork
 from app.application.auth.initial_admin import EnsureInitialAdminUserUseCase
 from app.config.settings import AppSettings
@@ -18,19 +21,26 @@ from app.application.auth.login_audit_use_cases import RecordLoginAuditUseCase, 
 from app.application.auth.session_store import SessionStore
 from app.domain.enums.login_event_type import LoginEventType
 from app.infrastructure.auth import FileSessionStore
-from app.config.settings import INSTALLATION_FILE_PATH, LICENSE_FILE_PATH, SESSION_FILE_PATH
+from app.config.paths import INSTALLATION_FILE_PATH, LICENSE_FILE_PATH, SESSION_FILE_PATH
 from app.application.auth.throttling import LoginThrottleService
 from app.application.licensing.manager import LicenseManager
 from app.domain.licensing.ports import InstallationIdentity, LicenseProvider
 from app.infrastructure.licensing.file_installation_identity import FileInstallationIdentity
 from app.infrastructure.licensing.file_license_store import FileLicenseStore
+from app.shared.datetimes import now_pkt
 
 @dataclass(slots=True)
 class AppContainer:
     """
     Simple composition root for the application.
     """
-    settings: AppSettings = field(default_factory=AppSettings.from_env)
+    settings: AppSettings = field(default_factory=AppSettings.load)
+    # One clock for the whole application. Injected rather than read
+    # wherever it is needed, so that expiry and grace are a rule a test
+    # can move past in microseconds rather than a wait — and so the licence
+    # evaluation and the timer scheduled off it can never disagree about
+    # what time it is.
+    clock: Callable[[], datetime] = now_pkt
     current_user_session: CurrentUserSession = field(default_factory=CurrentUserSession)
     password_hasher: PasswordHasher = field(default_factory=BcryptPasswordHasher)
     session_store: SessionStore = field(default_factory=lambda: FileSessionStore(SESSION_FILE_PATH))
@@ -65,7 +75,7 @@ class AppContainer:
 
     def change_password_use_case(self):
         from app.application.auth.use_cases import ChangePasswordUseCase
-        return ChangePasswordUseCase(self.create_uow(), self.password_hasher, self.current_user_session)
+        return ChangePasswordUseCase(self.create_uow(), self.password_hasher, self.current_user_session, self.record_login_audit_use_case())
 
     def change_email_use_case(self):
         from app.application.auth.use_cases import ChangeEmailUseCase
@@ -77,7 +87,10 @@ class AppContainer:
         )
 
     def email_sender(self) -> EmailSender:
-        return SmtpEmailSender(self.settings.smtp)
+        # The server's details come from configuration; its password comes
+        # from the OS credential vault, which the sender reads at the
+        # moment it authenticates.
+        return SmtpEmailSender(self.settings.smtp, SecretVault())
 
     def request_password_reset_use_case(self):
         from app.application.auth.password_reset import RequestPasswordResetUseCase
@@ -97,7 +110,6 @@ class AppContainer:
         return ApplicationInitializer(
         ensure_initial_admin_use_case=self.ensure_initial_admin_use_case(),
         restore_session_use_case=self.restore_session_use_case(),
-        settings=self.settings,
         )
 
     def record_login_audit_use_case(self) -> RecordLoginAuditUseCase:
@@ -137,6 +149,7 @@ class AppContainer:
             verifier=Ed25519SignatureVerifier(LICENSE_PUBLIC_KEYS),
             product_code=self.settings.product_code,
             expiring_soon_days=self.settings.license_expiry_warning_days,
+            clock=self.clock,
         )
 
     def installation_identity(self) -> InstallationIdentity:

@@ -18,7 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
-from app.config.settings import DATA_DIR
+from app.config.paths import DATA_DIR
 from app.presentation.theme import tokens as t
 
 logger = logging.getLogger(__name__)

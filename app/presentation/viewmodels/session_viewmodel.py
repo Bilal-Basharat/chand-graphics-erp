@@ -19,7 +19,7 @@ from app.application.auth.commands import (
 )
 from app.application.auth.permissions import ROLE_PERMISSIONS, Permission
 from app.application.auth.session import CurrentUser
-from app.config.settings import SIGN_IN_PREFERENCES_PATH
+from app.config.paths import SIGN_IN_PREFERENCES_PATH
 from app.container import AppContainer
 from app.presentation.services.credential_store import CredentialStore, RememberedCredentials
 from app.presentation.viewmodels.base import BaseViewModel

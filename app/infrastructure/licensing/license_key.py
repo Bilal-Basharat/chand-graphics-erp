@@ -87,6 +87,11 @@ def entitlement_from_payload(payload: dict[str, Any]) -> LicenseEntitlement:
 
     Call this only after the signature has been checked — the fields are
     trusted to be well-formed here, not to be true.
+
+    Only the fields named below are read. A payload carrying more than
+    that is not an error: keys already issued in the field keep verifying,
+    because the signature covers the bytes as they travel and nothing here
+    re-serialises them.
     """
     try:
         return LicenseEntitlement(
@@ -96,10 +101,6 @@ def entitlement_from_payload(payload: dict[str, Any]) -> LicenseEntitlement:
             plan_code=_optional_text(payload, "plan_code"),
             issued_status=_status(payload),
             installation_id=_optional_text(payload, "installation_id") or None,
-            # Required, never defaulted: the device limit is the vendor's
-            # to set per licence, and a client-side fallback would be a
-            # limit this code invented.
-            max_devices=_integer(payload, "max_devices"),
             features=frozenset(_features(payload)),
             issued_at=_datetime(payload, "issued_at"),
             expires_at=_optional_datetime(payload, "expires_at"),
@@ -108,7 +109,7 @@ def entitlement_from_payload(payload: dict[str, Any]) -> LicenseEntitlement:
             grace_days=_integer(payload, "grace_days", default=0),
         )
     except ValueError as exc:
-        # Domain invariants (empty id, max_devices < 1, expiry before
+        # Domain invariants (empty id, negative grace, expiry before
         # issue) reach the shop as a refusal, not a crash.
         raise InvalidLicenseError(f"This licence key is not valid: {exc}") from exc
 
@@ -145,7 +146,7 @@ def _integer(payload: dict[str, Any], field: str, *, default: int | None = None)
     value = payload.get(field)
     if value is None and default is not None:
         return default
-    # bool is an int in Python; `"max_devices": true` is not a device limit.
+    # bool is an int in Python; `"grace_days": true` is not a number of days.
     if not isinstance(value, int) or isinstance(value, bool):
         raise InvalidLicenseError(f"This licence key has an unreadable {field.replace('_', ' ')}.")
     return value

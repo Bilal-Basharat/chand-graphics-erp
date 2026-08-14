@@ -3,12 +3,13 @@ import sys
 from PySide6.QtCore import QLocale
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
-from dotenv import load_dotenv
 
-from app.config.settings import ENV_FILE
+from app.config.logging_setup import configure_logging
+from app.config.settings import load_development_env
 from app.container import AppContainer
 from app.infrastructure.db import init_db
 from app.presentation.license_gate import LicenseGate
+from app.presentation.license_watch import LicenseWatcher
 from app.presentation.session_controller import SessionController
 from app.presentation.theme import tokens as t
 from app.presentation.theme.stylesheet import build_stylesheet
@@ -55,11 +56,16 @@ def configure_application(app: QApplication) -> None:
 
 def bootstrap():
 
+    # First, so that everything below has somewhere to report to. Until
+    # this ran, a windowed build discarded every log record it produced.
+    configure_logging()
+
     configure_locale()
 
-    # Loaded from a path this app resolves, not from the working
-    # directory — see settings._resolve_env_file.
-    load_dotenv(ENV_FILE)
+    # Development only. A packaged build reads no .env — its settings come
+    # from application constants, config/settings.json and the OS
+    # credential vault.
+    load_development_env()
 
     init_db()
 
@@ -70,17 +76,29 @@ def bootstrap():
     app = QApplication(sys.argv)
     configure_application(app)
 
+    # The one live licence verdict, held for the app's lifetime. Built
+    # after Qt is configured, because it arms a timer.
+    watcher = LicenseWatcher(
+        container.license_manager(),
+        expiring_soon_days=container.settings.license_expiry_warning_days,
+        clock=container.clock,
+    )
+
     # Before the sign-in window, and after Qt is configured so the
     # activation dialog is themed like the rest of the app. An
     # installation with no usable licence never reaches the shell — and
     # the check is made here, once, rather than inside business code that
     # has no opinion about licensing.
-    if not LicenseGate(container).ensure_licensed():
+    if not LicenseGate(container, watcher).ensure_licensed():
         sys.exit(0)
+
+    # Schedule from whatever the gate settled on, so a licence that
+    # expires later today moves the running app on by itself.
+    watcher.check()
 
     # Held for the app's lifetime — it owns the only references to the
     # sign-in window and the shell.
-    controller = SessionController(container)
+    controller = SessionController(container, watcher)
     controller.start()
 
     sys.exit(app.exec())

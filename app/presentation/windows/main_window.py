@@ -6,12 +6,22 @@ the matching View — Views never see the container directly.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QGridLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QMainWindow,
+    QMessageBox,
+    QStackedWidget,
+    QWidget,
+)
 
 from app.container import AppContainer
+from app.domain.licensing.state import LicenseState
+from app.presentation.dialogs.activation_dialog import ActivationDialog
 from app.presentation.dialogs.change_password_dialog import ChangePasswordDialog
+from app.presentation.license_display import status_notice, status_tone
+from app.presentation.license_watch import LicenseWatcher
 from app.presentation.navigation.routes import Route
 from app.presentation.records import paper
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
@@ -77,7 +87,7 @@ from app.presentation.views.profit_and_loss_view import (
 )
 from app.presentation.views.sales_view import SalesView
 from app.presentation.widgets.period_selector import PeriodSelection
-from app.presentation.widgets.sidebar import Sidebar
+from app.presentation.widgets.sidebar import UNLOCKED_ROUTES, Sidebar
 from app.presentation.widgets.status_bar import AppStatusBar
 from app.presentation.widgets.topbar import TopBar
 
@@ -92,14 +102,17 @@ class MainWindow(QMainWindow):
         self,
         container: AppContainer,
         session_view_model: SessionViewModel,
+        watcher: LicenseWatcher,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._container = container
         self._session_view_model = session_view_model
+        self._watcher = watcher
         self._pages: dict[Route, QWidget] = {}
         self._page_titles: dict[Route, str] = {}
         self._current_route = Route.DASHBOARD
+        self._locked = False
 
         self.setWindowTitle("Chand Graphics — Printing Press ERP")
         self.resize(1400, 900)
@@ -140,11 +153,18 @@ class MainWindow(QMainWindow):
         # The status bar advertised this shortcut but nothing implemented it.
         QShortcut(QKeySequence.StandardKey.Find, self, activated=self._focus_search)
 
+        self._status_bar.licenseClicked.connect(lambda: self.navigate(Route.LICENSE))
+        self._watcher.stateChanged.connect(self._on_license_state)
+
         current_user = self._session_view_model.current_user()
         if current_user is not None:
             self._topbar.set_user(current_user.full_name, current_user.role)
 
         self.navigate(Route.DASHBOARD)
+
+        # Last, so the shell is fully built before a licence that has run
+        # out can lock it or put a dialog in front of it.
+        self._watcher.check()
 
     def _register_views(self) -> None:
         dashboard_period = PeriodSelection()
@@ -166,7 +186,8 @@ class MainWindow(QMainWindow):
         settings_vm.load()
 
         # The developer info sits in the footer of every printed record.
-        # Taken once at startup from the .env settings.
+        # Taken once at startup from the application settings, which for
+        # these fields means the build's own constants.
         paper.set_app_settings(self._container.settings)
 
         self._add_page(Route.COMPANY_SETTINGS, CompanySettingsView(settings_vm), "Company settings")
@@ -285,16 +306,14 @@ class MainWindow(QMainWindow):
             "Payables ageing",
         )
 
-        self._add_page(
-            Route.LICENSE,
-            LicenseView(
-                LicenseViewModel(
-                    self._container.license_manager(),
-                    self._container.installation_identity(),
-                )
-            ),
-            "Licence",
+        # Built on the watcher, so this page and the shell's own chip are
+        # two views of one verdict rather than two readings of a file.
+        self._license_view_model = LicenseViewModel(
+            self._watcher,
+            self._container.installation_identity(),
+            self._container.settings,
         )
+        self._add_page(Route.LICENSE, LicenseView(self._license_view_model), "Licence")
 
         self._add_page(
             Route.PROFILE,
@@ -369,6 +388,11 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(widget)
 
     def navigate(self, route: Route) -> None:
+        # The one gate every route passes through. Greying the rail says
+        # what has happened; this is what makes it so, for the header
+        # search and the dashboard's shortcuts as well as for the rail.
+        if self._locked and route not in UNLOCKED_ROUTES:
+            return
         widget = self._pages.get(route)
         if widget is None:
             return
@@ -393,6 +417,56 @@ class MainWindow(QMainWindow):
 
     def _on_sidebar_collapsed(self, _collapsed: bool) -> None:
         self._topbar.set_brand_width(self._sidebar.width())
+
+    # ---------------- licensing ----------------
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 (Qt override)
+        """Look again whenever the shell is come back to.
+
+        The timer is the primary mechanism, and this is the answer to the
+        machine that was asleep when it should have fired: a laptop closed
+        on Friday and opened on Monday has passed its expiry without ever
+        running the code that was scheduled for it.
+        """
+        super().changeEvent(event)
+        if event.type() is QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._watcher.check()
+
+    def _on_license_state(self, state: LicenseState) -> None:
+        """Everything the shell does about a licence, in one place."""
+        self._status_bar.set_license_notice(status_notice(state), status_tone(state))
+        self._set_locked(not state.is_usable)
+
+        notice = self._watcher.take_notice()
+        if notice is not None:
+            self._announce(notice)
+
+    def _set_locked(self, locked: bool) -> None:
+        if locked == self._locked:
+            return
+        self._locked = locked
+        self._sidebar.set_locked(locked)
+        self._topbar.set_actions_enabled(not locked)
+        if locked:
+            # Off whatever screen the user was on and onto the only one
+            # that can fix this. Nothing is closed and nothing is lost —
+            # an unlicensed shop still owns its data and its window.
+            self.navigate(Route.LICENSE)
+
+    def _announce(self, state: LicenseState) -> None:
+        """Say it once, in proportion to what has happened.
+
+        A warning while the licence still works is a message to read and
+        dismiss. A licence that has stopped working is the activation
+        dialog itself, which is the only thing that can undo it — and
+        which also offers the shop a backup of its own data.
+        """
+        if state.is_usable:
+            QMessageBox.warning(self, "Licence", state.message or "")
+            return
+        ActivationDialog(
+            self._license_view_model, state=state, blocked=True, parent=self
+        ).exec()
 
     def _searchable_page(self) -> CollectionView | None:
         """The current screen, if it has a search box of its own."""

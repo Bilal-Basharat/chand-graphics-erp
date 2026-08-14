@@ -1,10 +1,11 @@
-"""The licensing rules themselves: entitlement plus clock -> verdict.
+"""The licensing rules themselves: entitlement plus clock -> verdict, and
+the instant that verdict next changes.
 
-Kept as one pure function, deliberately. Everything around it — reading a
-file, checking a signature, talking to a server one day — is replaceable
-infrastructure, and none of it should be able to change what "expired"
-means. This is also the whole of what a test needs to exercise the rules:
-no files, no keys, no Qt.
+Kept as pure functions, deliberately. Everything around them — reading a
+file, checking a signature, arming a timer, talking to a server one day —
+is replaceable infrastructure, and none of it should be able to change
+what "expired" means. This is also the whole of what a test needs to
+exercise the rules: no files, no keys, no Qt.
 """
 from __future__ import annotations
 
@@ -69,6 +70,41 @@ def evaluate_entitlement(
     if now < expires_at:
         return _live(entitlement, now, expires_at, expiring_soon_days)
     return _expired(entitlement, now, expires_at)
+
+
+def next_transition_at(
+    state: LicenseState,
+    *,
+    now: datetime,
+    expiring_soon_days: int,
+) -> datetime | None:
+    """The exact instant this verdict changes on its own, or `None`.
+
+    The other half of `evaluate_entitlement`, kept beside it so that "what
+    is it now" and "when does that stop being true" are read from the same
+    three numbers and cannot drift apart. A caller schedules one wake-up
+    at the returned instant rather than asking again on a loop.
+
+    Nothing is scheduled for a verdict that already refuses the app: past
+    grace, suspended, revoked, invalid, never activated — none of those
+    become usable through the passage of time. That is the whole terminal
+    test, rather than a list of statuses somebody must remember to extend.
+    """
+    entitlement = state.entitlement
+    if not state.is_usable or entitlement is None or entitlement.expires_at is None:
+        return None
+
+    expires_at = entitlement.expires_at
+    for at in (
+        # `days_remaining` floors, so the warning begins when the distance
+        # to expiry drops *below* `expiring_soon_days + 1` days.
+        expires_at - timedelta(days=expiring_soon_days + 1),
+        expires_at,
+        expires_at + timedelta(days=entitlement.grace_days),
+    ):
+        if at > now:
+            return at
+    return None
 
 
 def _live(

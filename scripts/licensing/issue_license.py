@@ -5,13 +5,21 @@
         --key-id cg-2026-01 \\
         --customer "Chand Graphics" \\
         --installation-id 6f1c... \\
-        --expires 2027-08-13 \\
+        --expires "13-08-2027 17:30:00" \\
         --plan STANDARD
 
 Vendor-side only, and dev-only: this never ships in a build, exactly as
 `scripts/seed` does not. The private key is read from the path given on
 the command line — it is never stored in this repository, and no default
 path is offered that might tempt one into it.
+
+**When a licence ends.** `--expires` is an instant, not a day, because
+that is what the app enforces: it compares the current time against
+`expires_at` to the second, and grace runs from that same instant. Times
+are Pakistan Standard Time (UTC+5), which is the clock the application
+reads. A date on its own means the end of that day, so a licence sold
+"to 13 August" covers the whole of 13 August — see `parse_expiry` for
+every accepted form.
 
 The installation id comes from the customer: it is on the activation
 dialog they are looking at, and on their licence screen afterwards. Bind
@@ -27,17 +35,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from app.config.settings import DEFAULT_PRODUCT_CODE
+from app.config.constants import DEFAULT_PRODUCT_CODE
 from app.domain.licensing.status import LicenseStatus
 from app.infrastructure.licensing.license_key import encode_license_key
 from app.infrastructure.licensing.public_keys import DEFAULT_KEY_ID
-from app.shared.datetimes import now_pkt
+from app.shared.datetimes import PKT, now_pkt
 
 _ISSUABLE = ("ACTIVE", "SUSPENDED", "REVOKED")
 
@@ -62,9 +70,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--expires",
         default="",
-        help="YYYY-MM-DD, or omit for a perpetual licence.",
+        help=(
+            "When the licence ends, in PKT: 'YYYY-MM-DD' or 'DD-MM-YYYY' for the "
+            "end of that day, or either with a time — '13-08-2027 17:30:00' — for "
+            "an exact instant. Omit for a perpetual licence."
+        ),
     )
-    parser.add_argument("--max-devices", type=int, default=1, help="Devices this licence covers.")
     parser.add_argument(
         "--grace-days",
         type=int,
@@ -85,14 +96,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         private_key = _load_private_key(args.private_key)
-        expires_at = _parse_expiry(args.expires)
+        expires_at = parse_expiry(args.expires)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    if args.max_devices < 1:
-        print("--max-devices must be at least 1.", file=sys.stderr)
-        return 1
     if args.grace_days < 0:
         print("--grace-days cannot be negative.", file=sys.stderr)
         return 1
@@ -106,7 +114,6 @@ def main(argv: list[str] | None = None) -> int:
         "plan_code": args.plan,
         "status": LicenseStatus(args.status).value,
         "installation_id": args.installation_id or None,
-        "max_devices": args.max_devices,
         "features": [item.strip() for item in args.features.split(",") if item.strip()],
         "issued_at": issued_at.isoformat(),
         "expires_at": expires_at.isoformat() if expires_at else None,
@@ -124,14 +131,34 @@ def main(argv: list[str] | None = None) -> int:
 
     print(json.dumps(payload, indent=2))
     print()
+    _print_term(expires_at, args.grace_days)
+    print()
     print(license_key)
     if not args.installation_id:
         print(
             "\nWarning: not bound to an installation. This key will work on any machine "
-            "it is pasted into until the licensing server can enforce the device count.",
+            "it is pasted into. Quote the customer's installation ID unless you mean that.",
             file=sys.stderr,
         )
     return 0
+
+
+def _print_term(expires_at: datetime | None, grace_days: int) -> None:
+    """The two instants that matter, spelled out.
+
+    `--expires` accepts several forms and a bare date means the end of
+    that day, so what was actually signed is stated rather than left to be
+    worked out from the payload — and the second line is the one to check
+    when issuing a short-lived licence to test expiry against.
+    """
+    if expires_at is None:
+        print("Perpetual: this licence never expires.")
+        return
+    print(f"Expires:       {expires_at:%d-%m-%Y %H:%M:%S} PKT")
+    print(
+        f"Access ends:   {expires_at + timedelta(days=grace_days):%d-%m-%Y %H:%M:%S} PKT"
+        f"  ({grace_days} grace day{'' if grace_days == 1 else 's'})"
+    )
 
 
 def _load_private_key(path: Path) -> Ed25519PrivateKey:
@@ -147,13 +174,62 @@ def _load_private_key(path: Path) -> Ed25519PrivateKey:
     return loaded
 
 
-def _parse_expiry(value: str) -> datetime | None:
-    if not value.strip():
+def parse_expiry(value: str) -> datetime | None:
+    """Read `--expires` into the exact instant the licence ends.
+
+    Accepted, all in PKT and all stored naive, as `now_pkt()` is:
+
+        (omitted)               perpetual
+        2027-08-13              2027-08-13 23:59:59
+        13-08-2027              2027-08-13 23:59:59
+        2027-08-13T17:30:00     as given          (ISO, with or without T)
+        13-08-2027 17:30        as given          (seconds optional)
+        2027-08-13T17:30+01:00  converted to PKT
+
+    A bare date is the *end* of that day. "Expires 13 August" is sold and
+    understood as covering 13 August, and midnight would quietly take a
+    day off every licence issued that way. Keys already in the field are
+    unaffected: each carries its own absolute timestamp in its signed
+    payload, and nothing re-reads this.
+    """
+    text = value.strip()
+    if not text:
         return None
+
+    parsed = _from_iso(text) or _from_day_first(text)
+    if parsed is None:
+        raise ValueError(
+            f"--expires must be a date (YYYY-MM-DD or DD-MM-YYYY), optionally "
+            f"with a time — not '{value}'."
+        )
+
+    when, has_time = parsed
+    if when.tzinfo is not None:
+        when = when.astimezone(PKT).replace(tzinfo=None)
+    # A day with no time named is that day, all of it.
+    return when if has_time else when.replace(hour=23, minute=59, second=59)
+
+
+def _from_iso(text: str) -> tuple[datetime, bool] | None:
     try:
-        return datetime.fromisoformat(value.strip())
-    except ValueError as exc:
-        raise ValueError(f"--expires must be YYYY-MM-DD, not '{value}'.") from exc
+        return datetime.fromisoformat(text), len(text) > 10
+    except ValueError:
+        return None
+
+
+def _from_day_first(text: str) -> tuple[datetime, bool] | None:
+    """DD-MM-YYYY, which is how a date is written here and unreadable as
+    ISO — so it can never be mistaken for one."""
+    for pattern, has_time in (
+        ("%d-%m-%Y %H:%M:%S", True),
+        ("%d-%m-%Y %H:%M", True),
+        ("%d-%m-%Y", False),
+    ):
+        try:
+            return datetime.strptime(text, pattern), has_time
+        except ValueError:
+            continue
+    return None
 
 
 if __name__ == "__main__":

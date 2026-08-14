@@ -34,6 +34,7 @@ from app.application.dto.commands import (
     SaleItemCommand,
     SalePaymentCommand,
 )
+from app.config import constants
 from app.container import AppContainer
 from app.domain.entities.user import User
 from app.domain.enums.item_type import ItemType
@@ -68,27 +69,29 @@ class SeedReport:
 
 
 def sign_in_admin(container: AppContainer) -> User:
-    """Make sure the admin from `.env` exists, and seed as them.
+    """Make sure the default admin exists, and seed as them.
+
+    The same account a first run creates, from the same constants —
+    seeding must not invent a user the application would not.
 
     Deliberately not `ApplicationInitializer`: that also restores the
     saved session and writes a sign-in audit row, which would leave a
     seeding run showing up in the login history as a person.
     """
-    settings = container.settings
     container.ensure_initial_admin_use_case().execute(
         EnsureInitialAdminUserCommand(
-            email=settings.initial_admin_email,
-            password=settings.initial_admin_password,
-            full_name=settings.initial_admin_full_name,
-            role=settings.initial_admin_role,
+            email=constants.DEFAULT_ADMIN_EMAIL,
+            password=constants.DEFAULT_ADMIN_PASSWORD,
+            full_name=constants.DEFAULT_ADMIN_FULL_NAME,
+            role=constants.DEFAULT_ADMIN_ROLE,
         )
     )
 
     with container.create_uow() as uow:
-        admin = uow.users.get_by_email(settings.initial_admin_email)
+        admin = uow.users.get_by_email(constants.DEFAULT_ADMIN_EMAIL)
 
     if admin is None:
-        raise RuntimeError(f"No user '{settings.initial_admin_email}' to seed as.")
+        raise RuntimeError(f"No user '{constants.DEFAULT_ADMIN_EMAIL}' to seed as.")
 
     container.current_user_session.set_user(admin)
     return admin

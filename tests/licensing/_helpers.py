@@ -17,16 +17,44 @@ from typing import Any, Callable
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from app.application.licensing.manager import LicenseManager
+from app.config.settings import AppSettings, SmtpSettings
 from app.infrastructure.licensing.ed25519_verifier import Ed25519SignatureVerifier
 from app.infrastructure.licensing.file_installation_identity import FileInstallationIdentity
 from app.infrastructure.licensing.file_license_store import FileLicenseStore
 from app.infrastructure.licensing.license_key import encode_license_key
 from app.infrastructure.licensing.manual_provider import ManualLicenseProvider
+from app.presentation.license_watch import LicenseWatcher
 
 PRODUCT = "TEST_PRODUCT"
 KEY_ID = "test-key-01"
 NOW = datetime(2026, 8, 13, 9, 0, 0)
 EXPIRING_SOON_DAYS = 14
+
+
+@dataclass(slots=True)
+class FakeClock:
+    """The app's clock, under the test's control.
+
+    One instance is shared by the provider and the watcher, exactly as the
+    container shares one callable between them — so a test moving the
+    clock past an expiry moves what the licence says *and* what the
+    schedule thinks the time is, which is the only way the two can be
+    checked against each other.
+    """
+
+    now: datetime = NOW
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, **delta: float) -> datetime:
+        self.now += timedelta(**delta)
+        return self.now
+
+    def move_to(self, when: datetime) -> datetime:
+        self.now = when
+        return self.now
 
 
 def public_key_base64(private_key: Ed25519PrivateKey) -> str:
@@ -60,7 +88,6 @@ class Issuer:
             "plan_code": "STANDARD",
             "status": "ACTIVE",
             "installation_id": None,
-            "max_devices": 1,
             "features": ["reports"],
             "issued_at": NOW.isoformat(),
             "expires_at": (NOW + timedelta(days=365)).isoformat(),
@@ -112,6 +139,49 @@ def build_provider(
             issuer.public_keys() if public_keys is None else public_keys
         ),
         product_code=product_code,
+        expiring_soon_days=expiring_soon_days,
+        clock=clock,
+    )
+
+
+def build_settings(**overrides: Any) -> AppSettings:
+    """The build's own identity, as the licence screens are handed it."""
+    values: dict[str, Any] = {
+        "app_name": "Test App",
+        "company_name": "Test Company",
+        "app_version": "9.9.9",
+        "developed_by": "Test Devs",
+        "developer_email": "dev@example.com",
+        "developer_contact": "0300 0000000",
+        "max_login_attempts": 5,
+        "login_lockout_minutes": 15,
+        "product_code": PRODUCT,
+        "license_expiry_warning_days": EXPIRING_SOON_DAYS,
+        "smtp": SmtpSettings(host="", port=587, username="", sender="", use_tls=True),
+    }
+    values.update(overrides)
+    return AppSettings(**values)
+
+
+def build_watcher(
+    tmp_path: Path,
+    issuer: Issuer,
+    clock: FakeClock,
+    *,
+    expiring_soon_days: int = EXPIRING_SOON_DAYS,
+) -> LicenseWatcher:
+    """A watcher over a real provider, on the same clock.
+
+    No QApplication and no event loop: the timer this arms simply never
+    fires, and `check()` — which is all its `timeout` is connected to — is
+    called by the test instead. What the timer would have waited for is
+    asserted through `next_transition_at()`.
+    """
+    provider = build_provider(
+        tmp_path, issuer, now=clock, expiring_soon_days=expiring_soon_days
+    )
+    return LicenseWatcher(
+        LicenseManager(provider),
         expiring_soon_days=expiring_soon_days,
         clock=clock,
     )

@@ -63,11 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.data_dir is not None:
         os.environ["ERP_DATA_DIR"] = str(arguments.data_dir.expanduser().resolve())
 
-    from dotenv import load_dotenv
+    from app.config.paths import DATABASE_PATH
+    from app.config.settings import load_development_env
 
-    from app.config.settings import DATABASE_PATH, ENV_FILE
-
-    load_dotenv(ENV_FILE)
+    load_development_env()
     print(f"Database: {DATABASE_PATH}")
 
     if arguments.reset and not _delete_database(DATABASE_PATH, confirmed=arguments.yes):

@@ -145,6 +145,7 @@ class TopBar(QWidget):
         # The three things the shop records all day, in the same order the
         # rail lists them. Only the first is primary: three buttons of
         # equal weight is three, and none of them reads as the usual one.
+        self._actions: list[QPushButton] = []
         for label, variant, signal in (
             ("New Sale", "primary", self.newSaleRequested),
             ("New Purchase", "outline", self.newPurchaseRequested),
@@ -154,6 +155,7 @@ class TopBar(QWidget):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(signal.emit)
             layout.addWidget(button)
+            self._actions.append(button)
 
         layout.addLayout(self._build_user_chip())
         return layout
@@ -205,6 +207,13 @@ class TopBar(QWidget):
         menu.addSeparator()
         menu.addAction("Sign out", self.signOutRequested.emit)
         return menu
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """The two record-something buttons, off while nothing may be
+        recorded. The account menu and the search stay live: signing out
+        and looking things up are not what a licence pays for."""
+        for button in self._actions:
+            button.setEnabled(enabled)
 
     def set_user(self, full_name: str, role: str) -> None:
         self._avatar.setText(_initials(full_name))

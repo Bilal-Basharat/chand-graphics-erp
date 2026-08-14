@@ -7,7 +7,7 @@ from app.application.auth.exceptions import LoginThrottledError
 from app.application.auth.session import CurrentUserSession
 from app.application.auth.throttling import LoginThrottleService
 from app.application.auth.use_cases import SignInUseCase
-from app.config.settings import AppSettings
+from app.config.settings import AppSettings, SmtpSettings
 from app.infrastructure.security.bcrypt_password_hasher import BcryptPasswordHasher
 
 from ._helpers import build_auth_bundle, seed_user
@@ -24,14 +24,11 @@ def test_sign_in_gets_throttled_after_too_many_recent_failures(uow, session_fact
         developed_by="Test Devs",
         developer_email="dev@localhost",
         developer_contact="0000",
-        initial_admin_email="admin@localhost",
-        initial_admin_password="admin123",
-        initial_admin_full_name="Administrator",
-        initial_admin_role="admin",
         max_login_attempts=1,
         login_lockout_minutes=15,
         product_code="TEST_PRODUCT",
         license_expiry_warning_days=14,
+        smtp=SmtpSettings(host="", port=587, username="", sender="", use_tls=True),
     )
 
     throttle_service = LoginThrottleService(uow, settings)

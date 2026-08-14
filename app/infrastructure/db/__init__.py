@@ -1,34 +1,8 @@
-# from pathlib import Path
-
-# from app.config.settings import DATA_DIR
-# from app.infrastructure.db.base import Base
-# from app.infrastructure.db.database import engine
-# from app.infrastructure.db.session import SessionLocal
-# from app.infrastructure.db.models import (  # noqa: F401
-#     CabinetModel,
-#     CustomerModel,
-#     ExpenseModel,
-#     InventoryItemModel,
-#     PaymentMethodModel,
-#     PurchaseModel,
-#     PurchaseItemModel,
-#     PurchasePaymentModel,
-#     SaleModel,
-#     SaleItemModel,
-#     SalePaymentModel,
-#     SupplierModel,
-#     UserModel,
-# )
-
-# def init_db() -> None:
-#     DATA_DIR.mkdir(parents=True, exist_ok=True)
-#     Base.metadata.create_all(bind=engine)
-
 import logging
 
 from sqlalchemy import inspect
 
-from app.config.settings import DATA_DIR
+from app.config.paths import DATA_DIR
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.database import engine
 
@@ -52,7 +26,11 @@ from app.infrastructure.db.models.sale_payment_model import SalePaymentModel  # 
 from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
 from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
 from app.infrastructure.db.models.login_audit_model import LoginAuditModel  # noqa: F401
-from app.infrastructure.db.upgrade import adopt_previous_installation, migrate
+from app.infrastructure.db.upgrade import (
+    adopt_previous_installation,
+    migrate,
+    stamp_current_version,
+)
 
 def init_db() -> None:
     """Make the database on disk match what this build expects.
@@ -63,10 +41,21 @@ def init_db() -> None:
     introduced — the only thing it can do to an existing database — and
     `migrate` changes the ones already there, which `create_all` never
     touches.
+
+    Whether this is a first run is settled before any of that, by asking
+    the file itself rather than trusting its absence: a run that died
+    half-way can leave an empty database behind, and that is still a
+    first run. A database created here is stamped at the current version,
+    because `create_all` has just built every table in its present shape.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     adopt_previous_installation()
+
+    is_new = not inspect(engine).get_table_names()
+
     Base.metadata.create_all(bind=engine)
+    if is_new:
+        stamp_current_version(engine)
     migrate(engine)
     _report_schema_drift()
 

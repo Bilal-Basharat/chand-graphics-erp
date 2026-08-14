@@ -99,6 +99,10 @@ _NAV_GROUPS: list[tuple[str, tuple[NavItem, ...]]] = [
     )),
 ]
 
+# What stays reachable when the licence no longer opens the app: the
+# screen a new key is entered on, and the user's own account.
+UNLOCKED_ROUTES = frozenset({Route.LICENSE, Route.PROFILE})
+
 COLLAPSED_WIDTH = 64
 SIDEBAR_WIDTH = t.SIDEBAR_WIDTH
 """Re-exported so callers can talk about the rail's two widths together."""
@@ -418,6 +422,22 @@ class Sidebar(QWidget):
         self._toggle.setToolTip("Expand menu" if expand else "")
         self._toggle.setProperty("collapsed", self._collapsed)
         _repolish(self._toggle)
+
+    # ---------------- locking ----------------
+
+    def set_locked(self, locked: bool) -> None:
+        """Grey every destination a licence is required for.
+
+        The rail is where navigation is offered, so this is where it stops
+        being offered. It is not the enforcement — a screen can also be
+        reached from the header search — but a row that still looked live
+        and did nothing would read as a broken app rather than a licence
+        that has run out.
+        """
+        for route, button in self._buttons.items():
+            button.setEnabled(not locked or route in UNLOCKED_ROUTES)
+        for folder in self._folders:
+            folder.button.setEnabled(not locked)
 
     # ---------------- selection ----------------
 

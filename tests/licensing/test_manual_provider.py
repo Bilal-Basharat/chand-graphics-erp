@@ -232,11 +232,10 @@ def test_activating_stores_the_licence_for_the_next_start(
 
 
 def test_entering_the_same_key_twice_is_harmless(tmp_path: Path, issuer: Issuer) -> None:
-    """Re-activating an installation it is already on consumes nothing —
-    a shop that pastes the key again after a support call is not out a
-    device."""
+    """Activation overwrites its own record, so a shop that pastes the key
+    again after a support call is no worse off for it."""
     provider = build_provider(tmp_path, issuer)
-    license_key = issuer.issue(installation_id=None, max_devices=1)
+    license_key = issuer.issue(installation_id=None)
 
     provider.activate(license_key)
     provider.activate(license_key)
@@ -277,9 +276,8 @@ def test_deactivating_an_installation_that_has_no_licence_is_not_an_error(
 def test_a_licence_activated_against_a_lost_identity_asks_to_be_activated_again(
     tmp_path: Path, issuer: Issuer
 ) -> None:
-    """One activation record per installation is the only device count
-    this side can keep honestly, so a record naming another installation
-    is not trusted."""
+    """A key is issued against one installation id, so a record naming
+    another installation is not trusted."""
     provider = build_provider(tmp_path, issuer)
     provider.activate(issuer.issue(installation_id=None))
     (tmp_path / "installation.json").unlink()
@@ -288,25 +286,6 @@ def test_a_licence_activated_against_a_lost_identity_asks_to_be_activated_again(
 
     assert state.status is LicenseStatus.INVALID
     assert "activate it again" in (state.message or "")
-
-
-# -------------------------------------------------------- device limit
-
-
-@pytest.mark.parametrize("max_devices", [1, 3, 25])
-def test_the_device_limit_is_whatever_the_licence_says(
-    tmp_path: Path, issuer: Issuer, max_devices: int
-) -> None:
-    """Read from the licence and reported, never decided here. Enforcing
-    a count above one needs a view of every installation, which is the
-    licensing server's job — this side must not invent a limit of its
-    own in the meantime."""
-    provider = build_provider(tmp_path, issuer)
-
-    state = provider.activate(issuer.issue(max_devices=max_devices))
-
-    assert state.entitlement is not None
-    assert state.entitlement.max_devices == max_devices
 
 
 # ---------------------------------------------------------- entitlements

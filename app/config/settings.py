@@ -1,129 +1,56 @@
+"""
+The values this installation runs on, and where each of them comes from.
+
+Three sources, in order of precedence:
+
+1. **Environment variables** — a development convenience. `.env` in the
+   checkout is loaded into the environment by `load_development_env()`
+   and can override anything here. A packaged build reads no `.env`.
+2. **`config/settings.json`** — the customer's own runtime configuration,
+   for what genuinely varies per installation (the mail server).
+3. **`app.config.constants`** — what this build is. Always present, so
+   every setting has an answer and nothing is required of a customer.
+
+Secrets appear in none of the three. The mail password is read from the
+OS credential vault at the point it is used — see
+`infrastructure/security/secret_vault.py`.
+"""
 from __future__ import annotations
 
 import os
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+from app.config import constants
+from app.config.paths import BASE_DIR, IS_FROZEN
+from app.config.runtime_config import load_runtime_config, section
 
-APP_FOLDER_NAME = "ChandGraphicsERP"
-
-# Which product this build is, as licences name it. One value, in one
-# place, so the licence a shop is issued and the licence this build
-# accepts cannot drift apart.
-DEFAULT_PRODUCT_CODE = "CHAND_GRAPHICS_ERP"
+ENV_FILE = BASE_DIR / ".env"
+"""The development `.env`, if the developer keeps one. Never shipped."""
 
 
-def _resolve_env_file() -> Path:
-    """The .env this installation reads its configuration from.
+def load_development_env() -> None:
+    """Load `<project>/.env` when running from source.
 
-    Named explicitly rather than left to python-dotenv's own search, which
-    falls back to the *working directory* as soon as the app is frozen.
-    That is fine when it is started from its own folder and wrong the
-    moment a shortcut sets the working directory elsewhere — the app then
-    starts with no configuration at all and dies on the first required
-    setting.
+    A development convenience and nothing more. A packaged build must not
+    depend on a `.env`: bundling one puts the mail password inside the
+    installer for anyone who unpacks it, and a copy beside the executable
+    is a file the next upgrade replaces. Production reads
+    `config/settings.json` and the credential vault instead.
 
-    A packaged build reads the copy bundled inside it, so there is nothing
-    to lose or mis-place. A file placed beside the executable still wins,
-    which is what lets one build be pointed at a different mail server or
-    version without rebuilding it.
+    Frozen builds skip this outright, so a stray file left in the install
+    folder cannot change how a customer's copy behaves.
     """
-    if not getattr(sys, "frozen", False):
-        return BASE_DIR / ".env"
+    if IS_FROZEN or not ENV_FILE.exists():
+        return
 
-    beside_executable = Path(sys.executable).resolve().parent / ".env"
-    if beside_executable.exists():
-        return beside_executable
+    from dotenv import load_dotenv
 
-    # PyInstaller unpacks bundled data here — the _internal folder for a
-    # onedir build, a temporary directory for onefile.
-    return Path(getattr(sys, "_MEIPASS", BASE_DIR)) / ".env"
+    load_dotenv(ENV_FILE)
 
 
-ENV_FILE = _resolve_env_file()
-
-
-def _resolve_data_dir() -> Path:
-    """Where this installation keeps the customer's database.
-
-    Running from source it is the repository's own `data/`, so a checkout
-    stays self-contained.
-
-    Installed, it is the per-user application data folder — never beside
-    the executable. Data written next to the program is data an installer
-    deletes: replacing the application folder is exactly what an upgrade
-    does, and a shop that has been trading for a fortnight would lose all
-    of it. The folder here outlives uninstalls, and needs no
-    administrator rights to write to, which `C:\\Program Files` does.
-    """
-    override = os.getenv("ERP_DATA_DIR")
-    if override and override.strip():
-        return Path(override.strip()).expanduser()
-
-    if getattr(sys, "frozen", False):
-        local_app_data = os.getenv("LOCALAPPDATA")
-        root = Path(local_app_data) if local_app_data else Path.home() / ".local" / "share"
-        return root / APP_FOLDER_NAME
-
-    return BASE_DIR / "data"
-
-
-def legacy_data_dirs() -> tuple[Path, ...]:
-    """Where earlier builds put the database, newest guess first.
-
-    Those builds derived the folder from the module path, which inside a
-    bundle lands beside the packaged code — or beside the executable,
-    depending on how it was packaged. Both are checked so an existing
-    installation is found and carried over rather than silently starting
-    empty.
-    """
-    if not getattr(sys, "frozen", False):
-        return ()
-    return (BASE_DIR / "data", Path(sys.executable).resolve().parent / "data")
-
-
-DATA_DIR = _resolve_data_dir()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DATABASE_PATH = DATA_DIR / "erp.db"
-
-DATABASE_URL = f"sqlite:///{DATABASE_PATH.as_posix()}"
-
-SESSION_FILE_PATH = DATA_DIR / "session.json"
-
-# Non-secret sign-in preferences (the remembered email address). The
-# password that pairs with it lives in the OS credential vault, never
-# here — see presentation/services/credential_store.py.
-SIGN_IN_PREFERENCES_PATH = DATA_DIR / "sign_in.json"
-
-# The licence this installation was activated with, and the identifier it
-# was issued against. Kept beside the database rather than inside it: a
-# licence must survive a schema migration and must not travel through a
-# database restore. Neither file holds a secret — the signature over the
-# licence is what makes it un-editable, not where it sits.
-LICENSE_FILE_PATH = DATA_DIR / "license.json"
-
-INSTALLATION_FILE_PATH = DATA_DIR / "installation.json"
-
-
-def _required(name: str) -> str:
-    """
-    Read a required environment variable.
-
-    Raises:
-        RuntimeError:
-            If the environment variable does not exist.
-    """
-    value = os.getenv(name)
-
-    if value is None or value.strip() == "":
-        raise RuntimeError(
-            f"Missing required environment variable '{name}'."
-        )
-
-    return value.strip()
+# ------------------------------------------------------------- readers
 
 
 def _optional(name: str, default: str = "") -> str:
@@ -151,6 +78,24 @@ def _optional_int(name: str, default: int) -> int:
     return parsed
 
 
+def _configured(config: Mapping[str, Any], key: str, default: Any) -> Any:
+    """A value from the customer's configuration file, or the default.
+
+    Typed against the default, so a `port` someone typed as a string, or
+    a `use_tls` written as `"yes"`, is ignored rather than carried into
+    the application as the wrong kind of thing.
+    """
+    value = config.get(key, default)
+    if isinstance(default, bool):
+        return value if isinstance(value, bool) else default
+    if isinstance(default, int):
+        return value if isinstance(value, int) and not isinstance(value, bool) else default
+    return value if isinstance(value, str) else default
+
+
+# ------------------------------------------------------------ settings
+
+
 @dataclass(slots=True, frozen=True)
 class SmtpSettings:
     """
@@ -159,12 +104,15 @@ class SmtpSettings:
     Optional as a whole: a shop that never configures it simply has no
     password-reset button that works, and is told so plainly rather than
     meeting a crash. `is_configured` is what callers check.
+
+    Carries no password. That is a secret, so it is read from the OS
+    credential vault by whoever is about to authenticate with it, rather
+    than sitting in a configuration object for the life of the process.
     """
 
     host: str
     port: int
     username: str
-    password: str
     sender: str
     use_tls: bool
 
@@ -173,16 +121,24 @@ class SmtpSettings:
         return bool(self.host and self.sender)
 
     @classmethod
-    def from_env(cls) -> "SmtpSettings":
+    def load(cls, config: Mapping[str, Any] | None = None) -> "SmtpSettings":
+        mail = section(config or {}, "smtp")
+
+        host = _optional("SMTP_HOST") or _configured(mail, "host", "")
+        username = _optional("SMTP_USERNAME") or _configured(mail, "username", "")
+
+        port = _configured(mail, "port", constants.DEFAULT_SMTP_PORT)
+        if port <= 0:
+            port = constants.DEFAULT_SMTP_PORT
+
         return cls(
-            host=_optional("SMTP_HOST"),
-            port=_optional_int("SMTP_PORT", 587),
-            username=_optional("SMTP_USERNAME"),
-            password=_optional("SMTP_PASSWORD"),
+            host=host,
+            port=_optional_int("SMTP_PORT", port),
+            username=username,
             # Falls back to the account being authenticated with, which is
             # what it is for most providers.
-            sender=_optional("SMTP_FROM") or _optional("SMTP_USERNAME"),
-            use_tls=_optional_flag("SMTP_USE_TLS", True),
+            sender=_optional("SMTP_FROM") or _configured(mail, "from", "") or username,
+            use_tls=_optional_flag("SMTP_USE_TLS", _configured(mail, "use_tls", True)),
         )
 
 
@@ -191,8 +147,11 @@ class AppSettings:
     """
     Immutable application configuration.
 
-    Values are loaded once during startup.
+    Loaded once during startup. Every field has an answer without any
+    configuration at all — a fresh installation with no `.env` and no
+    `config/settings.json` starts and runs.
     """
+
     app_name: str
     company_name: str
     app_version: str
@@ -200,49 +159,43 @@ class AppSettings:
     developer_email: str
     developer_contact: str
 
-    initial_admin_email: str
-    initial_admin_password: str
-    initial_admin_full_name: str
-    initial_admin_role: str
-
     max_login_attempts: int
     login_lockout_minutes: int
 
     product_code: str
     license_expiry_warning_days: int
 
-    smtp: SmtpSettings = field(default_factory=SmtpSettings.from_env)
+    smtp: SmtpSettings
 
     @classmethod
-    def from_env(cls) -> "AppSettings":
+    def load(cls) -> "AppSettings":
+        config = load_runtime_config()
+
         return cls(
-            app_name=_required("APP_NAME"),
-            company_name=_required("COMPANY_NAME"),
-            app_version=_required("APP_VERSION"),
-            # Optional, unlike the values around it: a customer upgrading
-            # keeps the .env file they were shipped, and making this
-            # required would stop the new build starting at all on every
-            # installation that predates it.
-            developed_by=_optional("DEVELOPED_BY", "Alvi-Systems"),
-            developer_email=_optional("DEVELOPER_EMAIL"),
-            developer_contact=_optional("DEVELOPER_CONTACT"),
+            # Identity and version belong to the build, not to the
+            # machine it lands on. A development checkout can still say
+            # otherwise through .env.
+            app_name=_optional("APP_NAME", constants.APP_NAME),
+            company_name=_optional("COMPANY_NAME", constants.COMPANY_NAME),
+            app_version=_optional("APP_VERSION", constants.APP_VERSION),
+            developed_by=_optional("DEVELOPED_BY", constants.DEVELOPED_BY),
+            developer_email=_optional("DEVELOPER_EMAIL", constants.DEVELOPER_EMAIL),
+            developer_contact=_optional("DEVELOPER_CONTACT", constants.DEVELOPER_CONTACT),
 
-            initial_admin_email=_required("INITIAL_ADMIN_EMAIL"),
-            initial_admin_password=_required("INITIAL_ADMIN_PASSWORD"),
-            initial_admin_full_name=_required("INITIAL_ADMIN_FULL_NAME"),
-            initial_admin_role=_required("INITIAL_ADMIN_ROLE"),
-
-            max_login_attempts=_optional_int("MAX_LOGIN_ATTEMPTS", 5),
-            login_lockout_minutes=_optional_int("LOGIN_LOCKOUT_MINUTES", 15),
+            max_login_attempts=_optional_int(
+                "MAX_LOGIN_ATTEMPTS", constants.DEFAULT_MAX_LOGIN_ATTEMPTS
+            ),
+            login_lockout_minutes=_optional_int(
+                "LOGIN_LOCKOUT_MINUTES", constants.DEFAULT_LOGIN_LOCKOUT_MINUTES
+            ),
 
             # Which product a licence must name to be accepted here. The
             # same key format will serve other products later, and this
             # is what stops one product's licence unlocking another.
-            # Optional, like the developer fields above: an installation
-            # upgrading keeps the .env it was shipped with, and requiring
-            # a key that predates the build would stop it starting.
-            product_code=_optional("PRODUCT_CODE", DEFAULT_PRODUCT_CODE),
-            license_expiry_warning_days=_optional_int("LICENSE_EXPIRY_WARNING_DAYS", 14),
+            product_code=_optional("PRODUCT_CODE", constants.DEFAULT_PRODUCT_CODE),
+            license_expiry_warning_days=_optional_int(
+                "LICENSE_EXPIRY_WARNING_DAYS", constants.DEFAULT_LICENSE_EXPIRY_WARNING_DAYS
+            ),
 
-            smtp=SmtpSettings.from_env(),
+            smtp=SmtpSettings.load(config),
         )

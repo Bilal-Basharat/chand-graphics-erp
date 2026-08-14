@@ -31,6 +31,7 @@ from PySide6.QtCore import QObject, QThreadPool
 
 from app.container import AppContainer
 from app.presentation.dialogs.confirm import confirm_destructive
+from app.presentation.license_watch import LicenseWatcher
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.views.login_view import LoginView
 from app.presentation.windows.main_window import MainWindow
@@ -43,9 +44,17 @@ _DRAIN_TIMEOUT_MS = 3000
 
 
 class SessionController(QObject):
-    def __init__(self, container: AppContainer, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        container: AppContainer,
+        watcher: LicenseWatcher,
+        parent: QObject | None = None,
+    ) -> None:
         super().__init__(parent)
         self._container = container
+        # Passed through rather than built here: it outlives every shell,
+        # so a warning already given is not repeated after a sign-out.
+        self._watcher = watcher
         self._session_view_model = SessionViewModel(container)
         self._login: LoginView | None = None
         self._shell: MainWindow | None = None
@@ -77,7 +86,7 @@ class SessionController(QObject):
         login.activateWindow()
 
     def _show_shell(self) -> None:
-        shell = MainWindow(self._container, self._session_view_model)
+        shell = MainWindow(self._container, self._session_view_model, self._watcher)
         shell.signOutRequested.connect(self.sign_out)
         self._shell = shell
         shell.show()

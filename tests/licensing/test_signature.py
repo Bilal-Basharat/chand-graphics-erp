@@ -35,12 +35,18 @@ def test_a_licence_signed_by_the_trusted_key_is_accepted(tmp_path: Path, issuer:
     "changes",
     [
         {"expires_at": (NOW + timedelta(days=3650)).isoformat()},
-        {"max_devices": 50},
+        {"installation_id": "somebody-elses-installation"},
         {"features": ["reports", "everything"]},
         {"customer_name": "Somebody Else"},
         {"status": "ACTIVE", "plan_code": "ENTERPRISE"},
     ],
-    ids=["extended expiry", "more devices", "extra features", "new customer", "better plan"],
+    ids=[
+        "extended expiry",
+        "rebound installation",
+        "extra features",
+        "new customer",
+        "better plan",
+    ],
 )
 def test_editing_a_signed_payload_breaks_the_licence(
     tmp_path: Path, issuer: Issuer, changes: dict
@@ -107,7 +113,8 @@ def test_a_licence_edited_on_disk_after_activation_stops_working(
 
     stored = provider.store.load()
     assert stored is not None
-    provider.store.save(replace(stored, license_key=tamper(license_key, max_devices=99)))
+    extended = (NOW + timedelta(days=3650)).isoformat()
+    provider.store.save(replace(stored, license_key=tamper(license_key, expires_at=extended)))
 
     state = provider.current_state()
 

@@ -19,10 +19,7 @@ from app.application.auth.commands import RecordLoginAuditCommand
 from app.application.auth.login_audit_use_cases import RecordLoginAuditUseCase
 from app.domain.enums.login_event_type import LoginEventType
 
-
-
 from app.application.auth.throttling import LoginThrottleService
-from app.domain.enums.login_event_type import LoginEventType
 
 logger = logging.getLogger(__name__)
 
@@ -224,10 +221,12 @@ class ChangePasswordUseCase(UseCase[ChangePasswordCommand, None]):
         uow: UnitOfWork,
         password_hasher: PasswordHasher,
         current_user_session: CurrentUserSession,
+        record_login_audit_use_case: RecordLoginAuditUseCase,
     ) -> None:
         self.uow = uow
         self.password_hasher = password_hasher
         self.current_user_session = current_user_session
+        self.record_login_audit_use_case = record_login_audit_use_case
 
     def execute(self, request: ChangePasswordCommand) -> None:
         current_user = self.current_user_session.require_user()
@@ -252,6 +251,22 @@ class ChangePasswordUseCase(UseCase[ChangePasswordCommand, None]):
 
             user.password_hash = self.password_hasher.hash(request.new_password)
             users.update(user)
+
+        # After the transaction, not inside it: the audit use case opens a
+        # second connection, and SQLite refuses it while this one still
+        # holds the write lock taken by the update above.
+        _safe_record_audit(
+            self.record_login_audit_use_case,
+            RecordLoginAuditCommand(
+                email=user.email,
+                user_id=user.id,
+                event_type=LoginEventType.PASSWORD_CHANGED,
+                success=True,
+                message=f"Password changed for {user.full_name}",
+            ),
+        )
+
+        return None
 
 
 class ChangeEmailUseCase(UseCase[ChangeEmailCommand, str]):

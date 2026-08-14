@@ -5,16 +5,11 @@ vendor signs an entitlement for one installation, the shop pastes it in
 once, and every start after that is a file read and a signature check —
 which is why it keeps working on a day the Internet does not.
 
-What this can and cannot enforce, stated plainly:
-
-* Signature, product, expiry, grace, suspension, revocation and the
-  binding to this installation are all enforced here, offline, and none
-  of them can be edited on the customer's machine without the key
-  ceasing to verify.
-* `max_devices` above one cannot be. This installation can count its own
-  activation and no one else's. The field is carried and reported so the
-  licensing server — which sees every activation — can enforce it later
-  without the licence format changing.
+What this enforces, stated plainly: signature, product, expiry, grace,
+suspension, revocation, and the binding to this installation — all of it
+offline, and none of it editable on the customer's machine without the
+key ceasing to verify. One installation, one id, one key issued against
+it, so there is nothing further for this side to count.
 """
 from __future__ import annotations
 
@@ -64,10 +59,10 @@ class ManualLicenseProvider(LicenseProvider):
         if activation is None:
             return LicenseState.not_activated()
 
-        # One activation record per installation is the only device count
-        # this side can keep honestly. A record naming another
-        # installation means the identity file was lost or the folder was
-        # moved, and the shop should activate rather than be trusted.
+        # A key is issued against one installation id, so a record naming
+        # another means the identity file was lost or the folder was
+        # copied elsewhere. The shop should activate rather than be
+        # trusted.
         if activation.installation_id != self.identity.installation_id():
             return LicenseState.invalid(_REACTIVATE)
 

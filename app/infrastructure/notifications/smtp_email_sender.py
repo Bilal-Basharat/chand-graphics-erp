@@ -7,6 +7,7 @@ from email.message import EmailMessage as MimeMessage
 from app.application.exceptions import EmailDeliveryError
 from app.config.settings import SmtpSettings
 from app.domain.notifications.email_sender import EmailMessage, EmailSender
+from app.infrastructure.security.secret_vault import SMTP_PASSWORD_KEY, SecretVault
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,18 @@ provider, short enough that a black hole reports back rather than hangs."""
 
 
 class SmtpEmailSender(EmailSender):
-    """Sends mail through the server configured in the environment."""
+    """Sends mail through the server this installation is configured for.
 
-    def __init__(self, settings: SmtpSettings) -> None:
+    The server's address, port and account come from configuration; its
+    password comes from the OS credential vault, read at the moment it is
+    needed. That keeps the one secret involved out of every configuration
+    object, log line and crash dump this application produces — and out
+    of the installer, which is where a bundled `.env` would have put it.
+    """
+
+    def __init__(self, settings: SmtpSettings, vault: SecretVault | None = None) -> None:
         self._settings = settings
+        self._vault = vault or SecretVault()
 
     @property
     def is_available(self) -> bool:
@@ -39,7 +48,7 @@ class SmtpEmailSender(EmailSender):
         try:
             with self._connect() as server:
                 if self._settings.username:
-                    server.login(self._settings.username, self._settings.password)
+                    server.login(self._settings.username, self._password())
                 server.send_message(_build(message, self._settings.sender))
         except (OSError, smtplib.SMTPException) as exc:
             # Logged in full, reported in short: the SMTP failure text names
@@ -50,6 +59,24 @@ class SmtpEmailSender(EmailSender):
                 "The email could not be sent. Check the internet connection "
                 "and the mail server settings, then try again."
             ) from exc
+
+    def _password(self) -> str:
+        """The mail account's password, from the credential vault.
+
+        Said in full when it is missing. The alternative is authenticating
+        with an empty string and reporting the provider's refusal, which
+        sends whoever set this up looking at the mail server rather than
+        at the step they have not done yet.
+        """
+        password = self._vault.get(SMTP_PASSWORD_KEY)
+        if password:
+            return password
+
+        raise EmailDeliveryError(
+            "No password is saved for the mail account, so this app cannot "
+            "sign in to send email. Ask whoever set it up to save it with "
+            "'python -m scripts.set_smtp_password'."
+        )
 
     def _connect(self) -> smtplib.SMTP:
         """Open the connection the port calls for.

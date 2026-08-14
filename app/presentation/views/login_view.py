@@ -39,8 +39,9 @@ from app.presentation.widgets.qss import repolish
 _NO_MAIL_SERVER = (
     "Email is not set up on this computer, so a temporary password cannot "
     "be sent.\n\n"
-    "To turn this on, fill in SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD in "
-    "the .env file next to the application, then start it again.\n\n"
+    "To turn this on, whoever installed this app has to add the mail server "
+    "details to its configuration file and save the mail password on this "
+    "computer.\n\n"
     "Until then, ask an administrator to reset the password for you."
 )
 
