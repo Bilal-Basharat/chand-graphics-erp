@@ -1,19 +1,24 @@
 """
 The values this installation runs on, and where each of them comes from.
 
-Three sources, in order of precedence:
+Four sources, in order of precedence:
 
 1. **Environment variables** — a development convenience. `.env` in the
    checkout is loaded into the environment by `load_development_env()`
    and can override anything here. A packaged build reads no `.env`.
 2. **`config/settings.json`** — the customer's own runtime configuration,
-   for what genuinely varies per installation (the mail server).
-3. **`app.config.constants`** — what this build is. Always present, so
+   for a shop that has its own mail server and wants this installation
+   to use it.
+3. **`provisioning.dat`** — what the build was packaged with, so the mail
+   server works out of the box with nothing asked of the customer. See
+   `app.config.provisioning`, which also explains the one secret in it.
+4. **`app.config.constants`** — what this build is. Always present, so
    every setting has an answer and nothing is required of a customer.
 
-Secrets appear in none of the three. The mail password is read from the
-OS credential vault at the point it is used — see
-`infrastructure/security/secret_vault.py`.
+Only the third carries a secret, and even that one is not read here: the
+mail password is fetched at the point it is used, from the OS credential
+vault first and the provisioning bundle second — see
+`infrastructure/notifications/smtp_email_sender.py`.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from typing import Any
 
 from app.config import constants
 from app.config.paths import BASE_DIR, IS_FROZEN
+from app.config.provisioning import load_provisioning
 from app.config.runtime_config import load_runtime_config, section
 
 ENV_FILE = BASE_DIR / ".env"
@@ -78,19 +84,32 @@ def _optional_int(name: str, default: int) -> int:
     return parsed
 
 
-def _configured(config: Mapping[str, Any], key: str, default: Any) -> Any:
-    """A value from the customer's configuration file, or the default.
+def _layered(key: str, default: Any, *sources: Mapping[str, Any]) -> Any:
+    """The value from the first source that carries `key` usably.
 
-    Typed against the default, so a `port` someone typed as a string, or
-    a `use_tls` written as `"yes"`, is ignored rather than carried into
-    the application as the wrong kind of thing.
+    Sources are given in order of precedence — the customer's own file,
+    then whatever the build was provisioned with.
+
+    Each is typed against the default, so a `port` someone typed as a
+    string, or a `use_tls` written as `"yes"`, is passed over rather than
+    carried into the application as the wrong kind of thing. Passed
+    *over*, not fatal: the layer beneath a hand-edited mistake still gets
+    its say, which for a shop that mistyped one line in `settings.json`
+    is the mail server the build already knew about rather than none.
     """
-    value = config.get(key, default)
+    for source in sources:
+        value = source.get(key)
+        if _usable(default, value):
+            return value
+    return default
+
+
+def _usable(default: Any, value: Any) -> bool:
     if isinstance(default, bool):
-        return value if isinstance(value, bool) else default
+        return isinstance(value, bool)
     if isinstance(default, int):
-        return value if isinstance(value, int) and not isinstance(value, bool) else default
-    return value if isinstance(value, str) else default
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, str)
 
 
 # ------------------------------------------------------------ settings
@@ -101,13 +120,14 @@ class SmtpSettings:
     """
     Outgoing mail server, used to send password resets.
 
-    Optional as a whole: a shop that never configures it simply has no
-    password-reset button that works, and is told so plainly rather than
-    meeting a crash. `is_configured` is what callers check.
+    Ordinarily provisioned by the build, so a customer has nothing to
+    set up. Still optional as a whole: a build packaged without it simply
+    has no password-reset button that works, and says so plainly rather
+    than meeting a crash. `is_configured` is what callers check.
 
-    Carries no password. That is a secret, so it is read from the OS
-    credential vault by whoever is about to authenticate with it, rather
-    than sitting in a configuration object for the life of the process.
+    Carries no password. That is a secret, so it is read by whoever is
+    about to authenticate with it, rather than sitting in a configuration
+    object for the life of the process.
     """
 
     host: str
@@ -121,13 +141,22 @@ class SmtpSettings:
         return bool(self.host and self.sender)
 
     @classmethod
-    def load(cls, config: Mapping[str, Any] | None = None) -> "SmtpSettings":
+    def load(
+        cls,
+        config: Mapping[str, Any] | None = None,
+        provisioning: Mapping[str, Any] | None = None,
+    ) -> "SmtpSettings":
+        """`provisioning` is a parameter so a test can supply one; left
+        out, it is whatever this build was packaged with."""
         mail = section(config or {}, "smtp")
+        provisioned = section(
+            load_provisioning() if provisioning is None else provisioning, "smtp"
+        )
 
-        host = _optional("SMTP_HOST") or _configured(mail, "host", "")
-        username = _optional("SMTP_USERNAME") or _configured(mail, "username", "")
+        host = _optional("SMTP_HOST") or _layered("host", "", mail, provisioned)
+        username = _optional("SMTP_USERNAME") or _layered("username", "", mail, provisioned)
 
-        port = _configured(mail, "port", constants.DEFAULT_SMTP_PORT)
+        port = _layered("port", constants.DEFAULT_SMTP_PORT, mail, provisioned)
         if port <= 0:
             port = constants.DEFAULT_SMTP_PORT
 
@@ -137,8 +166,8 @@ class SmtpSettings:
             username=username,
             # Falls back to the account being authenticated with, which is
             # what it is for most providers.
-            sender=_optional("SMTP_FROM") or _configured(mail, "from", "") or username,
-            use_tls=_optional_flag("SMTP_USE_TLS", _configured(mail, "use_tls", True)),
+            sender=_optional("SMTP_FROM") or _layered("from", "", mail, provisioned) or username,
+            use_tls=_optional_flag("SMTP_USE_TLS", _layered("use_tls", True, mail, provisioned)),
         )
 
 

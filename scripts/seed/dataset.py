@@ -41,6 +41,9 @@ class Profile(StrEnum):
     DEMO = "demo"
     """Fixtures plus half a year of trading."""
 
+    LOAD = "load"
+    """Fixtures plus enough volume for load/performance testing."""
+
 
 # ---------------------------------------------------------------- shapes
 
@@ -446,11 +449,29 @@ FIXTURE_MOVEMENTS = (
 
 # ---------------------------------------------------------------- filler
 
-_FILLER_MONTHS: dict[Profile, int] = {Profile.SMOKE: 0, Profile.DEMO: 6}
+_FILLER_MONTHS: dict[Profile, int] = {
+    Profile.SMOKE: 0,
+    Profile.DEMO: 6,
+    Profile.LOAD: 34,
+}
 
-_SALES_PER_MONTH = 18
-_PURCHASES_PER_MONTH = 3
-_EXPENSES_PER_MONTH = 5
+_SALES_PER_MONTH: dict[Profile, int] = {
+    Profile.SMOKE: 0,
+    Profile.DEMO: 18,
+    Profile.LOAD: 30,
+}
+
+_PURCHASES_PER_MONTH: dict[Profile, int] = {
+    Profile.SMOKE: 0,
+    Profile.DEMO: 3,
+    Profile.LOAD: 30,
+}
+
+_EXPENSES_PER_MONTH: dict[Profile, int] = {
+    Profile.SMOKE: 0,
+    Profile.DEMO: 5,
+    Profile.LOAD: 30,
+}
 
 _DAYS_PER_MONTH = 30
 
@@ -481,7 +502,11 @@ _MONTHLY_RENT = Decimal("28000.00")
 
 def build(profile: Profile, rng: Random) -> Dataset:
     """The fixtures, plus as many months of filler as the profile asks for."""
+    if profile is Profile.LOAD:
+        return _build_load(rng)
+
     months = _FILLER_MONTHS[profile]
+
     return Dataset(
         company=COMPANY,
         cabinets=CABINETS,
@@ -490,21 +515,28 @@ def build(profile: Profile, rng: Random) -> Dataset:
         customers=CUSTOMERS,
         suppliers=SUPPLIERS,
         items=ITEMS,
-        purchases=FIXTURE_PURCHASES + _filler_purchases(rng, months),
-        sales=FIXTURE_SALES + _filler_sales(rng, months),
-        expenses=FIXTURE_EXPENSES + _filler_expenses(rng, months),
+        purchases=FIXTURE_PURCHASES + _filler_purchases(profile, rng, months, ITEMS, SUPPLIERS),
+        sales=FIXTURE_SALES + _filler_sales(profile, rng, months, ITEMS, CUSTOMERS),
+        expenses=FIXTURE_EXPENSES + _filler_expenses(profile, rng, months),
         movements=FIXTURE_MOVEMENTS,
     )
 
 
-def _filler_purchases(rng: Random, months: int) -> tuple[DocumentSeed, ...]:
-    catalogue = tuple(item for item in ITEMS if item.bought)
-    parties = tuple(supplier.name for supplier in SUPPLIERS)
+def _filler_purchases(
+    profile: Profile,
+    rng: Random,
+    months: int,
+    items: tuple[ItemSeed, ...],
+    suppliers: tuple[PartySeed, ...],
+) -> tuple[DocumentSeed, ...]:
+    catalogue = tuple(item for item in items if item.bought)
+    parties = tuple(supplier.name for supplier in suppliers)
     documents: list[DocumentSeed] = []
 
-    for index, days_ago in enumerate(_days(rng, months, _PURCHASES_PER_MONTH)):
+    for index, days_ago in enumerate(_days(rng, months, _PURCHASES_PER_MONTH[profile])):
         lines = _lines(rng, catalogue, count=rng.randint(1, 2), selling=False)
         total = _total(lines)
+
         documents.append(
             DocumentSeed(
                 reference=f"PUR-{1100 + index:04d}",
@@ -514,19 +546,28 @@ def _filler_purchases(rng: Random, months: int) -> tuple[DocumentSeed, ...]:
                 payments=_settlement(rng, total, days_ago),
             )
         )
+
     return tuple(documents)
 
 
-def _filler_sales(rng: Random, months: int) -> tuple[DocumentSeed, ...]:
-    catalogue = tuple(item for item in ITEMS if item.sold)
-    parties = tuple(customer.name for customer in CUSTOMERS)
+def _filler_sales(
+    profile: Profile,
+    rng: Random,
+    months: int,
+    items: tuple[ItemSeed, ...],
+    customers: tuple[PartySeed, ...],
+) -> tuple[DocumentSeed, ...]:
+    catalogue = tuple(item for item in items if item.sold)
+    parties = tuple(customer.name for customer in customers)
     documents: list[DocumentSeed] = []
 
-    for index, days_ago in enumerate(_days(rng, months, _SALES_PER_MONTH)):
+    for index, days_ago in enumerate(_days(rng, months, _SALES_PER_MONTH[profile])):
         lines = _lines(rng, catalogue, count=rng.randint(1, 3), selling=True)
         total = _total(lines)
+
         # Roughly one sale in eight is a walk-in with nobody to bill.
         party = None if rng.randint(1, 8) == 1 else rng.choice(parties)
+
         documents.append(
             DocumentSeed(
                 reference=f"INV-{2100 + index:04d}",
@@ -541,13 +582,17 @@ def _filler_sales(rng: Random, months: int) -> tuple[DocumentSeed, ...]:
                 ),
             )
         )
+
     return tuple(documents)
 
 
-def _filler_expenses(rng: Random, months: int) -> tuple[ExpenseSeed, ...]:
+def _filler_expenses(profile: Profile, rng: Random, months: int) -> tuple[ExpenseSeed, ...]:
     expenses: list[ExpenseSeed] = []
+    per_month = min(_EXPENSES_PER_MONTH[profile], len(_ROUTINE_EXPENSES))
+
     for month in range(months):
         first, last = _month_bounds(month)
+
         expenses.append(
             ExpenseSeed(
                 name="Shop rent",
@@ -556,7 +601,8 @@ def _filler_expenses(rng: Random, months: int) -> tuple[ExpenseSeed, ...]:
                 amount=_MONTHLY_RENT,
             )
         )
-        for name, category, low, high in rng.sample(_ROUTINE_EXPENSES, _EXPENSES_PER_MONTH):
+
+        for name, category, low, high in rng.sample(_ROUTINE_EXPENSES, per_month):
             expenses.append(
                 ExpenseSeed(
                     name=name,
@@ -565,6 +611,7 @@ def _filler_expenses(rng: Random, months: int) -> tuple[ExpenseSeed, ...]:
                     amount=Decimal(rng.randrange(low, high + 1, 50)).quantize(CURRENCY),
                 )
             )
+
     return tuple(expenses)
 
 
@@ -632,3 +679,171 @@ def _settlement(rng: Random, total: Decimal, days_ago: int) -> tuple[PaymentSeed
     if roll < 0.90:
         return (PaymentSeed(days_ago=days_ago, amount=half, method=method),)
     return ()
+
+
+
+# ---------------------------------------------------------------- load profile
+def _load_cabinets(count: int) -> tuple[NamedSeed, ...]:
+    return tuple(
+        NamedSeed(
+            name=f"CAB-{i + 1:05d}",
+            description=f"Load cabinet {i + 1}",
+        )
+        for i in range(count)
+    )
+
+
+def _load_payment_methods(count: int) -> tuple[str, ...]:
+    return tuple(
+        f"Load Method {i + 1:05d}"
+        for i in range(count)
+    )
+
+
+def _load_expense_categories(count: int) -> tuple[NamedSeed, ...]:
+    return tuple(
+        NamedSeed(
+            name=f"Load Category {i + 1:05d}",
+            description="Load test category",
+        )
+        for i in range(count)
+    )
+
+
+def _load_customers(count: int) -> tuple[PartySeed, ...]:
+    return tuple(
+        PartySeed(
+            name=f"Load Customer {i + 1:05d}",
+            phone=None,
+            address=f"Load address {i + 1}",
+            opening_balance=Decimal("0.00"),
+            notes=None,
+        )
+        for i in range(count)
+    )
+
+
+def _load_suppliers(count: int) -> tuple[PartySeed, ...]:
+    return tuple(
+        PartySeed(
+            name=f"Load Supplier {i + 1:05d}",
+            phone=None,
+            address=f"Load supplier address {i + 1}",
+            opening_balance=Decimal("0.00"),
+            notes=None,
+        )
+        for i in range(count)
+    )
+
+
+def _load_items(
+    count: int,
+    cabinet_codes: tuple[str, ...],
+    rng: Random,
+) -> tuple[ItemSeed, ...]:
+    items: list[ItemSeed] = []
+
+    for i in range(count):
+        cost_price = (
+            Decimal(rng.randrange(1000, 250000, 50)) / Decimal(100)
+        ).quantize(CURRENCY)
+
+        sale_price = (cost_price * Decimal("1.40")).quantize(CURRENCY)
+
+        items.append(
+            ItemSeed(
+                name=f"Load Item {i + 1:05d}",
+                unit="pcs",
+                cabinet=rng.choice(cabinet_codes),
+                opening_stock=100_000,
+                minimum_stock=5,
+                cost_price=cost_price,
+                sale_price=sale_price,
+                quantity_sold=(1, 8),
+                bought=True,
+                sold=True,
+            )
+        )
+
+    return tuple(items)
+
+
+def _load_expenses(
+    rng: Random,
+    months: int,
+    per_month: int,
+    categories: tuple[NamedSeed, ...],
+) -> tuple[ExpenseSeed, ...]:
+    expenses: list[ExpenseSeed] = []
+
+    for index, days_ago in enumerate(_days(rng, months, per_month)):
+        category = rng.choice(categories)
+
+        amount = (
+            Decimal(rng.randrange(500, 250000, 50)) / Decimal(100)
+        ).quantize(CURRENCY)
+
+        expenses.append(
+            ExpenseSeed(
+                name=f"Load expense {index + 1:05d}",
+                category=category.name,
+                days_ago=days_ago,
+                amount=amount,
+            )
+        )
+
+    return tuple(expenses)
+
+
+def _build_load(rng: Random) -> Dataset:
+    """
+    Load profile: 1000+ rows in the main master and transaction tables.
+
+    Users and company settings are intentionally not bulk-seeded.
+    They are singleton/administration records in this application.
+    """
+    cabinets = CABINETS + _load_cabinets(997)
+    payment_methods = PAYMENT_METHODS + _load_payment_methods(996)
+    expense_categories = EXPENSE_CATEGORIES + _load_expense_categories(994)
+    customers = CUSTOMERS + _load_customers(994)
+    suppliers = SUPPLIERS + _load_suppliers(996)
+
+    cabinet_codes = tuple(cabinet.name for cabinet in cabinets)
+
+    items = ITEMS + _load_items(992, cabinet_codes, rng)
+
+    months = _FILLER_MONTHS[Profile.LOAD]
+
+    purchases = (
+        FIXTURE_PURCHASES
+        + _filler_purchases(Profile.LOAD, rng, months, items, suppliers)
+    )
+
+    sales = (
+        FIXTURE_SALES
+        + _filler_sales(Profile.LOAD, rng, months, items, customers)
+    )
+
+    expenses = (
+        FIXTURE_EXPENSES
+        + _load_expenses(
+            rng,
+            months,
+            _EXPENSES_PER_MONTH[Profile.LOAD],
+            expense_categories,
+        )
+    )
+
+    return Dataset(
+        company=COMPANY,
+        cabinets=cabinets,
+        payment_methods=payment_methods,
+        expense_categories=expense_categories,
+        customers=customers,
+        suppliers=suppliers,
+        items=items,
+        purchases=purchases,
+        sales=sales,
+        expenses=expenses,
+        movements=FIXTURE_MOVEMENTS,
+    )

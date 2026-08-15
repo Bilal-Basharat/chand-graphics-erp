@@ -1,13 +1,21 @@
 """
 The operating system's credential vault, as this application uses it.
 
-Every secret this application keeps goes here and nowhere else: the
-remembered sign-in password, and the mail server's password. The vault
-(Windows Credential Manager, via `keyring`) encrypts entries per user
-account. Writing a secret into our own JSON — or "encrypting" it with a
-key shipped in the same build — would be security theatre, and putting
-one in a `.env` bundled into the installer would be worse: it would ship
-the same password to every customer in a file they can open.
+Every secret belonging to a *machine* goes here and nowhere else: the
+remembered sign-in password, and a mail password if this installation was
+given one of its own. The vault (Windows Credential Manager, via
+`keyring`) encrypts entries per user account, so a secret saved here is
+neither in a file this application writes nor readable by another user of
+the same computer.
+
+That covers everything except one thing it structurally cannot: a secret
+the build has to arrive with, because no one will ever visit the machine
+to type it in. There is exactly one — the vendor's own mail account,
+which "Forgot password" sends from — and it travels in the build instead.
+`app/config/provisioning.py` is where that lives and where the reasoning
+for it is set out in full, including what it does and does not protect.
+The vault still comes first wherever it holds an entry, so an
+installation set up by hand keeps the account it was given.
 
 If no vault backend is available, storage degrades to "off" rather than
 falling back to plaintext. `is_available` reports that, so a caller can
@@ -24,7 +32,10 @@ logger = logging.getLogger(__name__)
 SMTP_PASSWORD_KEY = "smtp-password"
 """The entry the outgoing mail password is filed under. Sign-in
 passwords are filed under the email address they belong to, so a name
-that is not an address cannot collide with one."""
+that is not an address cannot collide with one.
+
+The same name is used inside the provisioning bundle, so the two places a
+mail password can come from cannot end up calling it different things."""
 
 try:  # pragma: no cover - depends on the machine's available backends
     import keyring

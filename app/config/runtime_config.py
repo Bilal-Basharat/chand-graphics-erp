@@ -1,11 +1,10 @@
 """
 The customer's own configuration file, read at startup.
 
-A packaged build ships no `.env` — bundling one would put the mail
-server's password inside the installer, and a file beside the executable
-is a file the next upgrade replaces. What genuinely varies per
-installation goes in `config/settings.json` instead, written by whoever
-sets the machine up:
+A packaged build ships no `.env` — a file beside the executable is a file
+the next upgrade replaces, and a developer's own settings are not a
+customer's. What genuinely varies per installation goes in
+`config/settings.json` instead, written by whoever sets the machine up:
 
     {
       "smtp": {
@@ -17,8 +16,13 @@ sets the machine up:
       }
     }
 
-Everything in it is optional, and nothing in it is a secret: the mail
-password lives in the OS credential vault, never in this file.
+Optional in every part. A build already knows a mail server to send from
+(`app/config/provisioning.py`), so this file exists for the shop that has
+one of its own and wants this installation to use it instead — a block
+here overrides the build's answer for that key and leaves the rest alone.
+
+Nothing in it is a secret: a mail password that belongs to a machine goes
+to the OS credential vault, never into this file.
 
 Nothing here raises. A configuration file that has been hand-edited into
 invalid JSON is a bad afternoon for whoever edited it, not a reason a

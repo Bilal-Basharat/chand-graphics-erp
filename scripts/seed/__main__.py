@@ -29,9 +29,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        choices=("demo", "smoke"),
+        choices=("demo", "smoke", "load"),
         default="demo",
-        help="demo: fixtures plus six months of trading. smoke: fixtures only. (default: demo)",
+        help="demo: fixtures plus six months of trading. smoke: fixtures only. load: large dataset. (default: demo)",
     )
     parser.add_argument(
         "--data-dir",

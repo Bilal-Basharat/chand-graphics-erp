@@ -44,6 +44,17 @@ def no_config_file(monkeypatch):
     monkeypatch.setattr("app.config.settings.load_runtime_config", lambda: {})
 
 
+@pytest.fixture(autouse=True)
+def no_provisioning(monkeypatch):
+    """A build packaged with no mail account.
+
+    Automatic, because a developer who has generated a `provisioning.dat`
+    in their checkout would otherwise see these tests read it and fail on
+    a machine where the code is right.
+    """
+    monkeypatch.setattr("app.config.settings.load_provisioning", lambda: {})
+
+
 # ------------------------------------------------------------ defaults
 
 
@@ -133,6 +144,61 @@ def test_a_configuration_file_with_no_mail_block_leaves_mail_off(bare_environmen
 
 
 def test_the_mail_password_is_not_part_of_the_settings(bare_environment):
-    """It is a secret, so it lives in the OS credential vault and is read
-    at the moment it is used — never carried around in a config object."""
+    """It is a secret, so it is read at the moment it is used — never
+    carried around in a config object."""
     assert not hasattr(SmtpSettings.load({}), "password")
+
+
+# ------------------------------------------------------- provisioning
+
+
+_PROVISIONED = {
+    "smtp": {
+        "host": "smtp.vendor.example",
+        "port": 465,
+        "username": "noreply@vendor.example",
+        "use_tls": False,
+    }
+}
+
+
+def test_a_build_provisioned_with_a_mail_server_needs_no_configuration(bare_environment):
+    """The whole point: a customer installs and 'Forgot password' works,
+    with no settings.json and nothing saved on the machine."""
+    smtp = SmtpSettings.load({}, _PROVISIONED)
+
+    assert smtp.is_configured
+    assert (smtp.host, smtp.port, smtp.username) == (
+        "smtp.vendor.example",
+        465,
+        "noreply@vendor.example",
+    )
+    assert smtp.sender == "noreply@vendor.example"
+    assert smtp.use_tls is False
+
+
+def test_the_customers_own_configuration_overrides_the_build(bare_environment):
+    """A shop with its own mail server does not need a new build to use
+    it."""
+    smtp = SmtpSettings.load({"smtp": {"host": "smtp.theshop.example"}}, _PROVISIONED)
+
+    assert smtp.host == "smtp.theshop.example"
+    # Only what was overridden. The rest still comes from the build.
+    assert smtp.port == 465
+
+
+def test_the_environment_still_wins_over_both(bare_environment, monkeypatch):
+    monkeypatch.setenv("SMTP_HOST", "smtp.localhost")
+
+    smtp = SmtpSettings.load({"smtp": {"host": "smtp.theshop.example"}}, _PROVISIONED)
+
+    assert smtp.host == "smtp.localhost"
+
+
+def test_a_mistyped_setting_falls_back_to_the_build_not_to_nothing(bare_environment):
+    """One hand-edited line in settings.json must not cost the shop the
+    mail server the build already knew about."""
+    smtp = SmtpSettings.load({"smtp": {"port": "465", "use_tls": "yes"}}, _PROVISIONED)
+
+    assert smtp.port == 465
+    assert smtp.use_tls is False

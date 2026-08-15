@@ -5,6 +5,7 @@ from PySide6.QtCore import Signal
 from app.config.settings import AppSettings
 from app.domain.licensing.ports import InstallationIdentity
 from app.presentation.license_watch import LicenseWatcher
+from app.presentation.support import support_details, support_line
 from app.presentation.viewmodels.base import BaseViewModel
 
 
@@ -45,23 +46,13 @@ class LicenseViewModel(BaseViewModel):
 
     @property
     def support_details(self) -> list[tuple[str, str]]:
-        """Who to call for a key, a fault or a change to the app.
+        """Who to call for a key, a fault or a change to the app."""
+        return support_details(self._settings)
 
-        Assembled here rather than in each screen so the licence page and
-        the activation dialog cannot end up quoting different numbers.
-        Rows nobody filled in are left out entirely — a support card
-        offering a dash to ring is worse than one that is shorter.
-
-        Contact only. The build version is on the status bar of every
-        screen already, and the one identifier support actually asks for
-        — the installation ID — is on both screens that show this.
-        """
-        rows = (
-            ("Developed by", self._settings.developed_by),
-            ("Email", self._settings.developer_email),
-            ("Phone", self._settings.developer_contact),
-        )
-        return [(label, value) for label, value in rows if value]
+    @property
+    def support_line(self) -> str:
+        """The same, on one line, for the activation dialog's footer."""
+        return support_line(self._settings)
 
     def load(self) -> None:
         """The verdict already in hand. Synchronous — it has been read."""

@@ -14,6 +14,8 @@ from app.presentation.session_controller import SessionController
 from app.presentation.theme import tokens as t
 from app.presentation.theme.stylesheet import build_stylesheet
 
+from app.config.paths import SINGLE_INSTANCE_LOCK_PATH
+from app.presentation.services.single_instance import SingleInstance
 
 def configure_locale() -> None:
     """
@@ -75,6 +77,20 @@ def bootstrap():
 
     app = QApplication(sys.argv)
     configure_application(app)
+
+    # The single-instance lock must be acquired after Qt is configured, so
+    # that the activation dialog is themed like the rest of the app. It must
+    single_instance = SingleInstance(
+    SINGLE_INSTANCE_LOCK_PATH,
+    # executable_name="ChandGraphicsERP.exe",
+)
+
+    if not single_instance.acquire():
+        single_instance.activate_existing_instance()
+        sys.exit(0)
+
+    app.aboutToQuit.connect(single_instance.release)
+
 
     # The one live licence verdict, held for the app's lifetime. Built
     # after Qt is configured, because it arms a timer.

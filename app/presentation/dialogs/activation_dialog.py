@@ -154,7 +154,7 @@ class ActivationDialog(QDialog):
         return block
 
     def _build_support_line(self) -> QLabel:
-        details = " · ".join(value for _label, value in self._view_model.support_details)
+        details = self._view_model.support_line
         label = QLabel(f"Need a key, or help? {details}" if details else "")
         label.setProperty("role", "fieldHelp")
         label.setWordWrap(True)

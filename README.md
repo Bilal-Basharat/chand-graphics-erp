@@ -129,14 +129,23 @@ SMTP_USE_TLS=true
 ```
 
 There is no `SMTP_PASSWORD`, and no initial-admin block: the mail
-password lives in the OS credential vault, and the first administrator is
-created on any empty database — both are covered under
+password is not read from the environment at all, and the first
+administrator is created on any empty database — both are covered under
 [Configuration](#configuration).
 
 The `SMTP_*` block powers "Forgot password" on the sign-in screen, which
-emails a temporary password. Leave `SMTP_HOST` blank and the button
-explains what is missing rather than failing. `SMTP_FROM` defaults to
-`SMTP_USERNAME`.
+emails a temporary password. It is an override: the account actually used
+comes from the build, so for a working "Forgot password" in a checkout,
+generate the same bundle a release carries —
+
+```bash
+python -m scripts.provision_build
+```
+
+— which reads `.env.build` (see [Configuration](#configuration)) and
+writes `provisioning.dat` beside it. Leave both out and the button
+explains that this copy cannot send email rather than failing.
+`SMTP_FROM` defaults to `SMTP_USERNAME`.
 
 ### 6. Where the data lives
 
@@ -174,24 +183,59 @@ python -m app.main
 
 ## Configuration
 
-Three sources, in order of precedence, and a packaged build uses only the
-last two:
+Four sources, in order of precedence, and a packaged build uses only the
+last three:
 
 | Source | Holds | Present in production |
 |---|---|---|
 | Environment / `.env` | Anything, while developing | **No** |
-| `config/settings.json` | What varies per installation | Yes, if written |
+| `config/settings.json` | What a shop overrides for itself | Yes, if written |
+| `provisioning.dat` | The mail account the build sends from | Always |
 | `app/config/constants.py` | What this build is | Always |
 
 **`.env` is a development file.** It is loaded only when running from
 source, and a frozen build ignores one even if a copy is sitting beside
-the executable. It must not be added to a PyInstaller spec: bundling it
-would ship the mail password inside the installer, readable by anyone who
-unpacks it, and a file beside the executable is a file the next upgrade
-replaces.
+the executable. It must not be added to a PyInstaller spec: a file beside
+the executable is a file the next upgrade replaces, and a developer's own
+settings are not a customer's.
+
+**`provisioning.dat` is what the build was packaged with.** A shop that
+bought a printing ERP has no mail server and no reason to have one, so
+"Forgot password" cannot depend on them configuring one. The vendor's
+account is decided once, at build time, and travels inside the
+executable. Nothing about it is exposed in the UI and nothing is asked of
+the customer.
+
+It is generated during the PyInstaller run from `.env.build` in the
+repository root — never committed, covered by the same `.gitignore` rule
+as `.env`:
+
+```env
+BUILD_SMTP_HOST=smtp.gmail.com
+BUILD_SMTP_PORT=587
+BUILD_SMTP_USERNAME=someone@example.com
+BUILD_SMTP_PASSWORD=<the app password>
+BUILD_SMTP_FROM=someone@example.com
+BUILD_SMTP_USE_TLS=true
+```
+
+Environment variables of the same names win over the file, so a build
+machine can inject them without writing one. **Packaging without them
+fails the build** rather than producing an installer whose "Forgot
+password" is dead; set `ALLOW_UNPROVISIONED_BUILD=1` to mean it.
+
+This is the one secret this application ships. The bundle is encrypted,
+but the key is derived in `app/config/provisioning.py` and therefore
+travels in the same binary — that stops the password being scraped out of
+the install folder with a text search, and nothing more. What limits the
+damage is the account: it exists only to send this one message, and
+rotating it is one line in `.env.build` and a rebuild. That module says
+so at length, and is the place to read before changing any of this.
 
 **`config/settings.json`** is written by whoever sets a machine up — not
-shipped, not required. Everything in it is optional:
+shipped, not required, and now an override rather than the only way to
+have a mail server at all. Everything in it is optional, and a block here
+replaces the build's answer for those keys and leaves the rest alone:
 
 ```json
 {
@@ -210,15 +254,19 @@ rather than obeyed, and a file that has been edited into invalid JSON
 leaves the application running on its defaults — a bad afternoon for
 whoever edited it, not a reason a shop cannot invoice.
 
-**Secrets go to the OS credential vault**, never to a file this
-application writes. The mail password is saved per machine, by the user
-who runs the app:
+**A machine's own secrets go to the OS credential vault**, never to a
+file this application writes. A shop with its own mail server puts its
+address and account in `settings.json` and its password here:
 
 ```bash
 python -m scripts.set_smtp_password           # prompts, stores
 python -m scripts.set_smtp_password --show    # is one saved?
-python -m scripts.set_smtp_password --forget
+python -m scripts.set_smtp_password --forget  # back to the build's
 ```
+
+This is not part of setting an installation up — an ordinary one needs
+none of it. What is saved here wins over what the build carries, so
+`--forget` puts a machine back on the vendor's account.
 
 The remembered sign-in password goes to the same vault, under the email
 address it belongs to.

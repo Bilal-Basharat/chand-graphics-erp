@@ -37,13 +37,16 @@ from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.widgets.qss import repolish
 
 _NO_MAIL_SERVER = (
-    "Email is not set up on this computer, so a temporary password cannot "
-    "be sent.\n\n"
-    "To turn this on, whoever installed this app has to add the mail server "
-    "details to its configuration file and save the mail password on this "
-    "computer.\n\n"
-    "Until then, ask an administrator to reset the password for you."
+    "This copy of the app cannot send email, so a temporary password "
+    "cannot be sent to you.\n\n"
+    "This is not something that can be fixed on this computer — it needs a "
+    "corrected copy of the app."
 )
+"""A correctly packaged build sends mail without anything being set up, so
+reaching this means the build itself was made wrong. It therefore names no
+step for the user to take on this machine and promises no administrator who
+can reset the password, because neither exists — only the contact line
+appended below, which is the one thing that helps."""
 
 
 class LoginView(QWidget):
@@ -163,11 +166,11 @@ class LoginView(QWidget):
         self._forgot_btn.setProperty("variant", "link")
         self._forgot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._forgot_btn.clicked.connect(self._open_forgot_password)
-        # Always clickable, even with no mail server configured — which is
-        # how it ships. A disabled button hides its reason in a tooltip the
-        # user has no cause to hover, so someone who has genuinely
-        # forgotten their password meets a dead control and no way out.
-        # Clicking it explains instead.
+        # Always clickable, even in the build that cannot send mail. A
+        # disabled button hides its reason in a tooltip the user has no
+        # cause to hover, so someone who has genuinely forgotten their
+        # password meets a dead control and no way out. Clicking it
+        # explains, and says who to ring.
         row.addWidget(self._forgot_btn)
         return row
 
@@ -222,7 +225,12 @@ class LoginView(QWidget):
 
     def _open_forgot_password(self) -> None:
         if not self._view_model.can_send_email:
-            QMessageBox.information(self, "Forgot password", _NO_MAIL_SERVER)
+            support = self._view_model.support_line
+            QMessageBox.information(
+                self,
+                "Forgot password",
+                f"{_NO_MAIL_SERVER}\n\nPlease contact {support}." if support else _NO_MAIL_SERVER,
+            )
             return
         # Carries whatever is already typed, so the common case — the email
         # is right, the password isn't — needs no retyping.

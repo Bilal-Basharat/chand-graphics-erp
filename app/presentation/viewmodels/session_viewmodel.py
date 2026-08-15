@@ -22,6 +22,7 @@ from app.application.auth.session import CurrentUser
 from app.config.paths import SIGN_IN_PREFERENCES_PATH
 from app.container import AppContainer
 from app.presentation.services.credential_store import CredentialStore, RememberedCredentials
+from app.presentation.support import support_line
 from app.presentation.viewmodels.base import BaseViewModel
 
 
@@ -69,9 +70,15 @@ class SessionViewModel(BaseViewModel):
 
     @property
     def can_send_email(self) -> bool:
-        """False when no mail server is configured, so the screens that
-        would offer to email something can say why instead of failing."""
+        """False when this copy cannot send email at all, so the screens
+        that would offer to can say so instead of failing on submit."""
         return self._container.email_sender().is_available
+
+    @property
+    def support_line(self) -> str:
+        """Who to contact, for the screens that have to give up. Shared
+        with the licence screens so no two quote different numbers."""
+        return support_line(self._container.settings)
 
     def remembered_credentials(self) -> RememberedCredentials:
         return self._credentials.load()

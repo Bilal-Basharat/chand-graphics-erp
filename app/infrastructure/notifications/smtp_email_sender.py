@@ -5,6 +5,7 @@ import smtplib
 from email.message import EmailMessage as MimeMessage
 
 from app.application.exceptions import EmailDeliveryError
+from app.config.provisioning import provisioned_secret
 from app.config.settings import SmtpSettings
 from app.domain.notifications.email_sender import EmailMessage, EmailSender
 from app.infrastructure.security.secret_vault import SMTP_PASSWORD_KEY, SecretVault
@@ -19,15 +20,24 @@ _TIMEOUT_SECONDS = 20
 """A person is watching a spinner while this runs. Long enough for a slow
 provider, short enough that a black hole reports back rather than hangs."""
 
+_CANNOT_SEND = (
+    "This copy of the app is not set up to send email, so it cannot send "
+    "this message. Please contact support."
+)
+"""Said the same way whether the server or the password is the part that
+is missing. Both mean a build that was packaged without its mail account,
+neither is anything the person reading it can act on differently, and the
+log line says which. `is_available` normally catches this at the button;
+these raises are the guard for the gap between that check and the send."""
+
 
 class SmtpEmailSender(EmailSender):
     """Sends mail through the server this installation is configured for.
 
     The server's address, port and account come from configuration; its
-    password comes from the OS credential vault, read at the moment it is
-    needed. That keeps the one secret involved out of every configuration
-    object, log line and crash dump this application produces — and out
-    of the installer, which is where a bundled `.env` would have put it.
+    password is fetched at the moment it is needed, never held. That
+    keeps the one secret involved out of every configuration object, log
+    line and crash dump this application produces.
     """
 
     def __init__(self, settings: SmtpSettings, vault: SecretVault | None = None) -> None:
@@ -36,14 +46,24 @@ class SmtpEmailSender(EmailSender):
 
     @property
     def is_available(self) -> bool:
-        return self._settings.is_configured
+        """Whether a message sent right now stands a chance.
+
+        Deliberately more than "is a server configured": an account this
+        cannot authenticate as is a "Forgot password" dialog that opens,
+        takes an address, and fails on submit — after the user has been
+        promised an email. Better to know at the button.
+
+        The username test mirrors `send()`'s own: a server that wants no
+        account needs no password either.
+        """
+        if not self._settings.is_configured:
+            return False
+        return not self._settings.username or self._stored_password() is not None
 
     def send(self, message: EmailMessage) -> None:
-        if not self.is_available:
-            raise EmailDeliveryError(
-                "No mail server is configured, so this app cannot send email. "
-                "Ask whoever set it up to fill in the SMTP settings."
-            )
+        if not self._settings.is_configured:
+            logger.error("No mail server is configured; cannot send to %s", message.to)
+            raise EmailDeliveryError(_CANNOT_SEND)
 
         try:
             with self._connect() as server:
@@ -56,27 +76,32 @@ class SmtpEmailSender(EmailSender):
             # belongs in a dialog on a shop counter.
             logger.exception("Failed to send email to %s", message.to)
             raise EmailDeliveryError(
-                "The email could not be sent. Check the internet connection "
-                "and the mail server settings, then try again."
+                "The email could not be sent. Check this computer's internet "
+                "connection, then try again."
             ) from exc
 
-    def _password(self) -> str:
-        """The mail account's password, from the credential vault.
+    def _stored_password(self) -> str | None:
+        """The mail account's password, or `None` if this copy has none.
 
-        Said in full when it is missing. The alternative is authenticating
-        with an empty string and reporting the provider's refusal, which
-        sends whoever set this up looking at the mail server rather than
-        at the step they have not done yet.
+        The OS credential vault first, so a machine that was given its own
+        mail account keeps using it; what the build was provisioned with
+        second, which is what every ordinary installation runs on.
         """
-        password = self._vault.get(SMTP_PASSWORD_KEY)
+        return self._vault.get(SMTP_PASSWORD_KEY) or provisioned_secret(SMTP_PASSWORD_KEY)
+
+    def _password(self) -> str:
+        """As above, for the moment one is actually required.
+
+        Refuses rather than authenticating with an empty string and
+        reporting the provider's answer, which would send whoever reads
+        the log looking at the mail server rather than at the build.
+        """
+        password = self._stored_password()
         if password:
             return password
 
-        raise EmailDeliveryError(
-            "No password is saved for the mail account, so this app cannot "
-            "sign in to send email. Ask whoever set it up to save it with "
-            "'python -m scripts.set_smtp_password'."
-        )
+        logger.error("No password is stored for the mail account '%s'", self._settings.username)
+        raise EmailDeliveryError(_CANNOT_SEND)
 
     def _connect(self) -> smtplib.SMTP:
         """Open the connection the port calls for.

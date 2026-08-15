@@ -1,14 +1,18 @@
 """
-Save the outgoing mail account's password to this machine's credential vault.
+Give one machine a mail account of its own.
 
-The mail server's address, port and account live in
-`config/settings.json`; its password does not — it goes to the operating
-system's credential vault, so it is never in a file this application
-writes and never inside an installer. This is how it gets there.
+Not part of setting an installation up. A build already carries the
+account it sends from (`app/config/provisioning.py`), so an ordinary
+installation needs nothing here and "Forgot password" works out of the
+box. This is for the shop that has its own mail server: put its address
+and account in `config/settings.json`, and its password here.
 
     python -m scripts.set_smtp_password
-    python -m scripts.set_smtp_password --show      # what is stored now
-    python -m scripts.set_smtp_password --forget    # remove it
+    python -m scripts.set_smtp_password --show      # is one saved?
+    python -m scripts.set_smtp_password --forget    # back to the build's
+
+Whatever is saved here takes precedence over what the build carries, so
+`--forget` is how a machine goes back to the vendor's account.
 
 Run on the machine the application runs on, signed in as the user who
 runs it: vault entries belong to a Windows user account, so one saved
@@ -41,8 +45,9 @@ def main() -> int:
 
     if not vault.is_available:
         print(
-            "This machine has no usable credential vault, so the password "
-            "cannot be saved. Email sending will stay unavailable.",
+            "This machine has no usable credential vault, so a password "
+            "cannot be saved here. The application will go on using the "
+            "mail account its build carries.",
             file=sys.stderr,
         )
         return 1
@@ -54,7 +59,7 @@ def main() -> int:
 
     if arguments.forget:
         vault.delete(SMTP_PASSWORD_KEY)
-        print("Removed. 'Forgot password' will stop working until one is saved again.")
+        print("Removed. This machine goes back to the account its build carries.")
         return 0
 
     password = getpass("Mail account password: ")

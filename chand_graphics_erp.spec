@@ -11,19 +11,51 @@ everything the customer owns — database, licence, configuration, logs —
 is written at runtime under %LOCALAPPDATA%\\ChandGraphicsERP and never
 here. Replacing this folder is exactly what an upgrade does.
 
-`datas` is deliberately empty. This application has no packaged runtime
-resources at all: the theme is built in Python (`presentation/theme/
-stylesheet.py`), the two image assets are painted with QPainter on first
-use into the data folder (`presentation/theme/assets.py`), the navigation
-icons are drawn the same way, the base font is the operating system's,
-and the schema is upgraded by numbered steps in Python
-(`infrastructure/db/upgrade.py`) rather than by migration files on disk.
-Keeping the list empty is therefore not an oversight to be corrected
-later — it is what stops `.env` and `data/erp.db` reaching a build.
+`datas` holds exactly one entry, and it is generated here rather than
+picked up from the working tree: the provisioning bundle carrying the
+mail account this build sends from (`scripts/provision_build.py`, read at
+runtime by `app/config/provisioning.py`). Everything else this
+application draws or computes — the theme is built in Python
+(`presentation/theme/stylesheet.py`), the two image assets are painted
+with QPainter on first use into the data folder
+(`presentation/theme/assets.py`), the navigation icons are drawn the same
+way, the base font is the operating system's, and the schema is upgraded
+by numbered steps in Python (`infrastructure/db/upgrade.py`) rather than
+by migration files on disk.
+
+So the list stays a closed set of things this file names, which is what
+stops a stray `.env` or `data/erp.db` reaching a build. Nothing is ever
+added to it by globbing a folder.
+
+Packaging without a mail account **fails the build** rather than
+producing an installer whose "Forgot password" is dead. Set
+`ALLOW_UNPROVISIONED_BUILD=1` to mean it.
 """
+import sys
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
 
 APP_NAME = "ChandGraphicsERP"
+
+# The spec is executed, not imported, so the checkout is not on the path
+# and `scripts.provision_build` cannot be found without this.
+sys.path.insert(0, SPECPATH)
+
+from app.config.constants import PROVISIONING_FILENAME  # noqa: E402
+from scripts.provision_build import write_provisioning  # noqa: E402
+
+# Written into the checkout, where `app.config.paths.PROVISIONING_PATH`
+# already looks for it when running from source. One file, so a developer
+# testing "Forgot password" is testing the bundle this build ships rather
+# than a second one that has drifted from it. Ignored by git, and either
+# rewritten or removed on every run, so it cannot go stale.
+try:
+    provisioning = write_provisioning(Path(SPECPATH) / PROVISIONING_FILENAME)
+except ValueError as exc:
+    raise SystemExit(f"\nBuild stopped. {exc}\n")
+
+datas = [(str(provisioning), ".")] if provisioning else []
 
 hiddenimports = [
     # SQLAlchemy loads its dialect by name at connect time, so nothing
@@ -96,7 +128,7 @@ analysis = Analysis(
     ["app/main.py"],
     pathex=[SPECPATH],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
