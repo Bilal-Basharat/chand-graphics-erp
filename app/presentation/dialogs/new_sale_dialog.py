@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLineEdit, QWidget
 from app.application.dto.commands import CreateSaleCommand, SaleItemCommand, SalePaymentCommand
 from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.document_dialog import DocumentDialog, step_panel
+from app.presentation.item_types import item_name
 from app.presentation.widgets.document_lines import DocumentTotals
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.input_validation import ZERO
@@ -25,6 +26,29 @@ _WALK_IN = "Walk-in customer"
 
 def _new_invoice_number() -> str:
     return f"INV-{now_pkt():%y%m%d%H%M%S}"
+
+
+def unsellable_reason(product, label: str) -> str | None:
+    """Why this item cannot go on an invoice today, or None if it can.
+
+    Mirrors CreateSaleUseCase, which refuses to sell anything at or below
+    its minimum stock. Said in one place because it is said at two moments
+    — the moment the item is picked and the moment it is added — and the
+    same item must not be out of stock in one of them and fine in the
+    other.
+    """
+    if product.current_stock <= 0:
+        return (
+            f"'{label}' is out of stock. Record a purchase to bring it back "
+            "in before selling it."
+        )
+    if product.current_stock <= product.minimum_stock:
+        return (
+            f"'{label}' is down to its minimum ({product.current_stock} left). "
+            "Record a purchase to bring it back above its minimum before "
+            "selling it."
+        )
+    return None
 
 
 class NewSaleDialog(DocumentDialog):
@@ -87,6 +111,7 @@ class NewSaleDialog(DocumentDialog):
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
         self._picker.itemChanged.connect(self._on_item_changed)
+        self._picker.itemChosen.connect(self._on_item_chosen)
         return self._picker
 
     def _on_item_changed(self, item_type: ItemType, item_id: int) -> None:
@@ -95,25 +120,28 @@ class NewSaleDialog(DocumentDialog):
         # would then refuse.
         self._picker.set_quantity_limit(self.available_stock(item_type, item_id))
 
+    def _on_item_chosen(self, item_type: ItemType, item_id: int) -> None:
+        """Say an item is out of stock the moment it is picked.
+
+        Only for the item that has actually run out, and only once it has
+        been chosen: a warning about the row the form merely opened on, or
+        about an item that is merely low, is one nobody asked for.
+        """
+        product = self._products.get((item_type, item_id))
+        if product is not None and product.current_stock <= 0:
+            self.warn(unsellable_reason(product, item_name(item_type, product)))
+
     def _add_line(self, picked: PickedItem) -> None:
         product = self._products.get((picked.item_type, picked.item_id))
         if product is None:
             self.warn("That item is no longer in the catalogue. Refresh and try again.")
             return
 
-        # Mirrors CreateSaleUseCase, which refuses to sell anything at or
-        # below its minimum stock. Hearing it here beats hearing it after
-        # the whole invoice has been built.
-        if product.current_stock <= product.minimum_stock:
-            left = (
-                "is out of stock"
-                if product.current_stock <= 0
-                else f"is down to its minimum ({product.current_stock} left)"
-            )
-            self.warn(
-                f"'{picked.label}' {left}. Record a purchase to bring it back "
-                "above its minimum before selling it."
-            )
+        # Hearing it here beats hearing it after the whole invoice has
+        # been built.
+        refusal = unsellable_reason(product, picked.label)
+        if refusal is not None:
+            self.warn(refusal)
             return
 
         already = self.line_for(picked.item_type, picked.item_id)

@@ -9,6 +9,10 @@ is not how a line is picked but what may be picked — a sale cannot sell
 stock that isn't there — and that stays with the dialog, which is where
 the rule lives.
 
+The item is searched rather than scrolled for — see `searchable_combo.py`
+— because the list is a whole shop's catalogue and the item being sold is
+one name in it.
+
 The row reports rather than decides. It emits `added` for a choice that
 is complete, `rejected` for one that is not, and leaves itself alone
 afterwards: the caller resets it once the line has actually been taken,
@@ -20,41 +24,88 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QWidget, QStyledItemDelegate
+from PySide6.QtGui import QColor, QShowEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QWidget,
+)
 
 from app.domain.enums.item_type import ItemType
 from app.presentation.item_types import item_name
+from app.presentation.theme import tokens as t
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.item_type_combo import ItemTypeCombo
 from app.presentation.widgets.input_validation import MoneyInput, parse_amount
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.presentation.widgets.searchable_combo import SearchableComboBox
 
 _NONE_AVAILABLE = "— none available —"
 _UNCAPPED = 1_000_000
+_STOCK_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class ItemDelegate(QStyledItemDelegate):
+    """A catalogue row: what the item is called, and what is left of it.
+
+    The figure is painted at the right rather than folded into the name so
+    it sits in the same place all the way down the list, and the name is
+    elided to the room it leaves rather than running underneath it.
+
+    The row itself goes through the style rather than being drawn by hand,
+    so it keeps the hover and the selection every other list in the app
+    has — which is what tells you where you are while searching.
+    """
+
+    _PADDING = 8
+    """What a row is inset by, as the stylesheet sets it — so the figure
+    ends where a name on the row above it begins."""
+
+    _GAP = 12
+    """The least that may be left between a name and a figure, below which
+    the two read as one string."""
+
     def paint(self, painter, option, index):
+        stock = index.data(_STOCK_ROLE)
+        if stock is None:
+            # The "none available" placeholder has no stock to report.
+            super().paint(painter, option, index)
+            return
+
+        figure = f"Stock: {stock}"
+        room = painter.fontMetrics().horizontalAdvance(figure) + self._GAP + self._PADDING
+
+        row = QStyleOptionViewItem(option)
+        self.initStyleOption(row, index)
+        widget = row.widget
+        style = widget.style() if widget is not None else QApplication.style()
+
+        # Drawn twice, because the row's background has to run its whole
+        # width while the name must stop short of the figure. First pass
+        # is the background and whether it is the row under the cursor;
+        # second is the name, into what the figure leaves. Where to break
+        # the name is the style's to decide rather than this delegate's,
+        # since the style is what knows the font it will be drawn in.
+        name, row.text = row.text, ""
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, row, painter, widget)
+
+        row.text = name
+        row.rect = option.rect.adjusted(0, 0, -room, 0)
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, row, painter, widget)
+
         painter.save()
-
-        rect = option.rect.adjusted(10, 0, -10, 0)
-        name = index.data(Qt.ItemDataRole.DisplayRole)
-        stock = index.data(Qt.ItemDataRole.UserRole + 1)
-
+        painter.setPen(QColor(t.INK_SOFT))
         painter.drawText(
-            rect,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            name,
-        )
-
-        painter.drawText(
-            rect,
+            option.rect.adjusted(0, 0, -self._PADDING, 0),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            f"Stock: {stock}",
+            figure,
         )
-
         painter.restore()
+
 
 @dataclass(frozen=True, slots=True)
 class PickedItem:
@@ -70,7 +121,8 @@ class PickedItem:
 class ItemPickerRow(QWidget):
     added = Signal(object)  # PickedItem
     rejected = Signal(str)  # why nothing was added
-    itemChanged = Signal(object, int)  # ItemType, item id — or (type, 0) for none
+    itemChanged = Signal(object, int)  # ItemType, item id — whatever is selected now
+    itemChosen = Signal(object, int)  # ItemType, item id — and the user chose it
 
     def __init__(
         self,
@@ -88,11 +140,15 @@ class ItemPickerRow(QWidget):
         self._kind = ItemTypeCombo()
         self._kind.currentIndexChanged.connect(self._on_kind_changed)
 
-        self._item = QComboBox()
+        # Typed into rather than scrolled: a catalogue of a thousand items
+        # is a search, not a list.
+        self._item = SearchableComboBox()
         self._item.setItemDelegate(ItemDelegate(self._item))
+        self._item.setToolTip("Type any part of an item's name to find it")
 
         self._item.setMinimumWidth(220)
         self._item.currentIndexChanged.connect(self._on_item_changed)
+        self._item.activated.connect(self._on_item_chosen)
 
         self._quantity = ModernSpinBox()
         self._quantity.setRange(1, _UNCAPPED)
@@ -127,15 +183,24 @@ class ItemPickerRow(QWidget):
         for record in records:
             self._item.addItem(item_name(item_type, record), record.id)
             self._item.setItemData(
-            self._item.count() - 1,
-            getattr(record, "current_stock", 0),
-            Qt.ItemDataRole.UserRole + 1,
-    )
+                self._item.count() - 1,
+                getattr(record, "current_stock", 0),
+                _STOCK_ROLE,
+            )
 
     def _on_item_changed(self, _index: int = 0) -> None:
         item_id = self._item.currentData()
         if item_id is not None:
             self.itemChanged.emit(self._kind.selected_type(), item_id)
+
+    def _on_item_chosen(self, _index: int) -> None:
+        """The user picked this one, as opposed to it merely being what the
+        row happens to be showing — the difference matters to a caller that
+        answers a choice with a message, which nobody wants to be met by on
+        opening the form."""
+        item_id = self._item.currentData()
+        if item_id is not None:
+            self.itemChosen.emit(self._kind.selected_type(), item_id)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
@@ -158,7 +223,7 @@ class ItemPickerRow(QWidget):
         """Ready for the next line. Called once the last one was taken."""
         self._unit_price.clear()
         self._quantity.setValue(1)
-        self._item.setFocus()
+        self._item.focus_search()
 
     # ---------------- adding ----------------
 
@@ -166,7 +231,7 @@ class ItemPickerRow(QWidget):
         item_id = self._item.currentData()
         if item_id is None:
             self.rejected.emit("Choose an item to add.")
-            self._item.setFocus()
+            self._item.focus_search()
             return
 
         unit_price = parse_amount(self._unit_price.text())
@@ -179,7 +244,9 @@ class ItemPickerRow(QWidget):
             PickedItem(
                 item_type=self._kind.selected_type(),
                 item_id=item_id,
-                label=self._item.currentText(),
+                # The selected row's own name, not the text in the box:
+                # the box can hold something half-typed towards it.
+                label=self._item.itemText(self._item.currentIndex()),
                 quantity=self._quantity.value(),
                 unit_price=unit_price,
             )

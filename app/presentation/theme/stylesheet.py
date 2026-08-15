@@ -291,9 +291,24 @@ def build_stylesheet() -> str:
         subcontrol-position: center right;
     }}
     {_chevron_rule()}
+    /* A searchable combo (widgets/searchable_combo.py) is a box with a
+       QLineEdit inside it, which the generic input rule above also
+       matches — so without this the search field draws its own bordered
+       white box inside the combo's own. Same trap, and the same fix by
+       objectName, as the spin box further down. */
+    QLineEdit#ComboSearchField {{
+        background: transparent;
+        border: none;
+        border-radius: 0px;
+        padding: 0px;
+    }}
     /* The open combo's list: flat, same surface and radius as the box it
-       drops out of, rather than the platform's boxed popup. */
-    QComboBox QAbstractItemView {{
+       drops out of, rather than the platform's boxed popup. The list of
+       search matches is styled with it: a completer's popup is a
+       top-level view of its own rather than a child of the combo, so the
+       descendant selector never reaches it and it would otherwise drop
+       out of the same box looking like a different control. */
+    QComboBox QAbstractItemView, QListView#ComboSearchPopup {{
         background: {t.SURFACE};
         border: 1px solid {t.LINE};
         border-radius: {t.RADIUS_SM}px;
@@ -302,7 +317,7 @@ def build_stylesheet() -> str:
         selection-background-color: {t.PRIMARY_TINT};
         selection-color: {t.INK};
     }}
-    QComboBox QAbstractItemView::item {{
+    QComboBox QAbstractItemView::item, QListView#ComboSearchPopup::item {{
         min-height: 26px;
         padding: 0px 8px;
         border-radius: 4px;
