@@ -9,7 +9,6 @@ of totals otherwise can't answer without leaving the screen.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from decimal import Decimal
 
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QWidget
@@ -20,13 +19,11 @@ from app.presentation.records.builders import sale_card
 from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
-from app.presentation.views.document_lists import created_at, payment_filters
+from app.presentation.views.document_lists import payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
-
-_ZERO = Decimal("0.00")
 
 
 class SalesView(CollectionView):
@@ -58,46 +55,43 @@ class SalesView(CollectionView):
             # exactly that question — carrying Paid/Unpaid/Status here too
             # squeezed the customer's name down to nothing.
             [
-                Column("INVOICE #", lambda s: s.invoice_no, width=160),
-                Column("CUSTOMER", view_model.customer_name),
-                Column(
-                    "ITEMS",
-                    lambda s: len(s.items),
-                    align="right",
-                    sort_key=lambda s: len(s.items),
-                    width=80,
-                ),
+                Column("INVOICE #", lambda s: s.invoice_no, sort_field="invoice", width=160),
+                Column("CUSTOMER", view_model.customer_name, sort_field="customer"),
+                # No sort on the count: it is the length of a list carried
+                # with the row, and the query has no column for it.
+                Column("ITEMS", lambda s: len(s.items), align="right", width=80),
                 # Subtotal and discount are shown, not implied: without
                 # them the item lines underneath add up to a figure the
                 # TOTAL column doesn't match, and the gap looks like a bug.
-                Column(
-                    "SUBTOTAL",
-                    lambda s: money(s.subtotal),
-                    align="right",
-                    sort_key=lambda s: s.subtotal,
-                    width=140,
-                ),
+                Column("SUBTOTAL", lambda s: money(s.subtotal), align="right", width=140),
                 Column(
                     "DISCOUNT",
                     lambda s: money(s.discount_amount),
                     align="right",
-                    sort_key=lambda s: s.discount_amount,
                     width=130,
                 ),
                 Column(
                     "TOTAL",
                     lambda s: money(s.grand_total),
                     align="right",
-                    sort_key=lambda s: s.grand_total,
+                    sort_field="total",
                     width=140,
                 ),
-                Column("DATE", lambda s: date_time(s.created_at), sort_key=created_at, width=180),
+                Column(
+                    "DATE",
+                    lambda s: date_time(s.created_at),
+                    sort_field="created",
+                    width=180,
+                ),
             ],
             view_model,
             parent,
         )
 
         view_model.referenceLoaded.connect(self._on_reference_loaded)
+        # Names arrive after the rows that display them, both for the page
+        # just loaded and for whatever the dialog last searched.
+        view_model.namesLoaded.connect(lambda _names: self.table.refresh())
 
     def create_table(self, columns: Sequence[Column]) -> GroupedTable:
         # An invoice stays one row carrying its own totals; what was sold on
@@ -140,15 +134,28 @@ class SalesView(CollectionView):
     def filter_options(self):
         return payment_filters()
 
-    def summary(self, rows: list):
+    def summary(self):
+        # The period's figures, not this page's. Added up from the rows on
+        # screen they would report a hundredth of the month under a caption
+        # claiming the month — wrong, and never failing.
+        result = self.view_model.result
+        if result is None or result.totals is None:
+            return ()
         return (
-            ("Sold", money(sum((s.grand_total for s in rows), _ZERO))),
-            ("Unpaid", money(sum((s.balance_amount for s in rows), _ZERO))),
+            ("Sold", money(result.totals.total)),
+            ("Unpaid", money(result.totals.outstanding)),
         )
+
+    def on_rows_loaded(self, rows: list) -> None:
+        # The customers and items this page points at, by id — never a
+        # catalogue, which is a ceiling a shop grows through.
+        self._sales_view_model.load_names_for(rows)
 
     def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        # From the start: another period is a different list, and page
+        # seven of it may not exist.
+        selector.periodChanged.connect(self.reload_from_start)
         return [selector]
 
     def _on_reference_loaded(self, reference: dict) -> None:

@@ -38,17 +38,26 @@ class BaseViewModel(QObject):
     def __init__(self, runner: AsyncTaskRunner | None = None) -> None:
         super().__init__()
         self._runner = runner or AsyncTaskRunner()
-        self._busy = False
+        self._in_flight = 0
 
     @property
     def busy(self) -> bool:
-        return self._busy
+        return self._in_flight > 0
 
-    def _set_busy(self, value: bool) -> None:
-        if self._busy == value:
-            return
-        self._busy = value
-        self.busyChanged.emit(value)
+    def _started(self) -> None:
+        # Counted rather than flagged: a screen can have two calls out at
+        # once — a page turned while a debounced search is still running —
+        # and with a flag the first to come back would announce that the
+        # screen had finished, re-enabling controls the second is still
+        # using.
+        self._in_flight += 1
+        if self._in_flight == 1:
+            self.busyChanged.emit(True)
+
+    def _finished(self) -> None:
+        self._in_flight = max(0, self._in_flight - 1)
+        if self._in_flight == 0:
+            self.busyChanged.emit(False)
 
     def run_async(
         self,
@@ -63,15 +72,15 @@ class BaseViewModel(QObject):
         emitted via `errorOccurred` — callers do not need their own
         try/except around use-case calls.
         """
-        self._set_busy(True)
+        self._started()
 
         def _on_success(result: Any) -> None:
-            self._set_busy(False)
+            self._finished()
             if on_success is not None:
                 on_success(result)
 
         def _on_error(exc: Exception) -> None:
-            self._set_busy(False)
+            self._finished()
             self.errorOccurred.emit(self._friendly_message(exc))
 
         self._runner.run(fn, on_success=_on_success, on_error=_on_error)

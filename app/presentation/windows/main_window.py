@@ -55,7 +55,11 @@ from app.presentation.views.master_data_views import (
     PaymentMethodsView,
     SuppliersView,
 )
-from app.presentation.views.expenses_view import ExpensesView, expenses_view_model
+from app.presentation.views.expenses_view import (
+    ExpensesView,
+    categories_view_model,
+    expenses_view_model,
+)
 from app.presentation.views.license_view import LicenseView
 from app.presentation.views.inventory_movement_view import (
     InventoryMovementView,
@@ -261,7 +265,9 @@ class MainWindow(QMainWindow):
             ExpensesView(
                 expenses_view_model(self._container, expenses_period),
                 expenses_period,
-                expense_categories_view_model(self._container),
+                # A lookup for the filter and the pickers, not the
+                # categories screen's own paged list.
+                categories_view_model(self._container),
             ),
             "Expenses",
         )
@@ -330,13 +336,13 @@ class MainWindow(QMainWindow):
         """
         customers = CustomersView(customers_view_model(self._container))
         customers.ledgerRequested.connect(
-            lambda party_id: self._open_ledger(Route.CUSTOMER_LEDGER, party_id)
+            lambda party_id, name: self._open_ledger(Route.CUSTOMER_LEDGER, party_id, name)
         )
         self._add_page(Route.CUSTOMERS, customers, "Customers")
 
         suppliers = SuppliersView(suppliers_view_model(self._container))
         suppliers.ledgerRequested.connect(
-            lambda party_id: self._open_ledger(Route.SUPPLIER_LEDGER, party_id)
+            lambda party_id, name: self._open_ledger(Route.SUPPLIER_LEDGER, party_id, name)
         )
         self._add_page(Route.SUPPLIERS, suppliers, "Suppliers")
 
@@ -362,18 +368,19 @@ class MainWindow(QMainWindow):
             "Supplier ledger",
         )
 
-    def _open_ledger(self, route: Route, party_id: int) -> None:
+    def _open_ledger(self, route: Route, party_id: int, party_name: str) -> None:
         """Open a party's ledger from the row that named them.
 
-        By id rather than by search, unlike `_open_record`: this screen
-        picks its subject from a dropdown rather than filtering a table.
-        Navigating first lets its `showEvent` start the party list
-        loading; the ledger holds on to the request until that lands.
+        By id and name rather than by search, unlike `_open_record`: this
+        screen picks its subject from a dropdown rather than filtering a
+        table, and that dropdown holds a page of names rather than every
+        name. The row clicked knows both, so neither has to be looked up
+        again.
         """
         self.navigate(route)
         page = self._pages.get(route)
         if isinstance(page, AccountLedgerView):
-            page.select_party(party_id)
+            page.select_party(party_id, party_name)
 
     def _open_change_password(self) -> None:
         ChangePasswordDialog(self._session_view_model, parent=self).exec()

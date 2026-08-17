@@ -186,3 +186,188 @@ def test_the_no_items_row_draws_without_one(qt_app):
     empty = ItemPickerRow(_catalogue())
     assert empty._item.itemData(0, Qt.ItemDataRole.UserRole + 1) is None
     _paint(empty, 0)
+
+
+# ------------------------------------------------------- searching the shop
+
+# With a search callback the row stops being a list and becomes a
+# question: what it offers is whatever came back for what was typed. Three
+# things then have to hold, and each fails silently if it does not — the
+# choice already made must survive a batch that does not contain it, an
+# answer to an older question must not overwrite a newer one, and the
+# stock figure beside a row must survive the row being replaced.
+
+
+@pytest.fixture()
+def asked() -> list[tuple]:
+    return []
+
+
+@pytest.fixture()
+def searching(qt_app, stock, asked) -> ItemPickerRow:
+    return ItemPickerRow(stock, search=lambda item_type, term: asked.append((item_type, term)))
+
+
+def _items_in(row: ItemPickerRow) -> list[str]:
+    return [row._item.itemText(i) for i in range(row._item.count())]
+
+
+def test_the_row_asks_for_matches_once_typing_pauses(qt_app, searching, asked):
+    asked.clear()
+    searching._item.lineEdit().setText("gsm")
+    searching._item.lineEdit().textEdited.emit("gsm")
+    QTest.qWait(400)
+    qt_app.processEvents()
+
+    assert asked == [(ItemType.INVENTORY_ITEM, "gsm")]
+
+
+def test_it_asks_for_the_opening_page_of_a_kind_it_switches_to(searching, asked):
+    """A kind is a catalogue of its own, and the row opens on the start of
+    it rather than on whatever the last kind's search returned."""
+    asked.clear()
+    searching._on_kind_changed(0)
+
+    assert asked == [(ItemType.INVENTORY_ITEM, "")]
+
+
+def test_what_came_back_is_what_can_be_picked(searching):
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="Vinyl Roll", current_stock=12)],
+        term=None,
+    )
+
+    assert "Vinyl Roll" in _items_in(searching)
+
+
+def test_the_item_already_chosen_survives_a_search_that_excludes_it(searching):
+    """Pick "Black Ink", type "paper", and the box must still answer Black
+    Ink until something else is deliberately chosen — the line about to be
+    added is built from what it answers."""
+    searching._item.setCurrentIndex(1)
+    assert searching._item.currentData() == 2
+
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="Vinyl Roll", current_stock=12)],
+        term=None,
+    )
+
+    assert searching._item.currentData() == 2
+    assert "Black Ink Bottle" in _items_in(searching)
+
+
+def test_an_answer_to_an_older_question_is_ignored(searching):
+    """Two searches can be out at once. The box's own text is the question,
+    so a batch answering a different one is not the answer to it."""
+    searching._item.lineEdit().setText("vinyl")
+    before = _items_in(searching)
+
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="Vinyl Roll", current_stock=12)],
+        term="gsm",
+    )
+
+    assert _items_in(searching) == before
+
+
+# The row also drops a batch that came back for a kind it has since moved
+# off — paper offered under "Ink" is a list nobody asked for. Not pinned
+# here because it cannot be provoked with one kind registered; see
+# `ItemPickerRow.set_options`, and `item_types.ITEM_KINDS` for what
+# registering a second one involves.
+
+
+def test_the_stock_figure_survives_a_refill(searching):
+    """It is painted from a role on each row, and every batch rebuilds
+    every row — including the one carried over from before it."""
+    searching._item.setCurrentIndex(1)
+
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="Vinyl Roll", current_stock=12)],
+        term=None,
+    )
+
+    stocks = {
+        searching._item.itemText(i): searching._item.itemData(i, Qt.ItemDataRole.UserRole + 1)
+        for i in range(searching._item.count())
+    }
+    assert stocks["Vinyl Roll"] == 12
+    assert stocks["Black Ink Bottle"] == 0
+
+
+def _typing(row: ItemPickerRow, typed: str) -> None:
+    """Leave the row where a shopkeeper mid-search leaves it: on screen,
+    holding the focus, with a word in the box and no answer to it yet."""
+    row.show()
+    row.activateWindow()
+    QTest.qWaitForWindowExposed(row)
+    row._item.setFocus()
+    QTest.qWait(50)  # the opening selection is queued behind the focus
+    QTest.keyClicks(row._item.lineEdit(), typed)
+
+
+def test_the_word_being_searched_for_survives_the_answer_to_it(qt_app, searching):
+    """The whole of why searching read as doing nothing: every row of a
+    batch is stamped with its stock figure, one of those rows is the one
+    selected, and an editable combo re-reads its line edit whenever the
+    selected row is touched. So the word typed was replaced by an item's
+    name at the moment its own matches arrived."""
+    _typing(searching, "gsm")
+
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="120 gsm Poster Paper", current_stock=12)],
+        term="gsm",
+    )
+
+    assert searching._item.lineEdit().text() == "gsm"
+    assert "120 gsm Poster Paper" in _items_in(searching)
+    searching.close()
+
+
+def test_the_matches_that_arrive_are_the_ones_offered(qt_app, searching):
+    """The list of matches is built on a keystroke, and the matches for
+    that keystroke land a moment after it. Unless it is built again, what
+    is on screen is the list from before the search."""
+    _typing(searching, "vinyl")
+
+    searching.set_options(
+        ItemType.INVENTORY_ITEM,
+        [InventoryItem(id=9, name="Vinyl Roll", current_stock=12)],
+        term="vinyl",
+    )
+
+    completer = searching._item.completer()
+    offered = [
+        completer.completionModel().index(i, 0).data()
+        for i in range(completer.completionCount())
+    ]
+    assert offered == ["Vinyl Roll"]
+    searching.close()
+
+
+def test_a_box_nobody_is_typing_into_reads_as_what_it_answers(row):
+    """There is nothing half-typed to protect once the focus is elsewhere,
+    and a box left blank over a real choice is a form that looks unfilled
+    and adds a line anyway."""
+    assert row._item.currentText() == "80 gsm Art Paper"
+    assert row._item.currentData() == 1
+
+
+def test_a_placeholder_row_is_never_lost_to_a_refill(qt_app):
+    """"— choose a supplier —" going missing turns "nobody chosen" into
+    whichever record happened to match, and the form accepts it."""
+    from app.presentation.widgets.searchable_combo import SearchableComboBox
+
+    combo = SearchableComboBox()
+    combo.set_placeholder_item("— choose a supplier —", None)
+    combo.set_options([("Packages Paper Mill", 1)])
+
+    combo.set_options([("Ink World Karachi", 2)])
+
+    assert combo.itemText(0) == "— choose a supplier —"
+    assert combo.itemData(0) is None

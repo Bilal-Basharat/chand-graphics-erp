@@ -9,17 +9,17 @@ screen exists to answer.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from decimal import Decimal
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from app.application.dto.commands import CreatePurchaseCommand
-from app.application.dto.queries import SearchQuery
+from app.application.dto.queries import DocumentPageQuery, PageQuery
 from app.container import AppContainer
+from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.new_purchase_dialog import NewPurchaseDialog
-from app.presentation.item_types import load_catalogues
+from app.presentation.item_types import PICKER_MATCHES, item_names, search_catalogues
 from app.presentation.formatting import (
     DASH,
     NO_SUPPLIER,
@@ -38,31 +38,48 @@ from app.presentation.viewmodels.document_items import (
     payment_lines,
 )
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
-from app.presentation.views.document_lists import created_at, payment_filters
+from app.presentation.views.document_lists import payment_filters
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
-_REFERENCE_LIMIT = 500
-_ZERO = Decimal("0.00")
+_METHOD_LIMIT = 200
+"""Payment methods are a short list somebody keeps by hand, and every one
+of them belongs in the dropdown. A ceiling, not a page size."""
 
 
 class PurchasesViewModel(CollectionViewModelBase):
     """
-    Listing is by date range, and the create dialog needs several
-    catalogues, so this doesn't fit `CollectionSource` — it implements the
-    collection contract directly instead.
+    Listing is by period, and the create dialog needs items and suppliers
+    to pick from, so this doesn't fit `CollectionSource` — it implements
+    the collection contract directly instead.
+
+    Nothing here loads a catalogue: the list names its rows from the ids
+    on the page it just received, and the dialog's pickers ask for matches
+    as they are typed into. Mirrors `SalesViewModel`.
     """
 
     referenceLoaded = Signal(dict)
+    namesLoaded = Signal(object)
+    catalogueSearched = Signal(object, str, list)  # ItemType, term, records
+    partiesSearched = Signal(str, list)  # term, suppliers
 
     def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
         super().__init__()
         self._container = container
         self._period = period
+        self._supplier_names: dict[int, str] = {}
         self._method_names: dict[int, str] = {}
         self._catalogue = ItemCatalogue()
+
+    def supplier_name(self, purchase) -> str:
+        """The supplier a purchase is from, named either way."""
+        if not purchase.supplier_id:
+            return NO_SUPPLIER
+        # A dash only while the name is still loading — saying "no
+        # supplier" there would be a different claim, and a false one.
+        return self._supplier_names.get(purchase.supplier_id, DASH)
 
     def item_lines(self, purchase) -> list[DocumentItemLine]:
         """What was bought on one purchase, ready to read underneath it."""
@@ -76,50 +93,112 @@ class PurchasesViewModel(CollectionViewModelBase):
             method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
         )
 
-    def load(self) -> None:
-        use_case = self._container.list_purchases_by_date_range_use_case()
-        self.run_async(
-            lambda: use_case.execute(self._period.as_query()),
-            on_success=self.rowsLoaded.emit,
+    def build_query(self) -> DocumentPageQuery:
+        start, end = self._period.range()
+        return DocumentPageQuery(
+            **self._state.as_kwargs(),
+            start=start,
+            end=end,
+            payment=self._state.filter_value,
         )
 
-    def search(self, term: str) -> None:
-        term = term.strip()
-        if not term:
-            self.load()
+    def fetch(self, query: DocumentPageQuery):
+        return self._container.page_purchases_use_case().execute(query)
+
+    def load_names_for(self, purchases: list) -> None:
+        """Fetch what this page's rows and lines point at, and nothing else."""
+        supplier_ids = {
+            purchase.supplier_id
+            for purchase in purchases
+            if purchase.supplier_id and purchase.supplier_id not in self._supplier_names
+        }
+        item_ids = self._catalogue.missing_ids(purchases, ItemType.INVENTORY_ITEM)
+        if not supplier_ids and not item_ids:
             return
-        use_case = self._container.search_purchases_use_case()
-        self.run_async(
-            lambda: use_case.execute(SearchQuery(term=term, limit=200)),
-            on_success=self.rowsLoaded.emit,
-        )
-
-    def load_reference_data(self) -> None:
-        """One round trip for everything the create dialog needs."""
 
         def fetch() -> dict:
             return {
-                "suppliers": self._container.search_suppliers_use_case().execute(
-                    SearchQuery(term="", limit=_REFERENCE_LIMIT)
+                "suppliers": (
+                    self._container.supplier_names_use_case().execute(supplier_ids)
+                    if supplier_ids
+                    else {}
                 ),
-                "payment_methods": self._container.list_payment_methods_use_case().execute(100),
-                "catalogues": load_catalogues(self._container, _REFERENCE_LIMIT),
+                "items": item_names(self._container, ItemType.INVENTORY_ITEM, item_ids),
+            }
+
+        def _on_success(names: dict) -> None:
+            self._supplier_names.update(names["suppliers"])
+            self._catalogue.add_names(ItemType.INVENTORY_ITEM, names["items"])
+            self.namesLoaded.emit(names)
+
+        self.run_async(fetch, on_success=_on_success)
+
+    def load_reference_data(self) -> None:
+        """The first page of everything the create dialog offers."""
+
+        def fetch() -> dict:
+            return {
+                "suppliers": self._search_suppliers(""),
+                "payment_methods": (
+                    self._container.page_payment_methods_use_case()
+                    .execute(PageQuery(page_size=_METHOD_LIMIT))
+                    .rows
+                ),
+                "catalogues": search_catalogues(self._container, ""),
             }
 
         def _on_success(reference: dict) -> None:
-            self._method_names = {m.id: m.name for m in reference["payment_methods"]}
-            self._catalogue.set_catalogues(reference["catalogues"])
+            self._remember(reference)
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)
+
+    def search_catalogue(self, item_type: ItemType, term: str) -> None:
+        """Matches for what is being typed into the item picker."""
+
+        def _on_success(records: list) -> None:
+            self._catalogue.add_names(
+                item_type, {record.id: record.name for record in records}
+            )
+            self.catalogueSearched.emit(item_type, term, records)
+
+        self.run_async(
+            lambda: search_catalogues(self._container, term)[ItemType(item_type)],
+            on_success=_on_success,
+        )
+
+    def search_parties(self, term: str) -> None:
+        """Matches for what is being typed into the supplier picker."""
+
+        def _on_success(suppliers: list) -> None:
+            self._supplier_names.update({s.id: s.name for s in suppliers})
+            self.partiesSearched.emit(term, suppliers)
+
+        self.run_async(lambda: self._search_suppliers(term), on_success=_on_success)
+
+    def _search_suppliers(self, term: str) -> list:
+        return (
+            self._container.page_suppliers_use_case()
+            .execute(PageQuery(search=term, page_size=PICKER_MATCHES))
+            .rows
+        )
+
+    def _remember(self, reference: dict) -> None:
+        self._supplier_names.update({s.id: s.name for s in reference["suppliers"]})
+        self._method_names = {m.id: m.name for m in reference["payment_methods"]}
+        for item_type, records in reference["catalogues"].items():
+            self._catalogue.add_names(
+                item_type, {record.id: record.name for record in records}
+            )
 
     def create(self, command: CreatePurchaseCommand) -> None:
         use_case = self._container.create_purchase_use_case()
 
         def _on_success(purchase) -> None:
             self.itemCreated.emit(purchase)
-            self.load()
-            # Stock changed, so the dialog's catalogues are now stale.
+            # Back to the first page, where the new purchase now sorts.
+            self.reload_from_start()
+            # Stock changed, so what the dialog last offered is stale.
             self.load_reference_data()
 
         self.run_async(lambda: use_case.execute(command), on_success=_on_success)
@@ -154,44 +233,45 @@ class PurchasesView(CollectionView):
             # they are the purchase payments screen's whole subject, and
             # carrying them here as well left no room for the item names.
             [
-                Column("PURCHASE #", lambda p: p.purchase_no, width=160),
-                Column("SUPPLIER", self._supplier_label),
-                Column("REFERENCE", lambda p: or_dash(p.reference_no), width=150),
+                Column("PURCHASE #", lambda p: p.purchase_no, sort_field="number", width=160),
+                Column("SUPPLIER", view_model.supplier_name, sort_field="supplier"),
                 Column(
-                    "ITEMS",
-                    lambda p: len(p.items),
-                    align="right",
-                    sort_key=lambda p: len(p.items),
-                    width=80,
+                    "REFERENCE",
+                    lambda p: or_dash(p.reference_no),
+                    sort_field="reference",
+                    width=150,
                 ),
-                Column(
-                    "SUBTOTAL",
-                    lambda p: money(p.subtotal),
-                    align="right",
-                    sort_key=lambda p: p.subtotal,
-                    width=140,
-                ),
+                # No sort on the count: it is the length of a list carried
+                # with the row, and the query has no column for it.
+                Column("ITEMS", lambda p: len(p.items), align="right", width=80),
+                Column("SUBTOTAL", lambda p: money(p.subtotal), align="right", width=140),
                 Column(
                     "DISCOUNT",
                     lambda p: money(p.discount_amount),
                     align="right",
-                    sort_key=lambda p: p.discount_amount,
                     width=130,
                 ),
                 Column(
                     "TOTAL",
                     lambda p: money(p.grand_total),
                     align="right",
-                    sort_key=lambda p: p.grand_total,
+                    sort_field="total",
                     width=140,
                 ),
-                Column("DATE", lambda p: date_time(p.created_at), sort_key=created_at, width=180),
+                Column(
+                    "DATE",
+                    lambda p: date_time(p.created_at),
+                    sort_field="created",
+                    width=180,
+                ),
             ],
             view_model,
             parent,
         )
 
         view_model.referenceLoaded.connect(self._on_reference_loaded)
+        # Names arrive after the rows that display them.
+        view_model.namesLoaded.connect(lambda _names: self.table.refresh())
 
     def create_table(self, columns: Sequence[Column]) -> GroupedTable:
         # A purchase stays one row carrying its own totals; what was bought
@@ -222,7 +302,7 @@ class PurchasesView(CollectionView):
     def record_card(self, row) -> RecordCard:
         return purchase_card(
             row,
-            supplier=self._supplier_label(row),
+            supplier=self._purchases_view_model.supplier_name(row),
             items=self._purchases_view_model.item_lines(row),
             payments=self._purchases_view_model.payment_lines(row),
         )
@@ -237,27 +317,25 @@ class PurchasesView(CollectionView):
     def filter_options(self):
         return payment_filters()
 
-    def summary(self, rows: list):
+    def summary(self):
+        # The period's figures, not this page's — see the sale list.
+        result = self.view_model.result
+        if result is None or result.totals is None:
+            return ()
         return (
-            ("Bought", money(sum((p.grand_total for p in rows), _ZERO))),
-            ("Unpaid", money(sum((p.balance_amount for p in rows), _ZERO))),
+            ("Bought", money(result.totals.total)),
+            ("Unpaid", money(result.totals.outstanding)),
         )
+
+    def on_rows_loaded(self, rows: list) -> None:
+        # The suppliers and items this page points at, by id.
+        self._purchases_view_model.load_names_for(rows)
 
     def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        # From the start: another period is a different list.
+        selector.periodChanged.connect(self.reload_from_start)
         return [selector]
-
-    def _supplier_label(self, purchase) -> str:
-        """The supplier a purchase is from, named either way."""
-        if not purchase.supplier_id:
-            return NO_SUPPLIER
-        for supplier in self._reference.get("suppliers", []):
-            if supplier.id == purchase.supplier_id:
-                return supplier.name
-        # A dash only while the name is still loading — saying "no
-        # supplier" there would be a different claim, and a false one.
-        return DASH
 
     def _on_reference_loaded(self, reference: dict) -> None:
         self._reference = reference

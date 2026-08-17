@@ -24,7 +24,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QHeaderView, QWidget
 
 from app.presentation.theme import tokens as t
-from app.presentation.widgets.table_model import Column, safe_value
+from app.presentation.widgets.table_model import Column
 
 _PADDING = 12
 """The side padding the QSS gives `QHeaderView::section`. The mark is
@@ -66,7 +66,14 @@ class SortableHeader(QHeaderView):
     # ---------------- state ----------------
 
     def sort_by(self, header: str, descending: bool = False) -> None:
-        """Open the list on a particular order, named by its heading."""
+        """Open the list on a particular order, named by its heading.
+
+        Marks the heading without asking for anything: the caller is
+        saying what the list is *already* ordered by. `CollectionView.
+        set_initial_sort` is what tells the view model at the same time —
+        set only this and the heading claims an order the query never
+        applied.
+        """
         for index, column in enumerate(self._columns):
             if column.header == header:
                 self._column = index
@@ -74,27 +81,27 @@ class SortableHeader(QHeaderView):
                 self.viewport().update()
                 return
 
-    def sort(self, rows: list) -> list:
+    @property
+    def sort_field(self) -> str | None:
+        """What the query calls the column being sorted by."""
         if self._column is None:
-            return rows
-        column = self._columns[self._column]
-        getter = column.sort_key or column.getter
+            return None
+        return self._columns[self._column].sort_field
 
-        def key(row):
-            return safe_value(getter, row)
-
-        try:
-            return sorted(rows, key=key, reverse=self._descending)
-        except TypeError:
-            # A column holding more than one kind of value — a count beside
-            # a dash, say. Comparing them as text is arbitrary but stable,
-            # and infinitely better than the sort raising mid-render.
-            return sorted(rows, key=lambda row: str(key(row)), reverse=self._descending)
+    @property
+    def descending(self) -> bool:
+        return self._descending
 
     def _sortable(self, index: int) -> bool:
         # An unlabelled column is either the row-actions column or a detail
-        # column: nothing a user would think to sort by.
-        return 0 <= index < len(self._columns) and bool(self._columns[index].header)
+        # column: nothing a user would think to sort by. A labelled one
+        # without a `sort_field` is a column the query cannot order by, and
+        # a heading that answers a click by returning the same rows is
+        # worse than one that does not react at all.
+        if not 0 <= index < len(self._columns):
+            return False
+        column = self._columns[index]
+        return bool(column.header) and column.sort_field is not None
 
     def _on_clicked(self, index: int) -> None:
         if not self._sortable(index):

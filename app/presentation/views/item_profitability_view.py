@@ -20,7 +20,7 @@ from collections.abc import Sequence
 
 from PySide6.QtWidgets import QWidget
 
-from app.application.dto.queries import ItemProfitability, ReportQuery
+from app.application.dto.queries import ItemProfitability, PageResult, ReportQuery
 from app.container import AppContainer
 from app.presentation.dialogs.record_card_dialog import print_card, save_pdf
 from app.presentation.formatting import counted, money, percent
@@ -31,6 +31,20 @@ from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
 from app.presentation.views.collection_view import CollectionPage, CollectionView
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.table_model import Column
+
+
+_SORT_KEYS = {
+    "item": lambda row: row.name.lower(),
+    "quantity": lambda row: row.quantity_sold,
+    "revenue": lambda row: row.revenue,
+    "cost": lambda row: row.cost if row.cost is not None else 0,
+    "profit": lambda row: row.profit if row.profit is not None else 0,
+    "margin": lambda row: row.margin if row.margin is not None else 0,
+}
+"""Ordered here rather than by the database: the report is one row per
+item sold and arrives whole, so the whole list is in hand to sort. An item
+with no cost recorded sorts as zero rather than raising — its figure is a
+dash on screen, which is the honest answer, but not a comparable one."""
 
 
 class ItemProfitabilityViewModel(CollectionViewModelBase):
@@ -55,30 +69,29 @@ class ItemProfitabilityViewModel(CollectionViewModelBase):
     def period_label(self) -> str:
         return self._period.label
 
-    def load(self) -> None:
+    def fetch(self, query) -> PageResult:
+        """The period's trading, as one page.
+
+        Not paged, and deliberately: the revenue, cost and margin along
+        the top are the period's, computed across every line in it, and a
+        page of the rows would leave those figures describing something
+        the rows do not. The rows are one per item sold, so the set is
+        bounded by the catalogue and narrowing it needs no second query.
+        """
         start, end = self._period.range()
-        query = ReportQuery(start=start, end=end)
-
-        def _on_success(report: ItemProfitability) -> None:
-            # Set before the rows go out: the summary strip is rendered
-            # from this, off the back of `rowsLoaded`.
-            self._report = report
-            self.rowsLoaded.emit(list(report.rows))
-
-        self.run_async(
-            lambda: self._container.item_profitability_use_case().execute(query),
-            on_success=_on_success,
+        report = self._container.item_profitability_use_case().execute(
+            ReportQuery(start=start, end=end)
         )
+        # Set here rather than when the rows arrive because the summary
+        # strip is drawn from it the moment they do.
+        self._report = report
 
-    def search(self, term: str) -> None:
-        term = term.strip().lower()
-        report = self._report
-        if report is None or not term:
-            self.load()
-            return
-        # Filtered from what is already loaded: the period's rows are one
-        # per item, so there is nothing to go back to the database for.
-        self.rowsLoaded.emit([row for row in report.rows if term in row.name.lower()])
+        term = query.search.lower()
+        rows = [row for row in report.rows if not term or term in row.name.lower()]
+        key = _SORT_KEYS.get(query.sort_field or "")
+        if key is not None:
+            rows.sort(key=key, reverse=query.sort_desc)
+        return PageResult(rows=rows, total=len(rows), page=1, page_size=max(1, len(rows)))
 
 
 def _profit_color(row) -> str | None:
@@ -108,19 +121,19 @@ class ItemProfitabilityView(CollectionView):
                 search_placeholder="Search by item",
             ),
             [
-                Column("ITEM", lambda row: row.name),
+                Column("ITEM", lambda row: row.name, sort_field="item"),
                 Column(
                     "QTY SOLD",
                     lambda row: f"{row.quantity_sold:,}",
                     align="right",
-                    sort_key=lambda row: row.quantity_sold,
+                    sort_field="quantity",
                     width=110,
                 ),
                 Column(
                     "REVENUE",
                     lambda row: money(row.revenue),
                     align="right",
-                    sort_key=lambda row: row.revenue,
+                    sort_field="revenue",
                     width=140,
                 ),
                 # `money(None)` is a dash. Deliberate: an item that was
@@ -130,7 +143,7 @@ class ItemProfitabilityView(CollectionView):
                     "COST",
                     lambda row: money(row.cost),
                     align="right",
-                    sort_key=lambda row: row.cost if row.cost is not None else 0,
+                    sort_field="cost",
                     width=140,
                 ),
                 Column(
@@ -138,14 +151,14 @@ class ItemProfitabilityView(CollectionView):
                     lambda row: money(row.profit),
                     align="right",
                     color=_profit_color,
-                    sort_key=lambda row: row.profit if row.profit is not None else 0,
+                    sort_field="profit",
                     width=140,
                 ),
                 Column(
                     "MARGIN",
                     lambda row: percent(row.margin),
                     align="right",
-                    sort_key=lambda row: row.margin if row.margin is not None else 0,
+                    sort_field="margin",
                     width=110,
                 ),
             ],
@@ -159,10 +172,10 @@ class ItemProfitabilityView(CollectionView):
 
     def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        selector.periodChanged.connect(self.reload_from_start)
         return [selector]
 
-    def summary(self, rows: list) -> Sequence[tuple[str, str]]:
+    def summary(self) -> Sequence[tuple[str, str]]:
         # The period's figures, not the visible rows': searching narrows
         # what is on screen without changing what the period earned.
         report = self._report_view_model.report

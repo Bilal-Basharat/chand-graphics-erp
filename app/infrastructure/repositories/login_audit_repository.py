@@ -9,6 +9,7 @@ from app.domain.repositories.login_audit_repository import LoginAuditRepository 
 from app.infrastructure.db.models.login_audit_model import LoginAuditModel
 from app.infrastructure.mappers.login_audit_mapper import LoginAuditMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
+from app.infrastructure.repositories.paging import contains, matching
 
 
 class SqlAlchemyLoginAuditRepository(
@@ -55,6 +56,56 @@ class SqlAlchemyLoginAuditRepository(
         models = self.session.execute(stmt).scalars().all()
         return [LoginAuditMapper.to_entity(model) for model in models]
 
+
+    _SORTABLE = {
+        "created": LoginAuditModel.created_at,
+        "email": LoginAuditModel.email,
+        "event": LoginAuditModel.event_type,
+        "outcome": LoginAuditModel.success,
+    }
+
+    def _filtered_audits(self, user_id: int | None, event_type: str | None, search: str):
+        stmt = select(LoginAuditModel)
+        if user_id is not None:
+            stmt = stmt.where(LoginAuditModel.user_id == user_id)
+        if event_type:
+            stmt = stmt.where(LoginAuditModel.event_type == str(event_type))
+        if search:
+            stmt = stmt.where(
+                matching(contains(search), LoginAuditModel.email, LoginAuditModel.message)
+            )
+        return stmt
+
+    def page_audits(
+        self,
+        *,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        search: str = "",
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[LoginAudit]:
+        return self.page_of(
+            self._filtered_audits(user_id, event_type, search),
+            sortable=self._SORTABLE,
+            default_sort="created",
+            default_desc=True,
+            sort_field=sort_field,
+            sort_desc=sort_desc,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_audits(
+        self,
+        *,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        search: str = "",
+    ) -> int:
+        return self.count_of(self._filtered_audits(user_id, event_type, search))
 
     def count_recent_failed_sign_ins(self, email: str, since) -> int:
         stmt = (

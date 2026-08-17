@@ -27,11 +27,6 @@ class PurchaseRepository(Repository[Purchase], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def search_by_term(self, term: str, limit: int = 50) -> list[Purchase]:
-        """Match on purchase number, supplier name, reference or note."""
-        raise NotImplementedError
-
-    @abstractmethod
     def sum_by_supplier(self, supplier_id: int) -> Decimal:
         """Return total grand_total of all purchases from a supplier."""
         raise NotImplementedError
@@ -86,5 +81,55 @@ class PurchaseRepository(Repository[Purchase], ABC):
         Unlike `sum_by_supplier`, which is every purchase ever, this is
         bounded — it is the half of an opening balance that the purchases
         themselves account for.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def page_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Purchase]:
+        """One page of a period's purchases, searched, filtered and ordered.
+
+        `payment` is a `PaymentFilter` value. Plain values rather than the
+        application's page query: this is a domain port, and the layer
+        that defines that query already depends on this one.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> int:
+        """How many purchases those same conditions match."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def sum_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        """What they came to, and what is still owed on them.
+
+        Over everything the conditions match, not over one page of it: a
+        figure describing a period cannot be added up from a hundredth of
+        it, and one that silently is would be wrong without ever failing.
         """
         raise NotImplementedError

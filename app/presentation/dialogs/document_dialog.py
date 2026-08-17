@@ -115,12 +115,9 @@ class DocumentDialog(QDialog):
 
         self._size_to_screen(body, footer)
 
-        self._connections = [
-            (view_model.itemCreated, self._on_created),
-            (view_model.errorOccurred, self._on_error),
-        ]
-        for signal, slot in self._connections:
-            signal.connect(slot)
+        self._connections: list[tuple] = []
+        self.listen(view_model.itemCreated, self._on_created)
+        self.listen(view_model.errorOccurred, self._on_error)
 
         self._render_lines()
 
@@ -144,6 +141,16 @@ class DocumentDialog(QDialog):
             min(980, available.width() - margin),
             min(wanted, available.height() - margin),
         )
+
+    def listen(self, signal, slot) -> None:
+        """Take a view model signal, and remember to let go of it.
+
+        The view model outlives the dialog, so every connection made to it
+        has to be undone in `done()` — see `FormDialog` for what happens
+        when one is not.
+        """
+        signal.connect(slot)
+        self._connections.append((signal, slot))
 
     # ---------------- subclass hooks ----------------
 

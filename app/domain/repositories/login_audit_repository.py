@@ -44,3 +44,29 @@ class LoginAuditRepository(Repository[LoginAudit], ABC):
         the event itself.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def page_audits(
+        self,
+        *,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        search: str = "",
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[LoginAudit]:
+        """One page of the sign-in history."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_audits(
+        self,
+        *,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        search: str = "",
+    ) -> int:
+        """How many audit rows those same conditions match."""
+        raise NotImplementedError

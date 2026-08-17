@@ -7,6 +7,12 @@ override the hooks below for whatever is genuinely theirs (the create
 dialog, extra filters, a footer strip). Nothing about layout, spacing,
 search debouncing, loading state or error routing is restated per screen.
 
+A screen shows one page of its list. Searching, filtering, sorting and
+turning a page are all the same act — asking the view model for a
+different page — so none of them is done to the rows in hand. Doing any
+of it here would answer a question about the whole list using a hundredth
+of it, and would look right while doing so.
+
 Hooks, all optional:
     open_create_dialog()  - what the header's primary button does
     filter_options()      - the screen's Filter choices
@@ -36,6 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.application.dto.queries import PageResult
 from app.presentation.dialogs.confirm import confirm_destructive
 from app.presentation.dialogs.record_card_dialog import RecordCardDialog
 from app.presentation.records.card import RecordCard
@@ -44,6 +51,7 @@ from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.grouped_table import GroupedTable
 from app.presentation.widgets.list_controls import FilterBox, FilterOption
 from app.presentation.widgets.page_header import PageHeader
+from app.presentation.widgets.pagination_bar import PaginationBar
 from app.presentation.widgets.quick_add_strip import QuickAddField, QuickAddStrip
 from app.presentation.widgets.row_actions import RowAction, RowActionsDelegate
 from app.presentation.widgets.summary_strip import SummaryStrip
@@ -91,7 +99,9 @@ class CollectionPage:
         if count == 1:
             return f"1 {self.unit}"
         plural = self.unit_plural or f"{self.unit}s"
-        return f"{count} {plural}"
+        # Grouped: this counts a whole list now rather than a screenful,
+        # and "1240 sales" is a number nobody reads at a glance.
+        return f"{count:,} {plural}"
 
 
 class CollectionView(QWidget):
@@ -108,10 +118,6 @@ class CollectionView(QWidget):
         self._search: QLineEdit | None = None
         self._filter: FilterBox | None = None
         self._loaded_once = False
-        # What the view model last returned, before the filter and the
-        # column sort had their say. Kept so changing either re-renders
-        # instead of re-querying for rows that are already here.
-        self._rows: list = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 20, 24, 24)
@@ -124,7 +130,7 @@ class CollectionView(QWidget):
 
         outer.addWidget(self._build_panel(columns), 1)
 
-        view_model.rowsLoaded.connect(self._on_rows_loaded)
+        view_model.pageLoaded.connect(self._on_page_loaded)
         view_model.busyChanged.connect(self._on_busy_changed)
         view_model.errorOccurred.connect(self._on_error)
 
@@ -167,7 +173,7 @@ class CollectionView(QWidget):
         filters = self.filter_options()
         if filters:
             self._filter = FilterBox(filters)
-            self._filter.changed.connect(self._render_rows)
+            self._filter.changed.connect(self._on_filter_changed)
 
         extras = self.toolbar_extras()
         if self._page.search_placeholder or extras or self._filter is not None:
@@ -184,6 +190,12 @@ class CollectionView(QWidget):
         self._quick_add = self._build_quick_add()
         if self._quick_add is not None:
             layout.addWidget(self._quick_add)
+
+        # Below the quick-add row, which reads as the table's last line.
+        self._pagination = PaginationBar(self._view_model.page_size)
+        self._pagination.pageRequested.connect(self._view_model.go_to_page)
+        self._pagination.pageSizeChanged.connect(self._view_model.set_page_size)
+        layout.addWidget(self._pagination)
 
         footer = self.build_footer()
         if footer is not None:
@@ -218,9 +230,10 @@ class CollectionView(QWidget):
             columns.append(Column("", lambda _row: "", width=delegate.column_width()))
 
         table = self.create_table(columns)
-        # Sorting lives on the headings, so the table owns it and the
-        # screen only has to re-render when it changes.
-        table.sorting.changed.connect(self._render_rows)
+        # Sorting lives on the headings, and orders the whole list rather
+        # than the page on screen — so a click asks for the list again in
+        # that order rather than rearranging the hundred rows in hand.
+        table.sorting.changed.connect(self._on_sort_changed)
         if delegate is not None:
             delegate.setParent(table)
             delegate.attach(table, column=len(columns) - 1)
@@ -288,11 +301,14 @@ class CollectionView(QWidget):
         """
         return ()
 
-    def summary(self, rows: list) -> Sequence[tuple[str, str]]:
-        """Figures describing the rows on screen, as (caption, value) pairs.
+    def summary(self) -> Sequence[tuple[str, str]]:
+        """Figures describing the list, as (caption, value) pairs.
 
-        Given the rows actually shown, not everything fetched, so the
-        figures always add up to what the user is looking at.
+        Deliberately given no rows: these describe the whole filtered list
+        — "sold this month" — and one page cannot be added up into an
+        answer about the period it is a hundredth of. A screen with money
+        in its strip reads it from the totals its page result carries; one
+        with counts reads them from `result.total`.
         """
         return ()
 
@@ -343,11 +359,40 @@ class CollectionView(QWidget):
         self.reload()
 
     def reload(self) -> None:
-        term = self._search.text() if self._search is not None else ""
-        if term.strip():
-            self._view_model.search(term)
-        else:
-            self._view_model.load()
+        """Fetch the page the screen is on again. The view model holds the
+        search term, the filter and the order, so there is nothing to
+        gather here."""
+        self._view_model.reload()
+
+    def reload_from_start(self) -> None:
+        """For a change to *what* is listed — another period, another item,
+        another party — rather than a refresh of it."""
+        self._view_model.reload_from_start()
+
+    def set_initial_sort(self, header: str, descending: bool = False) -> None:
+        """Open the list in a particular order.
+
+        Marks the heading and tells the view model in one call: doing only
+        the first would draw a sorted column over rows the query never
+        ordered. Asks for nothing — the screen has not made its first
+        request yet.
+        """
+        self._table.sorting.sort_by(header, descending)
+        self._view_model.open_sorted_by(self._table.sorting.sort_field, descending)
+
+    def set_initial_filter(self, label: str) -> None:
+        """Open the list already narrowed.
+
+        Signals blocked, because a filter box set here would otherwise
+        read as the user narrowing it — the screen would fetch every row
+        and then immediately fetch the narrowed set over the top.
+        """
+        if self._filter is None:
+            return
+        self._filter.blockSignals(True)
+        self._filter.select(label)
+        self._filter.blockSignals(False)
+        self._view_model.open_filtered_by(self._filter.current_value())
 
     def apply_search(self, term: str) -> None:
         """Entry point for the global header search box."""
@@ -359,7 +404,16 @@ class CollectionView(QWidget):
     def _run_search(self) -> None:
         if self._search is None:
             return
-        self._view_model.search(self._search.text())
+        self._view_model.set_search(self._search.text())
+
+    def _on_filter_changed(self) -> None:
+        if self._filter is not None:
+            self._view_model.set_filter(self._filter.current_value())
+
+    def _on_sort_changed(self) -> None:
+        self._view_model.set_sort(
+            self._table.sorting.sort_field, self._table.sorting.descending
+        )
 
     @property
     def supports_search(self) -> bool:
@@ -383,22 +437,19 @@ class CollectionView(QWidget):
 
     # ---------------- view model callbacks ----------------
 
-    def _on_rows_loaded(self, rows: list) -> None:
+    def _on_page_loaded(self, result: PageResult) -> None:
         self._loaded_once = True
-        self._rows = rows
-        self._render_rows()
-
-    def _render_rows(self) -> None:
-        rows = self._rows if self._filter is None else self._filter.apply(self._rows)
-        rows = self._table.sorting.sort(rows)
         term = self._search.text().strip() if self._search is not None else ""
         self._table.set_placeholder(
             f'No matches for "{term}".' if term else self._page.empty_message
         )
-        self._table.set_rows(rows)
-        self._count_label.setText(self._page.count_label(len(rows)))
-        self._summary.set_items(self.summary(rows))
-        self.on_rows_loaded(rows)
+        self._table.set_rows(result.rows)
+        # The count is of the whole list; the bar says which of it these
+        # rows are. Each number appears once.
+        self._count_label.setText(self._page.count_label(result.total))
+        self._pagination.set_page(result)
+        self._summary.set_items(self.summary())
+        self.on_rows_loaded(result.rows)
 
     def set_filter_options(self, filters: Sequence[FilterOption]) -> None:
         """Replace the Filter choices — for screens whose options are only

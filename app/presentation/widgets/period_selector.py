@@ -22,7 +22,6 @@ from PySide6.QtCore import Signal
 from app.shared.datetimes import now_pkt
 from PySide6.QtWidgets import QComboBox, QWidget
 
-from app.application.dto.commands import DateRangeQuery
 
 # Well before any record this app could hold — an "all time" lower bound
 # that avoids datetime.min, which some drivers refuse to bind.
@@ -110,10 +109,6 @@ class PeriodSelection:
 
     def range(self) -> tuple[datetime, datetime]:
         return _PRESETS[self._index][1](now_pkt())
-
-    def as_query(self, limit: int = 500) -> DateRangeQuery:
-        start, end = self.range()
-        return DateRangeQuery(start=start, end=end, limit=limit)
 
 
 class PeriodSelector(QComboBox):

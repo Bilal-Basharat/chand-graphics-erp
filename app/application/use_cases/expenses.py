@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from decimal import Decimal
+
+from app.application.dto.queries import ExpensePageQuery, PageResult, PageTotals
 from app.application.dto.commands import CreateExpenseCommand, DateRangeQuery
 from app.application.exceptions import NotFoundError
 from app.application.use_cases.base import UseCase
@@ -70,3 +73,39 @@ class ListExpensesByDateRangeUseCase(AuthenticatedUseCase[DateRangeQuery, list[E
         with self.uow as uow:
             expenses = self.require(uow.expenses, "expenses")
             return expenses.list_by_date_range(request.start, request.end, request.limit)
+
+
+class PageExpensesUseCase(AuthenticatedUseCase[ExpensePageQuery, PageResult]):
+    """One page of a period's expenses, with what the period came to."""
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: ExpensePageQuery) -> PageResult:
+        with self.uow as uow:
+            expenses = self.require(uow.expenses, "expenses")
+            conditions = {
+                "start": request.start,
+                "end": request.end,
+                "search": request.search,
+                "category_id": request.category_id,
+                "uncategorised": request.uncategorised,
+            }
+            rows = expenses.page_expenses(
+                **conditions,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            return PageResult(
+                rows=rows,
+                total=expenses.count_expenses(**conditions),
+                page=request.page,
+                page_size=request.page_size,
+                # Nothing is owed on an expense: it is money already gone.
+                totals=PageTotals(
+                    total=expenses.sum_expenses(**conditions), outstanding=Decimal("0.00")
+                ),
+            )

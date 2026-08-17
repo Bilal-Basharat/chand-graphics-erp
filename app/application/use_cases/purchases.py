@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.application.dto.queries import DocumentPageQuery, PageResult, PageTotals
 from app.application.dto.commands import (
     CreatePurchaseCommand,
     DateRangeQuery,
@@ -243,3 +244,42 @@ class GetSupplierPurchaseTotalUseCase(AuthenticatedUseCase[int, Decimal]):
         with self.uow as uow:
             purchases = self.require(uow.purchases, "purchases")
             return purchases.sum_by_supplier(request)
+
+
+class PagePurchasesUseCase(AuthenticatedUseCase[DocumentPageQuery, PageResult]):
+    """One page of a period's purchases, with what the whole period comes to.
+
+    The rows, the count and the two figures in the summary strip all come
+    from one unit of work and one set of conditions. Added up from the
+    page instead, the strip would report a fraction of the period under a
+    caption claiming the whole of it — wrong, and never failing.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: DocumentPageQuery) -> PageResult:
+        with self.uow as uow:
+            purchases = self.require(uow.purchases, "purchases")
+            conditions = {
+                "start": request.start,
+                "end": request.end,
+                "search": request.search,
+                "payment": request.payment,
+            }
+            rows = purchases.page_purchases(
+                **conditions,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            total, outstanding = purchases.sum_purchases(**conditions)
+            return PageResult(
+                rows=rows,
+                total=purchases.count_purchases(**conditions),
+                page=request.page,
+                page_size=request.page_size,
+                totals=PageTotals(total=total, outstanding=outstanding),
+            )

@@ -17,15 +17,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.application.dto.queries import PageQuery
 from app.container import AppContainer
+from app.domain.enums.item_type import ItemType
 from app.presentation.formatting import payment_method_name
-from app.presentation.item_types import CATALOGUE_LIMIT, load_catalogues
+from app.presentation.item_types import ITEM_KINDS, item_names
 from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
 
-_METHOD_LIMIT = 100
-"""Payment methods are a short hand-kept list, as every screen assumes."""
+_METHOD_LIMIT = 200
+"""Payment methods are a short hand-kept list, as every screen assumes.
+A ceiling, not a page size — every one of them belongs in the lookup."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,19 +39,30 @@ class DocumentNames:
     method_name: Callable[[int | None], str]
 
     @classmethod
-    def load(cls, container: AppContainer, limit: int = CATALOGUE_LIMIT) -> DocumentNames:
+    def load(cls, container: AppContainer, documents) -> DocumentNames:
         """Fetch both lookups in one trip. Runs off the UI thread.
 
-        `load_catalogues` is the one place that knows which item kinds
-        exist, so a special item module reaches every card through here
-        without this being touched.
+        For the documents given, by the ids their lines carry — never by
+        loading a catalogue. A catalogue is a ceiling, and a card for a
+        document above it printed a dash where the item's name goes.
+
+        `ITEM_KINDS` is the one place that knows which item kinds exist, so
+        a special item module reaches every card through here without this
+        being touched.
         """
         catalogue = ItemCatalogue()
-        catalogue.set_catalogues(load_catalogues(container, limit))
+        documents = list(documents)
+        for item_type in ITEM_KINDS:
+            wanted = catalogue.missing_ids(documents, ItemType(item_type))
+            catalogue.add_names(item_type, item_names(container, item_type, wanted))
 
         methods = {
             method.id: method.name
-            for method in container.list_payment_methods_use_case().execute(_METHOD_LIMIT)
+            for method in (
+                container.page_payment_methods_use_case()
+                .execute(PageQuery(page_size=_METHOD_LIMIT))
+                .rows
+            )
         }
         return cls(
             catalogue=catalogue,

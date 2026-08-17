@@ -22,7 +22,7 @@ from decimal import Decimal
 
 from app.domain.enums.item_type import ItemType
 from app.presentation.formatting import DASH
-from app.presentation.item_types import catalogue_key, item_name
+from app.presentation.item_types import catalogue_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,17 +36,35 @@ class DocumentItemLine:
 
 
 class ItemCatalogue:
-    """Names for the catalogue records that document lines point at."""
+    """Names for the catalogue records that document lines point at.
+
+    Filled from the ids on the page in hand rather than by loading a
+    catalogue. Loading one meant a ceiling, and every line pointing at an
+    item past that ceiling read as a dash — no error, no loading state,
+    just a document that would not say what was on it.
+
+    Names are added to rather than replaced: the ones fetched for the page
+    before this cost nothing to keep and save asking for them again on the
+    way back.
+    """
 
     def __init__(self) -> None:
         self._names: dict[tuple[ItemType, int], str] = {}
 
-    def set_catalogues(self, catalogues: dict[ItemType, list]) -> None:
-        self._names = {
-            (item_type, record.id): item_name(item_type, record)
-            for item_type, records in catalogues.items()
-            for record in records
-        }
+    def add_names(self, item_type: ItemType, names: dict[int, str]) -> None:
+        self._names.update(
+            {(ItemType(item_type), item_id): name for item_id, name in names.items()}
+        )
+
+    def missing_ids(self, documents, item_type: ItemType) -> set[int]:
+        """Which of these documents' lines this has no name for yet."""
+        wanted = set()
+        for document in documents:
+            for line in document.items:
+                kind, item_id = catalogue_key(line)
+                if item_id and kind == item_type and (kind, item_id) not in self._names:
+                    wanted.add(item_id)
+        return wanted
 
     def label_for(self, item) -> str:
         return self._names.get(catalogue_key(item), DASH)

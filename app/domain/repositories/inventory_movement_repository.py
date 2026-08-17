@@ -18,6 +18,27 @@ class InventoryMovementRepository(Repository[InventoryMovement], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list_by_inventory_item_id(self, inventory_item_id: int, limit: int = 200) -> list[InventoryMovement]:
-        """Return the movement audit trail for an inventory item."""
+    def page_movements(
+        self,
+        *,
+        inventory_item_id: int,
+        movement_type: str | None = None,
+        search: str = "",
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[InventoryMovement]:
+        """One page of one item's movement history."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_movements(
+        self,
+        *,
+        inventory_item_id: int,
+        movement_type: str | None = None,
+        search: str = "",
+    ) -> int:
+        """How many movements those same conditions match."""
         raise NotImplementedError

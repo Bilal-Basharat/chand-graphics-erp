@@ -13,10 +13,11 @@ from PySide6.QtCore import Signal
 from app.application.auth.commands import (
     ChangeEmailCommand,
     ChangePasswordCommand,
-    LoginHistoryQuery,
+    LoginHistoryPageQuery,
     PasswordResetCommand,
     SignInCommand,
 )
+from app.application.dto.queries import PageResult
 from app.application.auth.permissions import ROLE_PERMISSIONS, Permission
 from app.application.auth.session import CurrentUser
 from app.config.paths import SIGN_IN_PREFERENCES_PATH
@@ -25,6 +26,11 @@ from app.presentation.services.credential_store import CredentialStore, Remember
 from app.presentation.support import support_line
 from app.presentation.viewmodels.base import BaseViewModel
 
+_HISTORY_PAGE = 25
+"""How much sign-in activity the profile page shows at once. A panel
+inside a scrolling page, so a screenful rather than a hundred — the rest
+is a page away."""
+
 
 class SessionViewModel(BaseViewModel):
     signedIn = Signal(object)          # SignInResult
@@ -32,7 +38,7 @@ class SessionViewModel(BaseViewModel):
     passwordChanged = Signal()
     emailChanged = Signal(str)         # the new address
     passwordResetSent = Signal(str)    # the address it went to
-    loginHistoryLoaded = Signal(list)  # list[LoginAudit]
+    loginHistoryLoaded = Signal(object)  # PageResult of LoginAudit
 
     def __init__(
         self,
@@ -167,8 +173,12 @@ class SessionViewModel(BaseViewModel):
 
     # ---------------- audit ----------------
 
-    def load_login_history(self, limit: int = 25) -> None:
-        """Recent sign-in activity for the current user.
+    def load_login_history(self, page: int = 1, page_size: int = _HISTORY_PAGE) -> None:
+        """One page of sign-in activity for the current user.
+
+        Paged rather than capped: an installation a year old has thousands
+        of these rows, and the twenty-five that fitted on screen were never
+        the ones being looked for.
 
         Requires VIEW_REPORTS, which the staff role does not hold — check
         `has_permission` before calling, or the view model will surface a
@@ -176,9 +186,9 @@ class SessionViewModel(BaseViewModel):
         """
         user = self.current_user()
         if user is None:
-            self.loginHistoryLoaded.emit([])
+            self.loginHistoryLoaded.emit(PageResult(rows=[], total=0, page=1, page_size=page_size))
             return
 
-        use_case = self._container.login_history_use_case()
-        query = LoginHistoryQuery(user_id=user.user_id, limit=limit)
+        use_case = self._container.page_login_history_use_case()
+        query = LoginHistoryPageQuery(user_id=user.user_id, page=page, page_size=page_size)
         self.run_async(lambda: use_case.execute(query), on_success=self.loginHistoryLoaded.emit)

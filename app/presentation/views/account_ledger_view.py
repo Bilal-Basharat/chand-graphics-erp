@@ -24,13 +24,20 @@ from decimal import Decimal
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QComboBox, QWidget
+from PySide6.QtWidgets import QWidget
 
-from app.application.dto.queries import LedgerLine, LedgerQuery, PartyLedger, SearchQuery
+from app.application.dto.queries import (
+    LedgerLine,
+    LedgerQuery,
+    PageQuery,
+    PageResult,
+    PartyLedger,
+)
 from app.application.ledger.sources import PURCHASE, SALE
 from app.container import AppContainer
 from app.presentation.dialogs.record_card_dialog import RecordCardDialog, print_card, save_pdf
 from app.presentation.formatting import date_time, money, money_or_blank, or_dash
+from app.presentation.item_types import PICKER_MATCHES
 from app.presentation.records.builders import ledger_card
 from app.presentation.records.card import RecordCard
 from app.presentation.records.documents import (
@@ -43,6 +50,7 @@ from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, 
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.period_selector import PeriodSelection, PeriodSelector
 from app.presentation.widgets.row_actions import RowAction
+from app.presentation.widgets.searchable_combo import SearchableComboBox
 from app.presentation.widgets.table_model import Column
 
 _LIMIT = 500
@@ -164,7 +172,7 @@ class AccountLedgerViewModel(CollectionViewModelBase):
 
     # -- hooks ------------------------------------------------------------
 
-    def _fetch_parties(self) -> list:
+    def _fetch_parties(self, term: str) -> list:
         raise NotImplementedError
 
     def _fetch_ledger(self, query: LedgerQuery) -> PartyLedger:
@@ -181,32 +189,52 @@ class AccountLedgerViewModel(CollectionViewModelBase):
     def period_label(self) -> str:
         return self._period.label
 
-    def set_party(self, party_id: int | None) -> None:
+    def set_party(self, party_id: int | None) -> bool:
+        """Whose account to read, and whether that is a change.
+
+        Answered rather than merely done, like every other thing the
+        screens set: the picker is refilled on each visit and after each
+        search, and re-reading the same statement every time it is would
+        be a period's worth of work for an account already on screen.
+        """
+        if party_id == self._party_id:
+            return False
         self._party_id = party_id
+        return True
 
-    def load_parties(self) -> None:
-        self.run_async(self._fetch_parties, on_success=self.partiesLoaded.emit)
+    def load_parties(self, term: str = "") -> None:
+        """Parties for the picker: the first page, or matches for what is
+        being typed into it. Never the whole list — a shop's party list is
+        as long as the shop is old, and the account being read is one name
+        in it."""
+        self.run_async(
+            lambda: self._fetch_parties(term),
+            on_success=lambda parties: self.partiesLoaded.emit(parties),
+        )
 
-    def load(self) -> None:
+    def fetch(self, query) -> PageResult:  # noqa: ARG002 - the screen has no search
+        """One party's account over the period, whole.
+
+        The one list here that is deliberately not paged. Every line
+        carries the balance it left behind, which is only an answer read
+        from the period's first line down — a page of a statement would
+        open on a balance that came from nowhere. The same reason its
+        table does not sort.
+        """
         if self._party_id is None:
             # Nothing picked yet — an empty account, not an error.
             self._ledger = None
-            self.rowsLoaded.emit([])
-            return
+            return PageResult(rows=[], total=0, page=1, page_size=1)
 
         start, end = self._period.range()
-        query = LedgerQuery(party_id=self._party_id, start=start, end=end, limit=_LIMIT)
-
-        def _on_success(ledger: PartyLedger) -> None:
-            # Set before the rows go out: the summary strip is rendered
-            # from this, off the back of `rowsLoaded`.
-            self._ledger = ledger
-            self.rowsLoaded.emit(list(ledger.lines))
-
-        self.run_async(lambda: self._fetch_ledger(query), on_success=_on_success)
-
-    def search(self, term: str) -> None:  # noqa: ARG002 - scaffold contract, no text search here
-        self.load()
+        ledger = self._fetch_ledger(
+            LedgerQuery(party_id=self._party_id, start=start, end=end, limit=_LIMIT)
+        )
+        # Set here rather than when the rows arrive because the summary
+        # strip is drawn from it the moment they do.
+        self._ledger = ledger
+        lines = list(ledger.lines)
+        return PageResult(rows=lines, total=len(lines), page=1, page_size=max(1, len(lines)))
 
     def open_document(self, line: LedgerLine) -> None:
         """Write out the document one line came from.
@@ -226,7 +254,8 @@ class AccountLedgerViewModel(CollectionViewModelBase):
             record = document.fetch(self._container, line.reference)
             if record is None:
                 return None
-            return document.card(record, ledger.party_name, DocumentNames.load(self._container))
+            names = DocumentNames.load(self._container, [record])
+            return document.card(record, ledger.party_name, names)
 
         self.run_async(fetch, on_success=self._on_document_loaded)
 
@@ -240,9 +269,11 @@ class AccountLedgerViewModel(CollectionViewModelBase):
 
 
 class CustomerLedgerViewModel(AccountLedgerViewModel):
-    def _fetch_parties(self) -> list:
-        return self._container.search_customers_use_case().execute(
-            SearchQuery(term="", limit=_LIMIT)
+    def _fetch_parties(self, term: str) -> list:
+        return (
+            self._container.page_customers_use_case()
+            .execute(PageQuery(search=term, page_size=PICKER_MATCHES))
+            .rows
         )
 
     def _fetch_ledger(self, query: LedgerQuery) -> PartyLedger:
@@ -250,9 +281,11 @@ class CustomerLedgerViewModel(AccountLedgerViewModel):
 
 
 class SupplierLedgerViewModel(AccountLedgerViewModel):
-    def _fetch_parties(self) -> list:
-        return self._container.search_suppliers_use_case().execute(
-            SearchQuery(term="", limit=_LIMIT)
+    def _fetch_parties(self, term: str) -> list:
+        return (
+            self._container.page_suppliers_use_case()
+            .execute(PageQuery(search=term, page_size=PICKER_MATCHES))
+            .rows
         )
 
     def _fetch_ledger(self, query: LedgerQuery) -> PartyLedger:
@@ -273,9 +306,6 @@ class AccountLedgerView(CollectionView):
         self._ledger_page = page
         self._ledger_view_model = view_model
         self._period = period
-        # An account asked for from elsewhere, still waiting for the
-        # picker to hear about it. See `select_party`.
-        self._pending_party_id: int | None = None
 
         super().__init__(
             CollectionPage(
@@ -346,15 +376,19 @@ class AccountLedgerView(CollectionView):
         self._ledger_view_model.load_parties()
 
     def toolbar_extras(self) -> list[QWidget]:
-        self._party = QComboBox()
+        # Searched rather than scrolled: the account being read is one
+        # name in a list as long as the shop is old.
+        self._party = SearchableComboBox()
+        self._party.setToolTip(f"Type any part of a {self._ledger_page.party_noun.lower()}'s name")
         self._party.setMinimumWidth(260)
         self._party.currentIndexChanged.connect(self._on_party_changed)
+        self._party.searchRequested.connect(self._ledger_view_model.load_parties)
 
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        selector.periodChanged.connect(self.reload_from_start)
         return [self._party, selector]
 
-    def summary(self, rows: list) -> Sequence[tuple[str, str]]:
+    def summary(self) -> Sequence[tuple[str, str]]:
         # Read from the ledger rather than from `rows`: the opening and
         # closing balances are the account's, not the visible lines'. They
         # stay in step because this screen has no filter and no search —
@@ -373,20 +407,18 @@ class AccountLedgerView(CollectionView):
             ("Closing balance", money(ledger.closing_balance)),
         )
 
-    def select_party(self, party_id: int) -> None:
+    def select_party(self, party_id: int, party_name: str) -> None:
         """Show this party's ledger — the way in from the Ledger button on
         the customer and supplier lists.
 
-        The pick is remembered as well as tried, because the party list
-        loads off the UI thread: arriving here from another screen almost
-        always beats it, and `_on_parties_loaded` honours what was asked
-        for when the list finally lands.
+        The name comes in with the id because the picker holds a page of
+        names rather than all of them, so the party asked for is very
+        often not one of the rows in it — and waiting for a row that will
+        never arrive is how this screen used to open on nothing at all.
+        Named and chosen outright, the account is read at once, and the
+        picker keeps the choice through every refill after it.
         """
-        self._pending_party_id = party_id
-        index = self._party.findData(party_id)
-        if index >= 0:
-            self._pending_party_id = None
-            self._party.setCurrentIndex(index)
+        self._party.select(party_name, party_id)
 
     def on_rows_loaded(self, rows: list) -> None:  # noqa: ARG002 - base contract
         self._set_paper_enabled(self._ledger_view_model.ledger is not None)
@@ -394,30 +426,21 @@ class AccountLedgerView(CollectionView):
     # ---------------- selection ----------------
 
     def _on_parties_loaded(self, parties: list) -> None:
-        # An account asked for from another screen wins; otherwise hold
-        # the one the user was already reading across the refresh.
-        wanted = self._pending_party_id
-        if wanted is None:
-            wanted = self._party.currentData()
-        self._pending_party_id = None
-
-        self._party.blockSignals(True)
-        self._party.clear()
-        if parties:
-            self._party.addItem(self._ledger_page.party_placeholder, None)
-            for party in parties:
-                self._party.addItem(party.name, party.id)
-        else:
-            self._party.addItem(_NO_PARTIES, None)
-        chosen = self._party.findData(wanted) if wanted is not None else -1
-        self._party.setCurrentIndex(max(chosen, 0))
-        self._party.blockSignals(False)
-
+        # The box keeps the account being read across a refill by itself,
+        # whether it was chosen here or handed in by `select_party`.
+        self._party.set_placeholder_item(
+            self._ledger_page.party_placeholder if parties else _NO_PARTIES, None
+        )
+        self._party.set_options([(party.name, party.id) for party in parties])
+        # A refill normally changes nothing, so this normally does nothing
+        # — but a party removed on another screen leaves the box on the
+        # placeholder, and the statement has to go with them.
         self._on_party_changed(self._party.currentIndex())
 
     def _on_party_changed(self, _index: int) -> None:
-        self._ledger_view_model.set_party(self._party.currentData())
-        self.reload()
+        if self._ledger_view_model.set_party(self._party.currentData()):
+            # Another account is another statement, not another page.
+            self.reload_from_start()
 
     # ---------------- paper ----------------
 

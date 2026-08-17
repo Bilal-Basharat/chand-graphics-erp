@@ -20,6 +20,7 @@ so a refused line keeps what was typed instead of clearing it.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -128,10 +129,23 @@ class ItemPickerRow(QWidget):
         self,
         catalogues: dict[ItemType, list],
         *,
+        search: Callable[[ItemType, str], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
+        """`catalogues` is what to offer before anything is typed — the
+        first page of each kind, not the whole of it.
+
+        With a `search` callback the row asks for matches as it is typed
+        into, and answers arrive back through `set_options`. Without one it
+        filters what it was handed, which is right for a list short enough
+        to hand over whole.
+        """
         super().__init__(parent)
         self._catalogues = catalogues
+        self._search = search
+        self._stock: dict[tuple[ItemType, int], int] = {}
+        """What each item had in stock when it was last offered. Kept
+        across searches so the figure beside a row survives a refill."""
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -149,6 +163,10 @@ class ItemPickerRow(QWidget):
         self._item.setMinimumWidth(220)
         self._item.currentIndexChanged.connect(self._on_item_changed)
         self._item.activated.connect(self._on_item_chosen)
+        if search is not None:
+            self._item.searchRequested.connect(
+                lambda term: search(self._kind.selected_type(), term)
+            )
 
         self._quantity = ModernSpinBox()
         self._quantity.setRange(1, _UNCAPPED)
@@ -176,17 +194,63 @@ class ItemPickerRow(QWidget):
 
     def _on_kind_changed(self, _index: int) -> None:
         item_type = self._kind.selected_type()
-        records = self._catalogues.get(item_type, [])
-        self._item.clear()
-        if not records:
-            self._item.addItem(_NONE_AVAILABLE, None)
-        for record in records:
-            self._item.addItem(item_name(item_type, record), record.id)
-            self._item.setItemData(
-                self._item.count() - 1,
-                getattr(record, "current_stock", 0),
-                _STOCK_ROLE,
-            )
+        # Nothing carried over: what was picked in the last catalogue is
+        # not a choice in this one, and ids are only unique within a kind
+        # — kept, the same number would name a different record here.
+        self._fill(item_type, self._catalogues.get(item_type, []), keep_selected=False)
+        if self._search is not None:
+            # Another kind is another catalogue: ask for its opening page.
+            self._search(item_type, "")
+
+    def set_options(self, item_type: ItemType, records: list, term: str | None = None) -> None:
+        """Take up matches that came back for what was typed.
+
+        Ignored if the row has moved on to another kind since asking —
+        offering paper under "Ink" would be a list nobody asked for.
+        """
+        if ItemType(item_type) != self._kind.selected_type():
+            return
+        self._fill(item_type, records, term=term)
+
+    def _fill(
+        self,
+        item_type: ItemType,
+        records: list,
+        term: str | None = None,
+        *,
+        keep_selected: bool = True,
+    ) -> None:
+        self._stock.update(
+            {
+                (ItemType(item_type), record.id): getattr(record, "current_stock", 0)
+                for record in records
+            }
+        )
+        rows = [(item_name(item_type, record), record.id) for record in records]
+        if not rows and term is None:
+            self._item.set_placeholder_item(_NONE_AVAILABLE, None)
+        self._item.set_options(rows, term=term, keep_selected=keep_selected)
+        self._stamp_stock(item_type)
+
+    def _stamp_stock(self, item_type: ItemType) -> None:
+        """Put each row's stock figure back on it after a refill.
+
+        Done from the running record rather than from the batch, because a
+        refill can carry a row the batch did not — the item already chosen
+        is kept whatever was searched for.
+
+        Under `keeping_typed_text` because these rows arrived in answer to
+        a word that is still being typed: writing to the selected row makes
+        the box show that row's name, and the word would be gone.
+        """
+        with self._item.keeping_typed_text():
+            for index in range(self._item.count()):
+                item_id = self._item.itemData(index)
+                if item_id is None:
+                    continue
+                self._item.setItemData(
+                    index, self._stock.get((ItemType(item_type), item_id)), _STOCK_ROLE
+                )
 
     def _on_item_changed(self, _index: int = 0) -> None:
         item_id = self._item.currentData()

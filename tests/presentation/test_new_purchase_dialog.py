@@ -17,6 +17,18 @@ OUT_OF_STOCK = InventoryItem(id=2, name="Black Ink Bottle", current_stock=0, min
 class _PurchasesViewModel(QObject):
     itemCreated = Signal(object)
     errorOccurred = Signal(str)
+    catalogueSearched = Signal(object, str, list)
+    partiesSearched = Signal(str, list)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.searched: list[tuple] = []
+
+    def search_catalogue(self, item_type, term: str) -> None:
+        self.searched.append((item_type, term))
+
+    def search_parties(self, term: str) -> None:
+        self.searched.append(("parties", term))
 
     def create(self, command) -> None:  # pragma: no cover - never reached here
         raise AssertionError("no purchase should be recorded by these tests")

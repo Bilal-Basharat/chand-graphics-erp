@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.application.dto.queries import MovementPageQuery, PageResult
 from app.application.dto.commands import DateRangeQuery, InventoryMovementCommand
 from app.application.exceptions import NotFoundError
 from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
@@ -117,16 +118,33 @@ class ListInventoryMovementsBySourceDocumentUseCase(AuthenticatedUseCase[tuple[s
             )
 
 
-class ListInventoryMovementsByInventoryItemUseCase(AuthenticatedUseCase[int, list[InventoryMovement]]):
-    """
-    Movement audit trail for a single inventory item.
-    """
+
+
+class PageInventoryMovementsUseCase(AuthenticatedUseCase[MovementPageQuery, PageResult]):
+    """One page of one item's movement history."""
 
     def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
         super().__init__(current_user_session)
         self.uow = uow
 
-    def execute(self, request: int) -> list[InventoryMovement]:
+    def execute(self, request: MovementPageQuery) -> PageResult:
         with self.uow as uow:
             movements = self.require(uow.inventory_movements, "inventory_movements")
-            return movements.list_by_inventory_item_id(request)
+            conditions = {
+                "inventory_item_id": request.inventory_item_id,
+                "movement_type": request.movement_type,
+                "search": request.search,
+            }
+            rows = movements.page_movements(
+                **conditions,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            return PageResult(
+                rows=rows,
+                total=movements.count_movements(**conditions),
+                page=request.page,
+                page_size=request.page_size,
+            )

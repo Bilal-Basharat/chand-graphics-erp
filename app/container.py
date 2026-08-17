@@ -115,6 +115,10 @@ class AppContainer:
     def record_login_audit_use_case(self) -> RecordLoginAuditUseCase:
         return RecordLoginAuditUseCase(self.create_uow(), self.settings.app_version)
 
+    def page_login_history_use_case(self):
+        from app.application.auth.login_audit_use_cases import PageLoginHistoryUseCase
+        return PageLoginHistoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
     def login_history_use_case(self):
         from app.application.auth.login_audit_use_cases import ListLoginHistoryUseCase
         return ListLoginHistoryUseCase(
@@ -181,9 +185,13 @@ class AppContainer:
         from app.application.use_cases.inventory_items import DeleteInventoryItemUseCase
         return DeleteInventoryItemUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
-    def list_inventory_items_use_case(self):
-        from app.application.use_cases.inventory_items import ListInventoryItemsUseCase
-        return ListInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+    def page_inventory_items_use_case(self):
+        from app.application.use_cases.inventory_items import PageInventoryItemsUseCase
+        return PageInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+
+    def inventory_item_names_use_case(self):
+        from app.application.use_cases.inventory_items import GetInventoryItemNamesUseCase
+        return GetInventoryItemNamesUseCase(self.create_uow(), self.current_user_session)
 
     def get_inventory_item_by_name_use_case(self):
         from app.application.use_cases.inventory_items import GetInventoryItemByNameUseCase
@@ -200,9 +208,59 @@ class AppContainer:
         from app.application.use_cases.expenses import CreateExpenseUseCase
         return CreateExpenseUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
+    def page_expenses_use_case(self):
+        from app.application.use_cases.expenses import PageExpensesUseCase
+        return PageExpensesUseCase(self.create_uow(), self.current_user_session)
+
     def list_expenses_by_date_range_use_case(self):
         from app.application.use_cases.expenses import ListExpensesByDateRangeUseCase
         return ListExpensesByDateRangeUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ############### Master Data Paging Use Cases ###############
+    ############################################################
+    # One page of a list, and the names behind a page of some other
+    # list. Registered together because every list screen needs the
+    # first and every document screen needs the second.
+    def page_cabinets_use_case(self):
+        from app.application.use_cases.master_data import PageCabinetsUseCase
+        return PageCabinetsUseCase(self.create_uow(), self.current_user_session)
+
+    def page_customers_use_case(self):
+        from app.application.use_cases.master_data import PageCustomersUseCase
+        return PageCustomersUseCase(self.create_uow(), self.current_user_session)
+
+    def page_suppliers_use_case(self):
+        from app.application.use_cases.master_data import PageSuppliersUseCase
+        return PageSuppliersUseCase(self.create_uow(), self.current_user_session)
+
+    def page_payment_methods_use_case(self):
+        from app.application.use_cases.master_data import PagePaymentMethodsUseCase
+        return PagePaymentMethodsUseCase(self.create_uow(), self.current_user_session)
+
+    def page_expense_categories_use_case(self):
+        from app.application.use_cases.master_data import PageExpenseCategoriesUseCase
+        return PageExpenseCategoriesUseCase(self.create_uow(), self.current_user_session)
+
+    def cabinet_names_use_case(self):
+        from app.application.use_cases.master_data import GetCabinetNamesUseCase
+        return GetCabinetNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def customer_names_use_case(self):
+        from app.application.use_cases.master_data import GetCustomerNamesUseCase
+        return GetCustomerNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def supplier_names_use_case(self):
+        from app.application.use_cases.master_data import GetSupplierNamesUseCase
+        return GetSupplierNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def payment_method_names_use_case(self):
+        from app.application.use_cases.master_data import GetPaymentMethodNamesUseCase
+        return GetPaymentMethodNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def expense_category_names_use_case(self):
+        from app.application.use_cases.master_data import GetExpenseCategoryNamesUseCase
+        return GetExpenseCategoryNamesUseCase(self.create_uow(), self.current_user_session)
 
     ############################################################
     #################### Master Data Use Cases ###################
@@ -210,10 +268,6 @@ class AppContainer:
     def create_cabinet_use_case(self):
         from app.application.use_cases.master_data import CreateCabinetUseCase
         return CreateCabinetUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def list_cabinets_use_case(self):
-        from app.application.use_cases.master_data import ListCabinetsUseCase
-        return ListCabinetsUseCase(self.create_uow(), self.current_user_session)
 
     def get_cabinet_by_code_use_case(self):
         from app.application.use_cases.master_data import GetCabinetByCodeUseCase
@@ -231,10 +285,6 @@ class AppContainer:
         from app.application.use_cases.master_data import CreateCustomerUseCase
         return CreateCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
-    def search_customers_use_case(self):
-        from app.application.use_cases.master_data import SearchCustomersUseCase
-        return SearchCustomersUseCase(self.create_uow(), self.current_user_session)
-
     def update_customer_use_case(self):
         from app.application.use_cases.master_data import UpdateCustomerUseCase
         return UpdateCustomerUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
@@ -246,10 +296,6 @@ class AppContainer:
     def create_supplier_use_case(self):
         from app.application.use_cases.master_data import CreateSupplierUseCase
         return CreateSupplierUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def search_suppliers_use_case(self):
-        from app.application.use_cases.master_data import SearchSuppliersUseCase
-        return SearchSuppliersUseCase(self.create_uow(), self.current_user_session)
 
     def update_supplier_use_case(self):
         from app.application.use_cases.master_data import UpdateSupplierUseCase
@@ -263,10 +309,6 @@ class AppContainer:
         from app.application.use_cases.master_data import CreatePaymentMethodUseCase
         return CreatePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
 
-    def list_payment_methods_use_case(self):
-        from app.application.use_cases.master_data import ListPaymentMethodsUseCase
-        return ListPaymentMethodsUseCase(self.create_uow(), self.current_user_session)
-
     def update_payment_method_use_case(self):
         from app.application.use_cases.master_data import UpdatePaymentMethodUseCase
         return UpdatePaymentMethodUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
@@ -278,10 +320,6 @@ class AppContainer:
     def create_expense_category_use_case(self):
         from app.application.use_cases.master_data import CreateExpenseCategoryUseCase
         return CreateExpenseCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
-
-    def list_expense_categories_use_case(self):
-        from app.application.use_cases.master_data import ListExpenseCategoriesUseCase
-        return ListExpenseCategoriesUseCase(self.create_uow(), self.current_user_session)
 
     def update_expense_category_use_case(self):
         from app.application.use_cases.master_data import UpdateExpenseCategoryUseCase
@@ -322,6 +360,10 @@ class AppContainer:
         from app.application.use_cases.purchases import GetPurchasePaymentStatusUseCase
         return GetPurchasePaymentStatusUseCase(self.create_uow(), self.current_user_session)
 
+    def page_purchases_use_case(self):
+        from app.application.use_cases.purchases import PagePurchasesUseCase
+        return PagePurchasesUseCase(self.create_uow(), self.current_user_session)
+
     def list_purchases_by_date_range_use_case(self):
         from app.application.use_cases.purchases import ListPurchasesByDateRangeUseCase
         return ListPurchasesByDateRangeUseCase(self.create_uow(), self.current_user_session)
@@ -349,6 +391,10 @@ class AppContainer:
         from app.application.use_cases.sales import GetSalePaymentStatusUseCase
         return GetSalePaymentStatusUseCase(self.create_uow(), self.current_user_session)
 
+    def page_sales_use_case(self):
+        from app.application.use_cases.sales import PageSalesUseCase
+        return PageSalesUseCase(self.create_uow(), self.current_user_session)
+
     def list_sales_by_date_range_use_case(self):
         from app.application.use_cases.sales import ListSalesByDateRangeUseCase
         return ListSalesByDateRangeUseCase(self.create_uow(), self.current_user_session)
@@ -364,9 +410,9 @@ class AppContainer:
         from app.application.use_cases.inventory_movements import ListInventoryMovementsBySourceDocumentUseCase
         return ListInventoryMovementsBySourceDocumentUseCase(self.create_uow(), self.current_user_session)
 
-    def list_inventory_movements_by_inventory_item_use_case(self):
-        from app.application.use_cases.inventory_movements import ListInventoryMovementsByInventoryItemUseCase
-        return ListInventoryMovementsByInventoryItemUseCase(self.create_uow(), self.current_user_session)
+    def page_inventory_movements_use_case(self):
+        from app.application.use_cases.inventory_movements import PageInventoryMovementsUseCase
+        return PageInventoryMovementsUseCase(self.create_uow(), self.current_user_session)
 
     ############################################################
     ##################### Account Ledger Use Cases #################
@@ -436,17 +482,6 @@ class AppContainer:
             source=PayablesSource(),
         )
 
-    ############################################################
-    ###################### Search Use Cases ########################
-    ############################################################
-    def search_inventory_items_use_case(self):
-        from app.application.use_cases.search import SearchInventoryItemsUseCase
-        return SearchInventoryItemsUseCase(self.create_uow(), self.current_user_session)
-
-    def search_purchases_use_case(self):
-        from app.application.use_cases.search import SearchPurchasesUseCase
-        return SearchPurchasesUseCase(self.create_uow(), self.current_user_session)
-
-    def search_sales_use_case(self):
-        from app.application.use_cases.search import SearchSalesUseCase
-        return SearchSalesUseCase(self.create_uow(), self.current_user_session)
+    # Searching is not a use case of its own any more: a search is one
+    # page of a list with a term on it, so it goes through the same
+    # `page_*` use case the screen uses when nothing has been typed.

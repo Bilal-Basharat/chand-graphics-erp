@@ -1,10 +1,13 @@
 # app/infrastructure/repositories/base.py
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Generic, Protocol, TypeVar
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
+
+from app.infrastructure.repositories.paging import ordered, total
 
 EntityT = TypeVar("EntityT")
 ModelT = TypeVar("ModelT")
@@ -81,6 +84,44 @@ class SQLAlchemyRepository(Generic[EntityT, ModelT]):
         stmt: Select[tuple[ModelT]] = select(self.model_class).offset(offset).limit(limit)
         models = self.session.execute(stmt).scalars().all()
         return [self.mapper.to_entity(model) for model in models]
+
+    def page_of(
+        self,
+        statement: Select,
+        *,
+        sortable: Mapping[str, object],
+        default_sort: str,
+        default_desc: bool = False,
+        sort_field: str | None,
+        sort_desc: bool,
+        limit: int,
+        offset: int,
+    ) -> list[EntityT]:
+        """One page of a statement a subclass has already filtered.
+
+        Ordering, the window and the mapping are the same everywhere, so
+        they live here; what a list is filtered and searched by is the
+        subclass's, because that is the part that genuinely differs.
+
+        The primary key is always the last word in the order — see
+        `paging.ordered` for why a page without one can show a record
+        twice and another not at all.
+        """
+        statement = ordered(
+            statement,
+            sortable=sortable,
+            field=sort_field,
+            desc=sort_desc,
+            default=default_sort,
+            default_desc=default_desc,
+            tiebreak=self.model_class.id,
+        )
+        models = self.session.execute(statement.limit(limit).offset(offset)).scalars().all()
+        return [self.mapper.to_entity(model) for model in models]
+
+    def count_of(self, statement: Select) -> int:
+        """How many rows that same statement matches."""
+        return total(self.session, statement)
 
     def find_one_by(self, column_name: str, value: object) -> EntityT | None:
         column = getattr(self.model_class, column_name)

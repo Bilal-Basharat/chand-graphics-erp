@@ -9,7 +9,7 @@ equivalent of — you cannot sell stock you do not have.
 """
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLineEdit, QWidget
 
 from app.application.dto.commands import CreateSaleCommand, SaleItemCommand, SalePaymentCommand
 from app.domain.enums.item_type import ItemType
@@ -19,6 +19,7 @@ from app.presentation.widgets.document_lines import DocumentTotals
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.item_picker_row import ItemPickerRow, PickedItem
+from app.presentation.widgets.searchable_combo import SearchableComboBox
 from app.shared.datetimes import now_pkt
 
 _WALK_IN = "Walk-in customer"
@@ -65,13 +66,15 @@ class NewSaleDialog(DocumentDialog):
         # Set before super(), which calls the build hooks below.
         self._customers = customers
         self._catalogues = catalogues
-        # The record behind each line, so the stock rules below can be
-        # answered without going back to the catalogues to find it.
-        self._products = {
-            (item_type, record.id): record
-            for item_type, records in catalogues.items()
-            for record in records
-        }
+        # The record behind everything the picker has offered, so the
+        # stock rules below can be answered without going back for it.
+        #
+        # A cache, not a catalogue: the picker searches, and every batch it
+        # is given passes through here first. So an id it can return is an
+        # id this holds — which is the whole of why the out-of-stock rule
+        # still holds without the dialog loading the shop's whole list.
+        self._products: dict[tuple[ItemType, int], object] = {}
+        self._remember(catalogues)
 
         super().__init__(
             view_model,
@@ -85,6 +88,12 @@ class NewSaleDialog(DocumentDialog):
             parent=parent,
         )
 
+        # The view model outlives this dialog, so both are let go of again
+        # in `done()` — see `DocumentDialog.listen`.
+        self.listen(view_model.catalogueSearched, self._on_catalogue_searched)
+        self.listen(view_model.partiesSearched, self._on_parties_searched)
+        self._customer.searchRequested.connect(view_model.search_parties)
+
     # ---------------- step 1: invoice ----------------
 
     def build_identity_step(self) -> QFrame:
@@ -94,10 +103,12 @@ class NewSaleDialog(DocumentDialog):
         row.setSpacing(12)
 
         self._invoice_no = QLineEdit(_new_invoice_number())
-        self._customer = QComboBox()
-        self._customer.addItem(_WALK_IN, None)
-        for customer in self._customers:
-            self._customer.addItem(customer.name, customer.id)
+        # Searched rather than scrolled, for the same reason the item is:
+        # a shop's customer list is as long as the shop is old.
+        self._customer = SearchableComboBox()
+        self._customer.setToolTip("Type any part of a customer's name to find them")
+        self._customer.set_placeholder_item(_WALK_IN, None)
+        self._customer.set_options([(c.name, c.id) for c in self._customers])
 
         row.addLayout(field("Invoice number", self._invoice_no), 1)
         row.addLayout(field("Customer", self._customer), 1)
@@ -107,12 +118,32 @@ class NewSaleDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        self._picker = ItemPickerRow(self._catalogues)
+        self._picker = ItemPickerRow(
+            self._catalogues, search=self._view_model.search_catalogue
+        )
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
         self._picker.itemChanged.connect(self._on_item_changed)
         self._picker.itemChosen.connect(self._on_item_chosen)
         return self._picker
+
+    def _on_catalogue_searched(self, item_type: ItemType, term: str, records: list) -> None:
+        # Into the cache before the picker can offer any of them, so the
+        # stock rules can answer for anything it becomes possible to pick.
+        self._remember({item_type: records})
+        self._picker.set_options(item_type, records, term)
+
+    def _on_parties_searched(self, term: str, customers: list) -> None:
+        self._customer.set_options([(c.name, c.id) for c in customers], term=term)
+
+    def _remember(self, catalogues: dict) -> None:
+        self._products.update(
+            {
+                (ItemType(item_type), record.id): record
+                for item_type, records in catalogues.items()
+                for record in records
+            }
+        )
 
     def _on_item_changed(self, item_type: ItemType, item_id: int) -> None:
         # The quantity can never exceed what is on the shelf, so the field

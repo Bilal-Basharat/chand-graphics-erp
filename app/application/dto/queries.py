@@ -3,12 +3,159 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Generic, TypeVar
+
+from app.domain.enums.movement_type import MovementType
+from app.domain.enums.payment_filter import PaymentFilter
+from app.domain.enums.stock_filter import StockFilter
+
+RowT = TypeVar("RowT")
 
 
-@dataclass(slots=True)
-class SearchQuery:
-    term: str
-    limit: int = 50
+# ------------------------------------------------------------------ paging
+
+# What a list screen asks for, and what it gets back. One pair for every
+# list in the application, because every list asks the same five things —
+# which page, how big, what was typed, sorted by what, which way — and
+# only then differs by what it is a list *of*.
+#
+# The screen never sees a whole table. That is not a performance tuning:
+# a shop with two thousand items had no way to reach the last thousand of
+# them, and the screen said nothing about it.
+
+DEFAULT_PAGE_SIZE = 100
+"""Enough that most lists are one page, small enough to stay quick."""
+
+MAX_PAGE_SIZE = 500
+"""The most that may be asked for at once, whatever the caller says. A
+page is a screenful to read, not a way to ask for the table back."""
+
+
+@dataclass(slots=True, kw_only=True)
+class PageQuery:
+    """One page of a list, as the screen asks for it.
+
+    Keyword-only so the screens that add filters of their own — a date
+    range, a stock level — can subclass this without their fields having
+    to be ordered around these.
+    """
+
+    page: int = 1
+    page_size: int = DEFAULT_PAGE_SIZE
+    search: str = ""
+    sort_field: str | None = None
+    """None asks for the list's own default order. Whether a field can be
+    sorted on at all is the repository's to say, not the caller's."""
+    sort_desc: bool = False
+
+    def __post_init__(self) -> None:
+        # Clamped here rather than at each of the call sites, because a
+        # page number arrives from a button, a query string or a test and
+        # only one of those three can be trusted to be sane.
+        self.page = max(1, self.page)
+        self.page_size = min(max(1, self.page_size), MAX_PAGE_SIZE)
+        self.search = self.search.strip()
+
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.page_size
+
+
+@dataclass(frozen=True, slots=True)
+class PageTotals:
+    """What a list adds up to over the whole filtered set, not this page.
+
+    The summary strips on the document screens are answers about a period
+    — "sold this month" — so they cannot be added up from the rows in
+    hand. Carried beside the page rather than fetched separately so the
+    figures and the rows can never be from different moments.
+    """
+
+    total: Decimal
+    outstanding: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PageResult(Generic[RowT]):
+    """A page of rows, and where it sits in the whole."""
+
+    rows: list[RowT]
+    total: int
+    """Every row the query matched, not the length of `rows`."""
+    page: int
+    page_size: int
+    totals: PageTotals | None = None
+    """Only where a screen shows a summary strip."""
+
+    # Derived rather than stored: a `has_next` that could disagree with
+    # the three numbers it is drawn from is a bug waiting to be shipped.
+
+    @property
+    def page_count(self) -> int:
+        if self.total <= 0:
+            return 1
+        return -(-self.total // self.page_size)
+
+    @property
+    def has_previous(self) -> bool:
+        return self.page > 1
+
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.page_count
+
+    @property
+    def first_index(self) -> int:
+        """The position of the first row on this page, counting from one."""
+        return 0 if not self.rows else (self.page - 1) * self.page_size + 1
+
+    @property
+    def last_index(self) -> int:
+        return 0 if not self.rows else self.first_index + len(self.rows) - 1
+
+    @classmethod
+    def empty(cls, query: PageQuery) -> PageResult[RowT]:
+        return cls(rows=[], total=0, page=query.page, page_size=query.page_size)
+
+
+@dataclass(slots=True, kw_only=True)
+class InventoryPageQuery(PageQuery):
+    stock: StockFilter | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class DocumentPageQuery(PageQuery):
+    """A page of sales or of purchases: a period, and how far paid."""
+
+    start: datetime
+    end: datetime
+    payment: PaymentFilter | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class PaymentPageQuery(PageQuery):
+    """A page of the documents a payment screen collects against."""
+
+    start: datetime
+    end: datetime
+    payment: PaymentFilter | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class ExpensePageQuery(PageQuery):
+    start: datetime
+    end: datetime
+    category_id: int | None = None
+    uncategorised: bool = False
+    """Its own flag rather than a category id of None, which already means
+    "every category" — an expense filed under nothing is a choice a screen
+    offers, and the two cannot share one field."""
+
+
+@dataclass(slots=True, kw_only=True)
+class MovementPageQuery(PageQuery):
+    inventory_item_id: int
+    movement_type: MovementType | None = None
 
 
 @dataclass(slots=True)

@@ -28,6 +28,8 @@ from decimal import Decimal
 from enum import StrEnum
 from random import Random
 
+from app.config import constants
+
 CURRENCY = Decimal("0.01")
 """What money rounds to. Every amount here is quantized to it."""
 
@@ -174,6 +176,22 @@ class MovementSeed:
 
 
 @dataclass(frozen=True, slots=True)
+class AuditSeed:
+    """One line of the sign-in history.
+
+    Seeded because nothing else writes any: a seeding run signs in once
+    and deliberately leaves no trace, so without these the history screen
+    has a single row and its paging is never exercised.
+    """
+
+    email: str
+    event_type: str
+    success: bool
+    days_ago: int
+    message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CompanySeed:
     company_name: str
     phone: str
@@ -195,6 +213,7 @@ class Dataset:
     sales: tuple[DocumentSeed, ...]
     expenses: tuple[ExpenseSeed, ...]
     movements: tuple[MovementSeed, ...]
+    audits: tuple[AuditSeed, ...] = ()
 
 
 # ---------------------------------------------------------------- master data
@@ -458,12 +477,16 @@ _FILLER_MONTHS: dict[Profile, int] = {
 _SALES_PER_MONTH: dict[Profile, int] = {
     Profile.SMOKE: 0,
     Profile.DEMO: 18,
-    Profile.LOAD: 30,
+    # Two invoices a day, near enough: enough to page through and enough
+    # that a total over a period is not a figure anyone could add up by
+    # eye from the rows on screen.
+    Profile.LOAD: 60,
 }
 
 _PURCHASES_PER_MONTH: dict[Profile, int] = {
     Profile.SMOKE: 0,
     Profile.DEMO: 3,
+    # Fewer than the sales, as a shop buys in lots and sells out of them.
     Profile.LOAD: 30,
 }
 
@@ -683,57 +706,192 @@ def _settlement(rng: Random, total: Decimal, days_ago: int) -> tuple[PaymentSeed
 
 
 # ---------------------------------------------------------------- load profile
-def _load_cabinets(count: int) -> tuple[NamedSeed, ...]:
+
+# Volume, written as though a real shop had grown into it. The point of
+# this profile is a database big enough that a screen has to page through
+# it, and a screen full of "Load Item 00417" tells you nothing about
+# whether it reads correctly at that size — a name has to be long enough
+# to elide, a party has to be findable by typing part of it, and a column
+# of them has to look like a column of records.
+#
+# Combined rather than random, so every name is unique without having to
+# check: three lists multiplied out give more than a thousand of anything
+# here, and the same seed always deals them in the same order.
+
+
+def _dealt(rng: Random, *axes: tuple[str, ...]) -> list[tuple[str, ...]]:
+    """Every combination of the axes, in a shuffled but repeatable order."""
+    combinations = [()]
+    for axis in axes:
+        combinations = [(*prefix, value) for prefix in combinations for value in axis]
+    rng.shuffle(combinations)
+    return combinations
+
+
+_PAPER = (
+    "Art Card", "Matt Paper", "Offset Paper", "Ivory Board", "Duplex Board",
+    "Kraft Paper", "Gloss Art Paper", "Bond Paper", "Textured Card",
+    "Coated Board", "Newsprint", "Tracing Paper",
+)
+_WEIGHT = ("70gsm", "80gsm", "100gsm", "130gsm", "170gsm", "210gsm", "250gsm", "300gsm")
+_SHEET = ("20x30", "23x36", "25x36", "19x25", "18x23", "22x28", "24x34", "26x38")
+
+# Two families rather than one, because what a thing is decides both how
+# it is described and how it is packed: an ink has a colour and comes in a
+# tin, a roll has a width and comes on a core. Crossing all three lists
+# produced "Cyan Lamination Roll 1kg tin", which is not a thing.
+_LIQUID = ("Offset Ink", "UV Varnish", "Fountain Solution", "Blanket Wash", "Plate Cleaner")
+_SHADE = (
+    "Cyan", "Magenta", "Yellow", "Black", "Pantone 485", "Pantone 032",
+    "Pantone 877", "Rich Black", "Warm Red", "Reflex Blue", "Process Green",
+    "Opaque White",
+)
+_TIN = ("1kg tin", "2.5kg tin", "5kg drum", "20kg drum")
+
+_ROLLED = ("Lamination Roll", "Binding Wire", "Foil Roll", "Thermal Ribbon", "Masking Tape")
+_FINISH = ("Gloss", "Matte", "Soft Touch", "Gold", "Silver", "Holographic", "Clear")
+_WIDTH = ("6in", "12in", "18in", "24in", "500m spool")
+
+_HOUSE = (
+    "Al-Noor", "Chand", "Faisal", "Gulberg", "Ittefaq", "Karim", "Madina",
+    "Mehran", "New Star", "Pak", "Rehman", "Royal", "Sadiq", "Shalimar",
+    "Sitara", "Usman", "Zeeshan", "Green Line", "Blue Dot", "Crescent",
+)
+_TRADE = (
+    "Printers", "Press", "Publishers", "Stationers", "Book Depot", "Packaging",
+    "Graphics", "Advertisers", "Card Centre", "Print House",
+)
+_CITY = (
+    "Lahore", "Karachi", "Faisalabad", "Multan", "Gujranwala", "Sialkot",
+    "Rawalpindi", "Sargodha", "Bahawalpur", "Sahiwal",
+)
+
+_MILL = (
+    "Packages", "Century", "Bulleh Shah", "Roshan", "Indus", "Ravi", "Chenab",
+    "Khyber", "Sapphire", "Nishat", "Crescent", "Ittehad", "Pioneer", "Falcon",
+)
+_SUPPLY = (
+    "Paper Mill", "Board Mills", "Ink House", "Chemicals", "Paper Mart",
+    "Trading Co", "Enterprises", "Suppliers", "Agencies", "Impex",
+)
+
+_BANK = (
+    "HBL", "Meezan", "UBL", "Bank Alfalah", "MCB", "Askari", "Faysal",
+    "Standard Chartered", "JS Bank", "Bank of Punjab", "Soneri", "Summit",
+)
+_ACCOUNT = ("Current", "Savings", "Business", "Counter", "Deposit", "Cheque")
+_BRANCH = (
+    "Circular Road", "Urdu Bazaar", "Township", "Model Town", "Anarkali",
+    "Shahdara", "Gulberg", "Kot Lakhpat", "Badami Bagh", "Cantt", "Ravi Road",
+    "Mall Road", "Garden Town", "Johar Town",
+)
+
+_EXPENSE_CATEGORY_NAMES: tuple[str, ...] = (
+    "Shop rent",
+    "Electricity bill",
+    "Gas bill",
+    "Water bill",
+    "Internet bill",
+    "Telephone bill",
+    "Staff salaries",
+    "Overtime",
+    "Transport",
+    "Fuel",
+    "Courier",
+    "Machine maintenance",
+    "Printing plates",
+    "Blankets and rollers",
+    "Chemicals",
+    "Packing material",
+    "Office supplies",
+    "Repairs",
+    "Insurance",
+    "Marketing",
+    "Bank charges",
+    "Cleaning",
+    "Security",
+    "Waste disposal",
+    "Tea and refreshments",
+    "Stationery",
+    "Licences and permits",
+    "Software subscriptions",
+    "Training",
+    "Spare parts",
+)
+
+_ROOM = ("Paper store", "Ink shelf", "Finishing rack", "Board store", "Plate room",
+         "Dispatch bay", "Overflow store", "Cold store")
+
+
+def _load_cabinets(count: int, rng: Random) -> tuple[NamedSeed, ...]:
+    """Codes, which is what a cabinet is. The room it stands in only
+    describes it, so it is chosen from the code rather than multiplied
+    through it — two cabinets called A-07 would be one cabinet twice."""
+    letters = tuple("ABCDEFGHJKLMNPQRSTUVWXYZ")
+    numbers = tuple(f"{n:02d}" for n in range(1, 46))
     return tuple(
         NamedSeed(
-            name=f"CAB-{i + 1:05d}",
-            description=f"Load cabinet {i + 1}",
+            name=f"{letter}-{number}",
+            description=f"{_ROOM[index % len(_ROOM)]}, rack {number}",
         )
-        for i in range(count)
+        for index, (letter, number) in enumerate(_dealt(rng, letters, numbers)[:count])
     )
 
 
-def _load_payment_methods(count: int) -> tuple[str, ...]:
+def _load_payment_methods(count: int, rng: Random) -> tuple[str, ...]:
     return tuple(
-        f"Load Method {i + 1:05d}"
-        for i in range(count)
+        f"{bank} {account} — {branch}"
+        for (bank, account, branch) in _dealt(rng, _BANK, _ACCOUNT, _BRANCH)[:count]
     )
 
 
-def _load_expense_categories(count: int) -> tuple[NamedSeed, ...]:
-    return tuple(
-        NamedSeed(
-            name=f"Load Category {i + 1:05d}",
-            description="Load test category",
-        )
-        for i in range(count)
-    )
+def _load_expense_categories(count: int, rng: Random) -> tuple[NamedSeed, ...]:
+    """Curated expense categories — no generated combinations."""
+    fixture_names = {cat.name for cat in EXPENSE_CATEGORIES}
+    available = [n for n in _EXPENSE_CATEGORY_NAMES if n not in fixture_names]
+    rng.shuffle(available)
+    return tuple(NamedSeed(name=n) for n in available[:count])
 
 
-def _load_customers(count: int) -> tuple[PartySeed, ...]:
-    return tuple(
-        PartySeed(
-            name=f"Load Customer {i + 1:05d}",
-            phone=None,
-            address=f"Load address {i + 1}",
-            opening_balance=Decimal("0.00"),
-            notes=None,
-        )
-        for i in range(count)
-    )
+def _phone(rng: Random) -> str:
+    return f"03{rng.randrange(0, 60):02d}-{rng.randrange(1000000, 9999999)}"
 
 
-def _load_suppliers(count: int) -> tuple[PartySeed, ...]:
+def _load_customers(count: int, rng: Random) -> tuple[PartySeed, ...]:
     return tuple(
         PartySeed(
-            name=f"Load Supplier {i + 1:05d}",
-            phone=None,
-            address=f"Load supplier address {i + 1}",
-            opening_balance=Decimal("0.00"),
+            name=f"{house} {trade}, {city}",
+            phone=_phone(rng),
+            address=f"{rng.randrange(1, 400)} {rng.choice(_BRANCH)}, {city}",
+            # A few accounts carried over, and a couple in credit, so the
+            # ageing and ledger screens have something to show at volume.
+            opening_balance=_opening_balance(rng),
             notes=None,
         )
-        for i in range(count)
+        for (house, trade, city) in _dealt(rng, _HOUSE, _TRADE, _CITY)[:count]
     )
+
+
+def _load_suppliers(count: int, rng: Random) -> tuple[PartySeed, ...]:
+    return tuple(
+        PartySeed(
+            name=f"{mill} {supply}, {city}",
+            phone=_phone(rng),
+            address=f"{rng.choice(_BRANCH)}, {city}",
+            opening_balance=_opening_balance(rng),
+            notes=None,
+        )
+        for (mill, supply, city) in _dealt(rng, _MILL, _SUPPLY, _CITY)[:count]
+    )
+
+
+def _opening_balance(rng: Random) -> Decimal:
+    roll = rng.random()
+    if roll < 0.75:
+        return Decimal("0.00")
+    amount = Decimal(rng.randrange(2_500, 90_000, 500))
+    # One in ten of the rest is in credit — they paid ahead.
+    return (-amount if roll > 0.97 else amount).quantize(CURRENCY)
 
 
 def _load_items(
@@ -741,31 +899,56 @@ def _load_items(
     cabinet_codes: tuple[str, ...],
     rng: Random,
 ) -> tuple[ItemSeed, ...]:
-    items: list[ItemSeed] = []
+    sheets = [
+        (f"{paper} {weight} ({sheet})", "sheets", (25, 400), 60_000, (500, 9_000))
+        for (paper, weight, sheet) in _dealt(rng, _PAPER, _WEIGHT, _SHEET)
+    ]
+    liquids = [
+        (f"{shade} {liquid} {tin}", tin.split()[-1] + "s", (1, 8), 300, (65_000, 700_000))
+        for (liquid, shade, tin) in _dealt(rng, _LIQUID, _SHADE, _TIN)
+    ]
+    rolls = [
+        (f"{finish} {rolled} {width}", "rolls", (1, 6), 250, (90_000, 900_000))
+        for (rolled, finish, width) in _dealt(rng, _ROLLED, _FINISH, _WIDTH)
+    ]
+    # Paper first: it is what a print shop mostly keeps, and it is the
+    # family whose names are long enough to test a column that elides.
+    # Anything a fixture already named is dropped — the fixtures are hand
+    # written from the same vocabulary, and the app refuses a second item
+    # by the same name.
+    taken = {item.name for item in ITEMS}
+    catalogue = [row for row in sheets + liquids + rolls if row[0] not in taken][:count]
 
-    for i in range(count):
+    items = []
+    for index, (name, unit, sold_range, stock, price_range) in enumerate(catalogue):
+        # Priced by what it is: a sheet of paper is rupees and a drum of
+        # varnish is thousands, and one range across both would put a
+        # column of nonsense in front of whoever is reading the screen.
         cost_price = (
-            Decimal(rng.randrange(1000, 250000, 50)) / Decimal(100)
+            Decimal(rng.randrange(price_range[0], price_range[1], 25)) / Decimal(100)
         ).quantize(CURRENCY)
-
-        sale_price = (cost_price * Decimal("1.40")).quantize(CURRENCY)
-
         items.append(
             ItemSeed(
-                name=f"Load Item {i + 1:05d}",
-                unit="pcs",
-                cabinet=rng.choice(cabinet_codes),
-                opening_stock=100_000,
-                minimum_stock=5,
+                name=name,
+                unit=unit,
+                cabinet=cabinet_codes[index % len(cabinet_codes)],
+                opening_stock=stock,
+                minimum_stock=max(1, stock // 20),
                 cost_price=cost_price,
-                sale_price=sale_price,
-                quantity_sold=(1, 8),
+                sale_price=(cost_price * Decimal("1.40")).quantize(CURRENCY),
+                quantity_sold=sold_range,
                 bought=True,
                 sold=True,
             )
         )
-
     return tuple(items)
+
+
+_BIG_SPEND = frozenset(
+    {"Shop rent", "Staff salaries", "Electricity bill", "Insurance", "Equipment hire"}
+)
+"""What a shop pays in tens of thousands rather than hundreds. A single
+range across every kind put a two-hundred-rupee rent on the screen."""
 
 
 def _load_expenses(
@@ -775,55 +958,79 @@ def _load_expenses(
     categories: tuple[NamedSeed, ...],
 ) -> tuple[ExpenseSeed, ...]:
     expenses: list[ExpenseSeed] = []
-
-    for index, days_ago in enumerate(_days(rng, months, per_month)):
+    for days_ago in _days(rng, months, per_month):
         category = rng.choice(categories)
-
-        amount = (
-            Decimal(rng.randrange(500, 250000, 50)) / Decimal(100)
-        ).quantize(CURRENCY)
-
+        low, high = (
+            (2_000_000, 25_000_000)
+            if category.name in _BIG_SPEND
+            else (50_000, 2_500_000)
+        )
+        amount = (Decimal(rng.randrange(low, high, 50)) / Decimal(100)).quantize(CURRENCY)
         expenses.append(
             ExpenseSeed(
-                name=f"Load expense {index + 1:05d}",
+                name=category.name,
                 category=category.name,
                 days_ago=days_ago,
                 amount=amount,
             )
         )
-
     return tuple(expenses)
 
 
-def _build_load(rng: Random) -> Dataset:
-    """
-    Load profile: 1000+ rows in the main master and transaction tables.
+_SIGN_INS = (
+    ("sign_in_success", True, None),
+    ("sign_in_success", True, None),
+    ("sign_in_success", True, None),
+    ("session_restored", True, None),
+    ("sign_out", True, None),
+    ("sign_out", True, None),
+    ("sign_in_failure", False, "Invalid email or password"),
+    ("password_changed", True, None),
+)
+"""Mostly ordinary days, with the occasional mistyped password — which is
+the row the screen exists to make findable. Written as the enum's own
+values, so an event nobody records cannot be seeded."""
 
-    Users and company settings are intentionally not bulk-seeded.
-    They are singleton/administration records in this application.
-    """
-    cabinets = CABINETS + _load_cabinets(997)
-    payment_methods = PAYMENT_METHODS + _load_payment_methods(996)
-    expense_categories = EXPENSE_CATEGORIES + _load_expense_categories(994)
-    customers = CUSTOMERS + _load_customers(994)
-    suppliers = SUPPLIERS + _load_suppliers(996)
+
+def _load_audits(rng: Random, months: int, per_month: int, email: str) -> tuple[AuditSeed, ...]:
+    return tuple(
+        AuditSeed(
+            email=email,
+            event_type=event,
+            success=success,
+            days_ago=days_ago,
+            message=message,
+        )
+        for days_ago in _days(rng, months, per_month)
+        for event, success, message in (rng.choice(_SIGN_INS),)
+    )
+
+
+def _build_load(rng: Random) -> Dataset:
+    cabinets = CABINETS + _load_cabinets(1_000, rng)
+    payment_methods = PAYMENT_METHODS + _load_payment_methods(1_000, rng)
+
+    # 10–100+ expense categories: 6 fixtures + 30 load = 36 total
+    expense_categories = EXPENSE_CATEGORIES + _load_expense_categories(30, rng)
+
+    # 100+ customers: 6 fixtures + 120 load = 126 total
+    customers = CUSTOMERS + _load_customers(120, rng)
+
+    # 100+ suppliers: 4 fixtures + 120 load = 124 total
+    suppliers = SUPPLIERS + _load_suppliers(120, rng)
 
     cabinet_codes = tuple(cabinet.name for cabinet in cabinets)
-
-    items = ITEMS + _load_items(992, cabinet_codes, rng)
+    items = ITEMS + _load_items(1_200, cabinet_codes, rng)
 
     months = _FILLER_MONTHS[Profile.LOAD]
-
     purchases = (
         FIXTURE_PURCHASES
         + _filler_purchases(Profile.LOAD, rng, months, items, suppliers)
     )
-
     sales = (
         FIXTURE_SALES
         + _filler_sales(Profile.LOAD, rng, months, items, customers)
     )
-
     expenses = (
         FIXTURE_EXPENSES
         + _load_expenses(
@@ -833,7 +1040,6 @@ def _build_load(rng: Random) -> Dataset:
             expense_categories,
         )
     )
-
     return Dataset(
         company=COMPANY,
         cabinets=cabinets,
@@ -846,4 +1052,5 @@ def _build_load(rng: Random) -> Dataset:
         sales=sales,
         expenses=expenses,
         movements=FIXTURE_MOVEMENTS,
+        audits=_load_audits(rng, months, 30, constants.DEFAULT_ADMIN_EMAIL),
     )

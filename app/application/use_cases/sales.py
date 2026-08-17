@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.application.dto.queries import DocumentPageQuery, PageResult, PageTotals
 from app.application.dto.commands import (
     CreateSaleCommand,
     DateRangeQuery,
@@ -251,3 +252,42 @@ class ListSalesByDateRangeUseCase(AuthenticatedUseCase[DateRangeQuery, list[Sale
         with self.uow as uow:
             sales = self.require(uow.sales, "sales")
             return sales.list_by_date_range(request.start, request.end, request.limit)
+
+
+class PageSalesUseCase(AuthenticatedUseCase[DocumentPageQuery, PageResult]):
+    """One page of a period's sales, with what the whole period comes to.
+
+    The rows, the count and the two figures in the summary strip all come
+    from one unit of work and one set of conditions. Added up from the
+    page instead, the strip would report a fraction of the period under a
+    caption claiming the whole of it — wrong, and never failing.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: DocumentPageQuery) -> PageResult:
+        with self.uow as uow:
+            sales = self.require(uow.sales, "sales")
+            conditions = {
+                "start": request.start,
+                "end": request.end,
+                "search": request.search,
+                "payment": request.payment,
+            }
+            rows = sales.page_sales(
+                **conditions,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            total, outstanding = sales.sum_sales(**conditions)
+            return PageResult(
+                rows=rows,
+                total=sales.count_sales(**conditions),
+                page=request.page,
+                page_size=request.page_size,
+                totals=PageTotals(total=total, outstanding=outstanding),
+            )

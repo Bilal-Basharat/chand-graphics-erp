@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from app.application.dto.commands import (
     CreateCabinetCommand,
     CreateCompanySettingsCommand,
@@ -16,7 +18,7 @@ from app.application.dto.commands import (
     UpdatePaymentMethodCommand,
     UpdateSupplierCommand,
 )
-from app.application.dto.queries import SearchQuery
+from app.application.dto.queries import PageQuery, PageResult
 from app.application.exceptions import DuplicateEntityError, NotFoundError
 from app.application.use_cases.base import UseCase
 from app.application.use_cases.deletion_guard import ensure_not_in_use
@@ -36,6 +38,50 @@ from app.application.use_cases.authorized_base import (
     AuthorizedUnitOfWorkUseCase,
     AuthorizedUseCase,
 )
+
+class _MasterDataPageUseCase(AuthenticatedUseCase[PageQuery, PageResult]):
+    """One page of a master-data list.
+
+    Five lists ask this the same way and differ only in which repository
+    answers, so the assembly lives here once. The page and the count run
+    inside the same unit of work: taken separately, a record created
+    between them leaves a hundred rows claiming to be a hundred and one.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        raise NotImplementedError
+
+    def execute(self, request: PageQuery) -> PageResult:
+        with self.uow as uow:
+            rows, total = self._rows_and_total(uow, request)
+            return PageResult(
+                rows=rows, total=total, page=request.page, page_size=request.page_size
+            )
+
+
+class _NamesByIdUseCase(AuthenticatedUseCase[Collection[int], dict[int, str]]):
+    """The names behind a set of ids.
+
+    For naming the rows on one page of some other list — a page of sales
+    needs the customers those sales are for — without loading a table to
+    look them up in.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def _repository(self, uow: UnitOfWork):
+        raise NotImplementedError
+
+    def execute(self, request: Collection[int]) -> dict[int, str]:
+        with self.uow as uow:
+            return self._repository(uow).names_by_id(request)
+
 
 ############################################################
 ################### Cabinet Use Cases ######################
@@ -74,15 +120,24 @@ class CreateCabinetUseCase(AuthorizedUseCase[CreateCabinetCommand, Cabinet]):
             return cabinets.add(cabinet)
 
 
-class ListCabinetsUseCase(AuthenticatedUseCase[int, list[Cabinet]]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
+class PageCabinetsUseCase(_MasterDataPageUseCase):
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        records = self.require(uow.cabinets, "cabinets")
+        return (
+            records.page_cabinets(
+                search=request.search,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            ),
+            records.count_cabinets(search=request.search),
+        )
 
-    def execute(self, request: int = 100) -> list[Cabinet]:
-        with self.uow as uow:
-            cabinets = self.require(uow.cabinets, "cabinets")
-            return cabinets.list(limit=request)
+
+class GetCabinetNamesUseCase(_NamesByIdUseCase):
+    def _repository(self, uow: UnitOfWork):
+        return self.require(uow.cabinets, "cabinets")
 
 
 class GetCabinetByCodeUseCase(AuthenticatedUseCase[str, Cabinet | None]):
@@ -182,17 +237,24 @@ class CreateCustomerUseCase(AuthorizedUseCase[CreateCustomerCommand, Customer]):
             return customers.add(customer)
 
 
-class SearchCustomersUseCase(AuthenticatedUseCase[SearchQuery, list[Customer]]):
-    """An empty term lists every customer, up to the query's limit."""
+class PageCustomersUseCase(_MasterDataPageUseCase):
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        records = self.require(uow.customers, "customers")
+        return (
+            records.page_customers(
+                search=request.search,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            ),
+            records.count_customers(search=request.search),
+        )
 
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
 
-    def execute(self, request: SearchQuery) -> list[Customer]:
-        with self.uow as uow:
-            customers = self.require(uow.customers, "customers")
-            return customers.search_by_name(request.term.strip(), request.limit)
+class GetCustomerNamesUseCase(_NamesByIdUseCase):
+    def _repository(self, uow: UnitOfWork):
+        return self.require(uow.customers, "customers")
 
 
 class UpdateCustomerUseCase(AuthorizedUseCase[UpdateCustomerCommand, Customer]):
@@ -293,17 +355,24 @@ class CreateSupplierUseCase(AuthorizedUseCase[CreateSupplierCommand, Supplier]):
             return suppliers.add(supplier)
 
 
-class SearchSuppliersUseCase(AuthenticatedUseCase[SearchQuery, list[Supplier]]):
-    """An empty term lists every supplier, up to the query's limit."""
+class PageSuppliersUseCase(_MasterDataPageUseCase):
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        records = self.require(uow.suppliers, "suppliers")
+        return (
+            records.page_suppliers(
+                search=request.search,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            ),
+            records.count_suppliers(search=request.search),
+        )
 
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
 
-    def execute(self, request: SearchQuery) -> list[Supplier]:
-        with self.uow as uow:
-            suppliers = self.require(uow.suppliers, "suppliers")
-            return suppliers.search_by_name(request.term.strip(), request.limit)
+class GetSupplierNamesUseCase(_NamesByIdUseCase):
+    def _repository(self, uow: UnitOfWork):
+        return self.require(uow.suppliers, "suppliers")
 
 
 class UpdateSupplierUseCase(AuthorizedUseCase[UpdateSupplierCommand, Supplier]):
@@ -395,15 +464,24 @@ class CreatePaymentMethodUseCase(AuthorizedUseCase[CreatePaymentMethodCommand, P
             return payment_methods.add(payment_method)
 
 
-class ListPaymentMethodsUseCase(AuthenticatedUseCase[int, list[PaymentMethod]]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
+class PagePaymentMethodsUseCase(_MasterDataPageUseCase):
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        records = self.require(uow.payment_methods, "payment_methods")
+        return (
+            records.page_payment_methods(
+                search=request.search,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            ),
+            records.count_payment_methods(search=request.search),
+        )
 
-    def execute(self, request: int = 100) -> list[PaymentMethod]:
-        with self.uow as uow:
-            payment_methods = self.require(uow.payment_methods, "payment_methods")
-            return payment_methods.list(limit=request)
+
+class GetPaymentMethodNamesUseCase(_NamesByIdUseCase):
+    def _repository(self, uow: UnitOfWork):
+        return self.require(uow.payment_methods, "payment_methods")
 
 
 class UpdatePaymentMethodUseCase(AuthorizedUnitOfWorkUseCase[UpdatePaymentMethodCommand, PaymentMethod]):
@@ -491,15 +569,24 @@ class CreateExpenseCategoryUseCase(AuthorizedUseCase[CreateExpenseCategoryComman
             return categories.add(category)
 
 
-class ListExpenseCategoriesUseCase(AuthenticatedUseCase[int, list[ExpenseCategory]]):
-    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
-        super().__init__(current_user_session)
-        self.uow = uow
+class PageExpenseCategoriesUseCase(_MasterDataPageUseCase):
+    def _rows_and_total(self, uow: UnitOfWork, request: PageQuery) -> tuple[list, int]:
+        records = self.require(uow.expense_categories, "expense_categories")
+        return (
+            records.page_expense_categories(
+                search=request.search,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            ),
+            records.count_expense_categories(search=request.search),
+        )
 
-    def execute(self, request: int = 100) -> list[ExpenseCategory]:
-        with self.uow as uow:
-            categories = self.require(uow.expense_categories, "expense_categories")
-            return categories.list(limit=request)
+
+class GetExpenseCategoryNamesUseCase(_NamesByIdUseCase):
+    def _repository(self, uow: UnitOfWork):
+        return self.require(uow.expense_categories, "expense_categories")
 
 
 class UpdateExpenseCategoryUseCase(

@@ -14,12 +14,36 @@ class InventoryItemRepository(Repository[InventoryItem], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list_low_stock(self, limit: int = 100) -> list[InventoryItem]:
-        """Return items at or below minimum stock."""
+    def page_items(
+        self,
+        *,
+        search: str = "",
+        stock: str | None = None,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[InventoryItem]:
+        """One page of the catalogue, searched, filtered and ordered.
+
+        Takes what it needs as plain values rather than the application's
+        page query: a repository is a domain port, and the layer that
+        defines that query already depends on this one.
+
+        `stock` is a `StockFilter` value; `sort_field` is one of the names
+        this repository offers, and anything else falls back to its own
+        order rather than refusing the page.
+        """
         raise NotImplementedError
 
     @abstractmethod
-    def search_by_term(self, term: str, limit: int = 50) -> list[InventoryItem]:
+    def count_items(self, *, search: str = "", stock: str | None = None) -> int:
+        """How many items those same conditions match."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_low_stock(self, limit: int = 100) -> list[InventoryItem]:
+        """Return items at or below minimum stock."""
         raise NotImplementedError
 
     @abstractmethod

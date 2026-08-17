@@ -19,18 +19,20 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import InventoryMovementCommand
+from app.application.dto.queries import MovementPageQuery, PageResult
 from app.container import AppContainer
 from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.formatting import date_time, or_dash
-from app.presentation.item_types import item_name, load_catalogues
+from app.presentation.item_types import item_name, search_catalogues
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.views.collection_view import CollectionPage, CollectionView
 from app.presentation.widgets.item_type_combo import ItemTypeCombo
 from app.presentation.widgets.list_controls import FilterOption
 from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.presentation.widgets.searchable_combo import SearchableComboBox
 from app.presentation.widgets.table_model import Column
 
 
@@ -41,7 +43,7 @@ class InventoryMovementViewModel(CollectionViewModelBase):
     the item catalogues to populate its picker.
     """
 
-    cataloguesLoaded = Signal(dict)  # dict[ItemType, list]
+    cataloguesSearched = Signal(object, str, list)  # ItemType, term, records
 
     def __init__(self, container: AppContainer) -> None:
         super().__init__()
@@ -51,33 +53,42 @@ class InventoryMovementViewModel(CollectionViewModelBase):
     def set_target(self, item_type: ItemType | None, item_id: int | None) -> None:
         self._target = (item_type, item_id) if item_type and item_id else None
 
-    def load_catalogues(self) -> None:
+    def search_catalogue(self, item_type: ItemType, term: str) -> None:
+        """Matches for what is being typed into the item picker.
+
+        Asked for rather than filtered from a loaded catalogue: past
+        whatever a catalogue was capped at, the item whose history is
+        being looked for simply was not in the box.
+        """
         self.run_async(
-            lambda: load_catalogues(self._container),
-            on_success=self.cataloguesLoaded.emit,
+            lambda: search_catalogues(self._container, term)[ItemType(item_type)],
+            on_success=lambda records: self.cataloguesSearched.emit(item_type, term, records),
         )
 
-    def load(self) -> None:
+    def build_query(self) -> MovementPageQuery:
+        item_id = self._target[1] if self._target else 0
+        return MovementPageQuery(
+            **self._state.as_kwargs(),
+            inventory_item_id=item_id,
+            movement_type=self._state.filter_value,
+        )
+
+    def fetch(self, query: MovementPageQuery) -> PageResult:
         if self._target is None:
             # Nothing selected yet — an empty ledger, not an error.
-            self.rowsLoaded.emit([])
-            return
-
-        # One "movements for this item" use case per kind; a special item
+            return PageResult.empty(query)
+        # One "movements for this item" query per kind; a special item
         # module brings its own, chosen here on the selected type.
-        _item_type, item_id = self._target
-        use_case = self._container.list_inventory_movements_by_inventory_item_use_case()
-        self.run_async(lambda: use_case.execute(item_id), on_success=self.rowsLoaded.emit)
-
-    def search(self, term: str) -> None:  # noqa: ARG002 - scaffold contract, no text search here
-        self.load()
+        return self._container.page_inventory_movements_use_case().execute(query)
 
     def create(self, command: InventoryMovementCommand) -> None:
         use_case = self._container.record_inventory_movement_use_case()
 
         def _on_success(movement) -> None:
             self.itemCreated.emit(movement)
-            self.load()
+            # Back to the first page: a movement is recorded now, and the
+            # ledger reads newest first.
+            self.reload_from_start()
 
         self.run_async(lambda: use_case.execute(command), on_success=_on_success)
 
@@ -98,27 +109,28 @@ class InventoryMovementView(CollectionView):
                 create_label="Record movement",
             ),
             [
-                Column("TYPE", lambda m: m.movement_type.value.title(), width=140),
+                Column(
+                    "TYPE",
+                    lambda m: m.movement_type.value.title(),
+                    sort_field="type",
+                    width=140,
+                ),
                 Column(
                     "CHANGE",
                     _change_text,
                     align="right",
                     color=_change_color,
-                    sort_key=lambda m: m.quantity_change,
+                    sort_field="quantity",
                     width=110,
                 ),
-                Column(
-                    "BEFORE",
-                    lambda m: or_dash(m.previous_stock),
-                    align="right",
-                    sort_key=lambda m: m.previous_stock or 0,
-                    width=100,
-                ),
+                # Before is what After was one row ago; only one of the two
+                # is a column the query can order by.
+                Column("BEFORE", lambda m: or_dash(m.previous_stock), align="right", width=100),
                 Column(
                     "AFTER",
                     lambda m: or_dash(m.resulting_stock),
                     align="right",
-                    sort_key=lambda m: m.resulting_stock or 0,
+                    sort_field="stock",
                     width=100,
                 ),
                 # Which document moved the stock. Without it a job's
@@ -127,26 +139,23 @@ class InventoryMovementView(CollectionView):
                 Column("SOURCE", lambda m: or_dash(m.reference_no), width=190),
                 Column("REASON", lambda m: or_dash(m.reason)),
                 Column("NOTE", lambda m: or_dash(m.note)),
-                Column("DATE", _moved_at_text, sort_key=_moved_at, width=180),
+                Column("DATE", _moved_at_text, sort_field="occurred", width=180),
             ],
             view_model,
             parent,
         )
 
-        view_model.cataloguesLoaded.connect(self._on_catalogues_loaded)
+        view_model.cataloguesSearched.connect(self._on_catalogue_searched)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
         # Items are added on other screens during a session, so the picker
         # is refilled on each visit rather than at construction.
-        self._movement_view_model.load_catalogues()
+        self._movement_view_model.search_catalogue(self._kind.selected_type(), "")
 
     def filter_options(self):
         return [
-            FilterOption(
-                movement_type.value.title(),
-                lambda m, wanted=movement_type: m.movement_type is wanted,
-            )
+            FilterOption(movement_type.value.title(), str(movement_type.value))
             for movement_type in MovementType
         ]
 
@@ -154,37 +163,38 @@ class InventoryMovementView(CollectionView):
         self._kind = ItemTypeCombo()
         self._kind.currentIndexChanged.connect(self._on_kind_changed)
 
-        self._item = QComboBox()
+        # Searched rather than scrolled: the item whose history is being
+        # read is one name in a whole catalogue.
+        self._item = SearchableComboBox()
+        self._item.setToolTip("Type any part of an item's name to find it")
         self._item.setMinimumWidth(260)
         self._item.currentIndexChanged.connect(self._on_item_changed)
+        self._item.searchRequested.connect(
+            lambda term: self._movement_view_model.search_catalogue(
+                self._kind.selected_type(), term
+            )
+        )
 
         return [self._kind, self._item]
 
     # ---------------- selection ----------------
 
-    def _on_catalogues_loaded(self, catalogues: dict) -> None:
-        self._catalogues = catalogues
-        self._repopulate_items()
+    def _on_catalogue_searched(self, item_type, term: str, records: list) -> None:
+        if ItemType(item_type) != self._kind.selected_type():
+            return
+        self._item.set_options(
+            [(item_name(item_type, record), record.id) for record in records],
+            term=term or None,
+        )
+        self._on_item_changed(self._item.currentIndex())
 
     def _on_kind_changed(self, _index: int) -> None:
-        self._repopulate_items()
-
-    def _repopulate_items(self) -> None:
-        item_type = self._kind.selected_type()
-        records = self._catalogues.get(item_type, [])
-
-        self._item.blockSignals(True)
-        self._item.clear()
-        if not records:
-            self._item.addItem("— none available —", None)
-        for record in records:
-            self._item.addItem(item_name(item_type, record), record.id)
-        self._item.blockSignals(False)
-        self._on_item_changed(self._item.currentIndex())
+        self._movement_view_model.search_catalogue(self._kind.selected_type(), "")
 
     def _on_item_changed(self, _index: int) -> None:
         self._movement_view_model.set_target(self._kind.selected_type(), self._item.currentData())
-        self.reload()
+        # Another item is another ledger, not another page of this one.
+        self.reload_from_start()
 
     def open_create_dialog(self) -> None:
         item_id = self._item.currentData()
@@ -200,12 +210,6 @@ class InventoryMovementView(CollectionView):
             item_label=self._item.currentText(),
             parent=self,
         ).exec()
-
-
-def _moved_at(movement) -> datetime:
-    """When a movement happened, falling back to when it was recorded — and
-    never None, so it can be sorted on."""
-    return movement.occurred_at or movement.created_at or datetime.min
 
 
 def _moved_at_text(movement) -> str:

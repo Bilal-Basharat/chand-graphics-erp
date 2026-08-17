@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from PySide6.QtWidgets import QWidget
 
-from app.application.dto.queries import Ageing, AgeingQuery
+from app.application.dto.queries import Ageing, AgeingQuery, PageResult
 from app.container import AppContainer
 from app.presentation.dialogs.record_card_dialog import print_card, save_pdf
 from app.presentation.formatting import counted, date_only, date_time, money
@@ -30,7 +30,6 @@ from app.presentation.records.builders import ageing_card
 from app.presentation.records.card import RecordCard
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModelBase
 from app.presentation.views.collection_view import CollectionPage, CollectionView
-from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.table_model import Column
 from app.shared.datetimes import now_pkt
 
@@ -82,6 +81,18 @@ PAYABLES_PAGE = AgeingPage(
 
 # ---------------------------------------------------------------- view model
 
+_SORT_KEYS = {
+    "party": lambda line: line.party.lower(),
+    "reference": lambda line: line.reference.lower(),
+    "raised": lambda line: line.occurred_at,
+    "age": lambda line: line.age_days,
+    "band": lambda line: line.age_days,
+    "outstanding": lambda line: line.outstanding,
+}
+"""Ordered here rather than by the database: this screen holds every
+unpaid document at once, so the whole list is in hand to sort. The band
+sorts by age, not alphabetically — "90+" comes after "31-60"."""
+
 
 class AgeingViewModel(CollectionViewModelBase):
     """Everything unpaid, as at now.
@@ -103,30 +114,29 @@ class AgeingViewModel(CollectionViewModelBase):
         """What is on screen, kept so it can be put on paper."""
         return self._report
 
-    def load(self) -> None:
-        query = AgeingQuery(as_at=now_pkt())
+    def fetch(self, query) -> PageResult:
+        """Everything unpaid, as one page.
 
-        def _on_success(report: Ageing) -> None:
-            # Set before the rows go out: the summary strip is rendered
-            # from this, off the back of `rowsLoaded`.
-            self._report = report
-            self.rowsLoaded.emit(list(report.lines))
+        Not paged, and deliberately: the bands and the total along the top
+        are computed across every unpaid document, so a page of the lines
+        would leave the figures describing something the rows do not. The
+        set is naturally small — it is only what is owed.
+        """
+        report = self._fetch(AgeingQuery(as_at=now_pkt()))
+        # Set here rather than when the rows arrive because the summary
+        # strip is drawn from it the moment they do.
+        self._report = report
 
-        self.run_async(lambda: self._fetch(query), on_success=_on_success)
-
-    def search(self, term: str) -> None:
-        term = term.strip().lower()
-        report = self._report
-        if report is None or not term:
-            self.load()
-            return
-        self.rowsLoaded.emit(
-            [
-                line
-                for line in report.lines
-                if term in line.party.lower() or term in line.reference.lower()
-            ]
-        )
+        term = query.search.lower()
+        lines = [
+            line
+            for line in report.lines
+            if not term or term in line.party.lower() or term in line.reference.lower()
+        ]
+        key = _SORT_KEYS.get(query.sort_field or "")
+        if key is not None:
+            lines.sort(key=key, reverse=query.sort_desc)
+        return PageResult(rows=lines, total=len(lines), page=1, page_size=max(1, len(lines)))
 
 
 class ReceivablesAgeingViewModel(AgeingViewModel):
@@ -163,27 +173,32 @@ class AgeingView(CollectionView):
                 search_placeholder=page.search_placeholder,
             ),
             [
-                Column(page.party_header, lambda line: line.party),
-                Column(page.reference_header, lambda line: line.reference, width=150),
+                Column(page.party_header, lambda line: line.party, sort_field="party"),
+                Column(
+                    page.reference_header,
+                    lambda line: line.reference,
+                    sort_field="reference",
+                    width=150,
+                ),
                 Column(
                     "RAISED",
                     lambda line: date_time(line.occurred_at),
-                    sort_key=lambda line: line.occurred_at,
+                    sort_field="raised",
                     width=170,
                 ),
                 Column(
                     "AGE",
                     lambda line: counted(line.age_days, "day"),
                     align="right",
-                    sort_key=lambda line: line.age_days,
+                    sort_field="age",
                     width=110,
                 ),
-                Column("BAND", lambda line: line.band, width=130),
+                Column("BAND", lambda line: line.band, sort_field="band", width=130),
                 Column(
                     "OUTSTANDING",
                     lambda line: money(line.outstanding),
                     align="right",
-                    sort_key=lambda line: line.outstanding,
+                    sort_field="outstanding",
                     width=150,
                 ),
             ],
@@ -191,17 +206,14 @@ class AgeingView(CollectionView):
             parent,
         )
 
+        # Opens oldest first, which is the order these get chased in.
+        self.set_initial_sort("AGE", descending=True)
+
         self._save_button = self._header.add_action("Save as PDF", self._save_pdf)
         self._print_button = self._header.add_action("Print", self._print, variant="primary")
         self._set_paper_enabled(False)
 
-    def create_table(self, columns: Sequence[Column]) -> DataTable:
-        table = super().create_table(columns)
-        # Opens oldest first, which is the order these get chased in.
-        table.sorting.sort_by("AGE", descending=True)
-        return table
-
-    def summary(self, rows: list) -> Sequence[tuple[str, str]]:
+    def summary(self) -> Sequence[tuple[str, str]]:
         # Every band, always — including the empty ones, so the strip does
         # not change shape as debts move between bands.
         report = self._ageing_view_model.report

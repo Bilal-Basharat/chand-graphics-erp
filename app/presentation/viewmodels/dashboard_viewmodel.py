@@ -14,7 +14,6 @@ from decimal import Decimal
 from PySide6.QtCore import Signal
 
 from app.application.dto.commands import DateRangeQuery
-from app.application.dto.queries import SearchQuery
 from app.container import AppContainer
 from app.presentation.formatting import NO_SUPPLIER, WALK_IN, pkr
 from app.presentation.navigation.routes import Route
@@ -96,11 +95,6 @@ _RECENT_DOCUMENTS = 6
 _RECENT_ACTIVITY = 20
 
 
-_REFERENCE_LIMIT = 500
-"""How much master data a card can name. The same figure every screen
-that loads these catalogues uses."""
-
-
 class DashboardViewModel(BaseViewModel):
     dashboardLoaded = Signal(object)  # DashboardData
 
@@ -121,19 +115,20 @@ class DashboardViewModel(BaseViewModel):
         expenses = self._container.list_expenses_by_date_range_use_case().execute(date_range)
         low_stock_items = self._container.list_low_stock_inventory_items_use_case().execute(500)
 
-        # Name lookups for the document rows below — an empty term lists all.
-        all_parties = SearchQuery(term="", limit=_REFERENCE_LIMIT)
-        customers = {
-            c.id: c.name for c in self._container.search_customers_use_case().execute(all_parties)
-        }
-        suppliers = {
-            s.id: s.name for s in self._container.search_suppliers_use_case().execute(all_parties)
-        }
+        # Name lookups for the document rows below, by the ids those rows
+        # actually carry — the shop's party lists are as long as the shop
+        # is old, and none of the rest has any bearing on this period.
+        customers = self._container.customer_names_use_case().execute(
+            {sale.customer_id for sale in sales if sale.customer_id}
+        )
+        suppliers = self._container.supplier_names_use_case().execute(
+            {purchase.supplier_id for purchase in purchases if purchase.supplier_id}
+        )
         # The dashboard writes out every document it lists, so it needs
         # the same names the document screens hold. Read once here, next
         # to the documents themselves, which is what lets a card open
         # from the dashboard without going back to the database for it.
-        names = DocumentNames.load(self._container, _REFERENCE_LIMIT)
+        names = DocumentNames.load(self._container, [*sales, *purchases])
         documents: list[DocumentRow] = []
         activity: list[ActivityRow] = []
 

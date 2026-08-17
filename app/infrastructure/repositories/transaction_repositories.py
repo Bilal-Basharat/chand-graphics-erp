@@ -14,6 +14,7 @@ from app.domain.entities.purchase_payment import PurchasePayment
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_payment import SalePayment
 from app.domain.enums.item_type import ItemType
+from app.domain.enums.payment_filter import PaymentFilter
 from app.domain.repositories.aggregates import (
     CategorySpendRow,
     CostTotals,
@@ -33,6 +34,7 @@ from app.domain.repositories.sale_payment_repository import (
     SalePaymentRepository as SalePaymentRepositoryPort,
 )
 from app.domain.repositories.sale_repository import SaleRepository as SaleRepositoryPort
+from app.infrastructure.db.models.expense_category_model import ExpenseCategoryModel
 from app.infrastructure.db.models.expense_model import ExpenseModel
 from app.infrastructure.db.models.inventory_movement_model import InventoryMovementModel
 from app.infrastructure.db.models.customer_model import CustomerModel
@@ -50,6 +52,7 @@ from app.infrastructure.mappers.purchase_payment_mapper import PurchasePaymentMa
 from app.infrastructure.mappers.sale_mapper import SaleMapper
 from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
+from app.infrastructure.repositories.paging import contains, matching, totals
 
 
 _PAISA = Decimal("0.01")
@@ -100,6 +103,38 @@ def _count_documents_holding_item(
     return int(session.execute(stmt).scalar_one())
 
 
+def _paid_as(model, payment: str | None):
+    """How far paid, as a condition on a document's stored figures.
+
+    Written against `grand_total` and `balance_amount` — the columns the
+    document was saved with — because a page of a thousand rows cannot ask
+    each entity to add its own lines up. `Sale` and `Purchase` compute the
+    same two figures from their lines, and the mapper writes them back on
+    every save, so the list and the document agree.
+
+    None means "every document": the absence of a filter, not a filter
+    that matches nothing.
+    """
+    if payment == PaymentFilter.NOT_FULLY_PAID:
+        return model.balance_amount > 0
+    if payment == PaymentFilter.NOTHING_PAID:
+        return model.balance_amount >= model.grand_total
+    if payment == PaymentFilter.PART_PAID:
+        return (model.balance_amount > 0) & (model.balance_amount < model.grand_total)
+    if payment == PaymentFilter.FULLY_PAID:
+        return model.balance_amount <= 0
+    return None
+
+
+def _sum_of(model):
+    """What a document list adds up to: what it came to, and what is left
+    owing on it."""
+    return (
+        func.coalesce(func.sum(model.grand_total), 0),
+        func.coalesce(func.sum(model.balance_amount), 0),
+    )
+
+
 ############################################################
 ################### Expense Repository ####################
 ############################################################
@@ -113,6 +148,101 @@ class SqlAlchemyExpenseRepository(
 
     def __init__(self, session: Session) -> None:
         super().__init__(session, ExpenseModel, ExpenseMapper)
+
+    _SORTABLE = {
+        "name": ExpenseModel.expense_name,
+        "created": ExpenseModel.created_at,
+        "amount": ExpenseModel.total_amount,
+        "category": ExpenseCategoryModel.name,
+    }
+
+    def _filtered_expenses(
+        self,
+        start: datetime,
+        end: datetime,
+        search: str,
+        category_id: int | None,
+        uncategorised: bool,
+    ):
+        """The conditions the page, its count and its total all share."""
+        stmt = (
+            select(ExpenseModel)
+            # Always joined, not only when searching: the list can be
+            # ordered by category, and an order needs the column present.
+            .outerjoin(ExpenseCategoryModel, ExpenseModel.category_id == ExpenseCategoryModel.id)
+            .where(ExpenseModel.created_at >= start)
+            .where(ExpenseModel.created_at <= end)
+        )
+        if search:
+            stmt = stmt.where(
+                matching(
+                    contains(search),
+                    ExpenseModel.expense_name,
+                    ExpenseModel.remarks,
+                    ExpenseCategoryModel.name,
+                )
+            )
+        if uncategorised:
+            # Its own condition rather than a category id of None, which
+            # already means "every category".
+            stmt = stmt.where(ExpenseModel.category_id.is_(None))
+        elif category_id is not None:
+            stmt = stmt.where(ExpenseModel.category_id == category_id)
+        return stmt
+
+    def page_expenses(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        category_id: int | None = None,
+        uncategorised: bool = False,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Expense]:
+        return self.page_of(
+            self._filtered_expenses(start, end, search, category_id, uncategorised),
+            sortable=self._SORTABLE,
+            default_sort="created",
+            default_desc=True,
+            sort_field=sort_field,
+            sort_desc=sort_desc,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_expenses(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        category_id: int | None = None,
+        uncategorised: bool = False,
+    ) -> int:
+        return self.count_of(
+            self._filtered_expenses(start, end, search, category_id, uncategorised)
+        )
+
+    def sum_expenses(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        category_id: int | None = None,
+        uncategorised: bool = False,
+    ) -> Decimal:
+        """What the whole filtered period comes to, not this page of it."""
+        spent = totals(
+            self.session,
+            self._filtered_expenses(start, end, search, category_id, uncategorised),
+            func.coalesce(func.sum(ExpenseModel.total_amount), 0),
+        )[0]
+        return _money(spent)
 
     def list_by_date_range(
         self,
@@ -198,6 +328,97 @@ class SqlAlchemyPurchaseRepository(
         model = self.session.execute(stmt).scalar_one_or_none()
         return None if model is None else PurchaseMapper.to_entity(model)
 
+    _SORTABLE = {
+        "number": PurchaseModel.purchase_no,
+        "supplier": SupplierModel.name,
+        "created": PurchaseModel.created_at,
+        "total": PurchaseModel.grand_total,
+        "balance": PurchaseModel.balance_amount,
+        "reference": PurchaseModel.reference_no,
+    }
+
+    def _filtered_purchases(
+        self,
+        start: datetime,
+        end: datetime,
+        search: str,
+        payment: str | None,
+    ):
+        stmt = (
+            select(PurchaseModel)
+            .outerjoin(SupplierModel, PurchaseModel.supplier_id == SupplierModel.id)
+            .where(PurchaseModel.created_at >= start)
+            .where(PurchaseModel.created_at <= end)
+        )
+        if search:
+            stmt = stmt.where(
+                matching(
+                    contains(search),
+                    PurchaseModel.purchase_no,
+                    SupplierModel.name,
+                    PurchaseModel.reference_no,
+                    PurchaseModel.note,
+                )
+            )
+        paid = _paid_as(PurchaseModel, payment)
+        if paid is not None:
+            stmt = stmt.where(paid)
+        return stmt
+
+    def page_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Purchase]:
+        return self.page_of(
+            self._filtered_purchases(start, end, search, payment).options(
+                # `Purchase` totals itself from its lines, so they travel
+                # with the header or every row on the page reads 0.00.
+                selectinload(PurchaseModel.items),
+                selectinload(PurchaseModel.payments),
+            ),
+            sortable=self._SORTABLE,
+            default_sort="created",
+            default_desc=True,
+            sort_field=sort_field,
+            sort_desc=sort_desc,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> int:
+        return self.count_of(self._filtered_purchases(start, end, search, payment))
+
+    def sum_purchases(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        """What the filtered period came to, and what is still owed on it."""
+        total, outstanding = totals(
+            self.session,
+            self._filtered_purchases(start, end, search, payment),
+            *_sum_of(PurchaseModel),
+        )
+        return _money(total), _money(outstanding)
+
     def get_by_purchase_no(self, purchase_no: str) -> Purchase | None:
         stmt = (
             select(PurchaseModel)
@@ -220,31 +441,6 @@ class SqlAlchemyPurchaseRepository(
             select(PurchaseModel)
             .where(PurchaseModel.created_at >= start)
             .where(PurchaseModel.created_at <= end)
-            .order_by(PurchaseModel.created_at.desc())
-            .options(
-                selectinload(PurchaseModel.items),
-                selectinload(PurchaseModel.payments),
-            )
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [PurchaseMapper.to_entity(model) for model in models]
-
-    def search_by_term(self, term: str, limit: int = 50) -> list[Purchase]:
-        pattern = f"%{term.strip()}%"
-        stmt = (
-            select(PurchaseModel)
-            # Outer join: a purchase with no supplier still has to be
-            # findable by its own number.
-            .outerjoin(SupplierModel, PurchaseModel.supplier_id == SupplierModel.id)
-            .where(
-                or_(
-                    PurchaseModel.purchase_no.ilike(pattern),
-                    SupplierModel.name.ilike(pattern),
-                    PurchaseModel.reference_no.ilike(pattern),
-                    PurchaseModel.note.ilike(pattern),
-                )
-            )
             .order_by(PurchaseModel.created_at.desc())
             .options(
                 selectinload(PurchaseModel.items),
@@ -402,6 +598,95 @@ class SqlAlchemySaleRepository(
         model = self.session.execute(stmt).scalar_one_or_none()
         return None if model is None else SaleMapper.to_entity(model)
 
+    _SORTABLE = {
+        "invoice": SaleModel.invoice_no,
+        "customer": CustomerModel.name,
+        "created": SaleModel.created_at,
+        "total": SaleModel.grand_total,
+        "balance": SaleModel.balance_amount,
+    }
+
+    def _filtered_sales(
+        self,
+        start: datetime,
+        end: datetime,
+        search: str,
+        payment: str | None,
+    ):
+        stmt = (
+            select(SaleModel)
+            .outerjoin(CustomerModel, SaleModel.customer_id == CustomerModel.id)
+            .where(SaleModel.created_at >= start)
+            .where(SaleModel.created_at <= end)
+        )
+        if search:
+            stmt = stmt.where(
+                matching(
+                    contains(search),
+                    SaleModel.invoice_no,
+                    CustomerModel.name,
+                    SaleModel.note,
+                )
+            )
+        paid = _paid_as(SaleModel, payment)
+        if paid is not None:
+            stmt = stmt.where(paid)
+        return stmt
+
+    def page_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Sale]:
+        return self.page_of(
+            self._filtered_sales(start, end, search, payment).options(
+                # `Sale` totals itself from its lines, so they travel with
+                # the header or every row on the page reads 0.00.
+                selectinload(SaleModel.items),
+                selectinload(SaleModel.payments),
+            ),
+            sortable=self._SORTABLE,
+            default_sort="created",
+            default_desc=True,
+            sort_field=sort_field,
+            sort_desc=sort_desc,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> int:
+        return self.count_of(self._filtered_sales(start, end, search, payment))
+
+    def sum_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        """What the filtered period sold, and what is still to collect."""
+        total, outstanding = totals(
+            self.session,
+            self._filtered_sales(start, end, search, payment),
+            *_sum_of(SaleModel),
+        )
+        return _money(total), _money(outstanding)
+
     def get_by_invoice_no(self, invoice_no: str) -> Sale | None:
         stmt = (
             select(SaleModel)
@@ -424,30 +709,6 @@ class SqlAlchemySaleRepository(
             select(SaleModel)
             .where(SaleModel.created_at >= start)
             .where(SaleModel.created_at <= end)
-            .order_by(SaleModel.created_at.desc())
-            .options(
-                selectinload(SaleModel.items),
-                selectinload(SaleModel.payments),
-            )
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [SaleMapper.to_entity(model) for model in models]
-
-    def search_by_term(self, term: str, limit: int = 50) -> list[Sale]:
-        pattern = f"%{term.strip()}%"
-        stmt = (
-            select(SaleModel)
-            # Outer join: a walk-in sale has no customer and still has to
-            # be findable by its invoice number.
-            .outerjoin(CustomerModel, SaleModel.customer_id == CustomerModel.id)
-            .where(
-                or_(
-                    SaleModel.invoice_no.ilike(pattern),
-                    CustomerModel.name.ilike(pattern),
-                    SaleModel.note.ilike(pattern),
-                )
-            )
             .order_by(SaleModel.created_at.desc())
             .options(
                 selectinload(SaleModel.items),
@@ -760,6 +1021,63 @@ class SqlAlchemyInventoryMovementRepository(
     def __init__(self, session: Session) -> None:
         super().__init__(session, InventoryMovementModel, InventoryMovementMapper)
 
+    _SORTABLE = {
+        "occurred": InventoryMovementModel.occurred_at,
+        "type": InventoryMovementModel.movement_type,
+        "quantity": InventoryMovementModel.quantity,
+        "stock": InventoryMovementModel.resulting_stock,
+    }
+
+    def _filtered_movements(self, inventory_item_id: int, movement_type: str | None, search: str):
+        stmt = select(InventoryMovementModel).where(
+            InventoryMovementModel.inventory_item_id == inventory_item_id
+        )
+        if movement_type:
+            stmt = stmt.where(InventoryMovementModel.movement_type == movement_type)
+        if search:
+            stmt = stmt.where(
+                matching(
+                    contains(search),
+                    InventoryMovementModel.reference_no,
+                    InventoryMovementModel.reason,
+                    InventoryMovementModel.note,
+                )
+            )
+        return stmt
+
+    def page_movements(
+        self,
+        *,
+        inventory_item_id: int,
+        movement_type: str | None = None,
+        search: str = "",
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[InventoryMovement]:
+        return self.page_of(
+            self._filtered_movements(inventory_item_id, movement_type, search),
+            sortable=self._SORTABLE,
+            default_sort="occurred",
+            default_desc=True,
+            sort_field=sort_field,
+            sort_desc=sort_desc,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_movements(
+        self,
+        *,
+        inventory_item_id: int,
+        movement_type: str | None = None,
+        search: str = "",
+    ) -> int:
+        return self.count_of(
+            self._filtered_movements(inventory_item_id, movement_type, search)
+        )
+
     def list_by_source_document(
         self,
         source_document_type: str,
@@ -776,12 +1094,3 @@ class SqlAlchemyInventoryMovementRepository(
         models = self.session.execute(stmt).scalars().all()
         return [InventoryMovementMapper.to_entity(model) for model in models]
 
-    def list_by_inventory_item_id(self, inventory_item_id: int, limit: int = 200) -> list[InventoryMovement]:
-        stmt = (
-            select(InventoryMovementModel)
-            .where(InventoryMovementModel.inventory_item_id == inventory_item_id)
-            .order_by(InventoryMovementModel.occurred_at.desc())
-            .limit(limit)
-        )
-        models = self.session.execute(stmt).scalars().all()
-        return [InventoryMovementMapper.to_entity(model) for model in models]

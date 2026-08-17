@@ -37,3 +37,21 @@ class InventoryMovement(AuditEntity):
         # See SaleItem: the movement carries the id its own item type names.
         if self.item_type is ItemType.INVENTORY_ITEM and self.inventory_item_id is None:
             raise ValueError("inventory_item_id is required for INVENTORY_ITEM movements")
+
+    @property
+    def quantity_change(self) -> int:
+        """How much this moved the count, with its sign.
+
+        `quantity` is the size of the movement and is always positive; this
+        is the movement. Read from the counts either side rather than from
+        the type, because the type cannot answer it: a RETURN is stock
+        coming back from a customer or going back to a supplier, and those
+        move the count opposite ways.
+
+        Falls back to the size when a movement was recorded without its
+        before-and-after counts — older rows, and the only case where the
+        sign genuinely is not known.
+        """
+        if self.previous_stock is None or self.resulting_stock is None:
+            return self.quantity
+        return self.resulting_stock - self.previous_stock

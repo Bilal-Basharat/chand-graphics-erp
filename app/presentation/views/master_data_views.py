@@ -75,7 +75,7 @@ class CabinetsView(EditableCollectionView):
                 create_label="Add cabinet",
             ),
             [
-                Column("CODE", lambda c: c.code, width=180),
+                Column("CODE", lambda c: c.code, sort_field="code", width=180),
                 Column("DESCRIPTION", lambda c: _or_dash(c.description)),
             ],
             view_model,
@@ -124,7 +124,7 @@ class PaymentMethodsView(EditableCollectionView):
                 unit="method",
                 create_label="Add method",
             ),
-            [Column("METHOD", lambda m: m.name)],
+            [Column("METHOD", lambda m: m.name, sort_field="name")],
             view_model,
             parent,
         )
@@ -163,7 +163,10 @@ class _PartyView(EditableCollectionView):
     lives — this only says which party was asked for.
     """
 
-    ledgerRequested = Signal(int)
+    ledgerRequested = Signal(int, str)
+    """Which party, and what they are called. The name travels with the id
+    because the ledger picks its subject from a box holding a page of
+    names, and the party asked for is often not one of them."""
 
     quick_add_command: type[CreateCustomerCommand | CreateSupplierCommand]
     """What the quick-add row builds. The two commands are field-for-field
@@ -228,7 +231,7 @@ class _PartyView(EditableCollectionView):
 
     def on_row_action(self, key: str, row) -> None:
         if key == _LEDGER:
-            self.ledgerRequested.emit(row.id)
+            self.ledgerRequested.emit(row.id, row.name)
             return
         super().on_row_action(key, row)
 
@@ -253,15 +256,15 @@ class CustomersView(_PartyView):
                 create_label="Add customer",
             ),
             [
-                Column("NAME", lambda c: c.name),
-                Column("PHONE", lambda c: _or_dash(c.phone), width=160),
+                Column("NAME", lambda c: c.name, sort_field="name"),
+                Column("PHONE", lambda c: _or_dash(c.phone), sort_field="phone", width=160),
                 Column("ADDRESS", lambda c: _or_dash(c.address)),
                 Column("NOTES", lambda c: _or_dash(c.notes)),
                 Column(
                     "OPENING",
                     lambda c: money(c.opening_balance),
                     align="right",
-                    sort_key=lambda c: c.opening_balance,
+                    sort_field="balance",
                     width=130,
                 ),
             ],
@@ -296,15 +299,15 @@ class SuppliersView(_PartyView):
                 create_label="Add supplier",
             ),
             [
-                Column("NAME", lambda s: s.name),
-                Column("PHONE", lambda s: _or_dash(s.phone), width=160),
+                Column("NAME", lambda s: s.name, sort_field="name"),
+                Column("PHONE", lambda s: _or_dash(s.phone), sort_field="phone", width=160),
                 Column("ADDRESS", lambda s: _or_dash(s.address)),
                 Column("NOTES", lambda s: _or_dash(s.notes)),
                 Column(
                     "OPENING",
                     lambda s: money(s.opening_balance),
                     align="right",
-                    sort_key=lambda s: s.opening_balance,
+                    sort_field="balance",
                     width=130,
                 ),
             ],
@@ -323,6 +326,9 @@ class InventoryView(EditableCollectionView):
     def __init__(self, view_model: InventoryViewModel, parent: QWidget | None = None) -> None:
         self._inventory_view_model = view_model
         self._cabinet_names: dict[int, str] = {}
+        """Codes for the cabinets on the pages seen so far, for the list."""
+        self._cabinet_choices: dict[int, str] = {}
+        """The cabinets an item may be filed under, for the two pickers."""
 
         super().__init__(
             CollectionPage(
@@ -336,22 +342,25 @@ class InventoryView(EditableCollectionView):
                 create_label="Add item",
             ),
             [
-                Column("NAME", lambda i: i.name, sort_key=lambda i: i.name.lower()),
+                Column("NAME", lambda i: i.name, sort_field="name"),
                 Column("DESCRIPTION", lambda i: _or_dash(i.description)),
+                # No sort on the cabinet: the column holds a code fetched
+                # for the ids on this page, and the query behind the list
+                # has nothing to order by that the screen could mean.
                 Column("CABINET", self._cabinet_label, width=150),
                 Column("UNIT", lambda i: _or_dash(i.unit), width=110),
                 Column(
                     "STOCK",
                     lambda i: i.current_stock,
                     align="right",
-                    sort_key=lambda i: i.current_stock,
+                    sort_field="stock",
                     width=100,
                 ),
                 Column(
                     "MINIMUM",
                     lambda i: i.minimum_stock,
                     align="right",
-                    sort_key=lambda i: i.minimum_stock,
+                    sort_field="minimum",
                     width=110,
                 ),
                 Column(
@@ -359,7 +368,7 @@ class InventoryView(EditableCollectionView):
                     stock_status_text,
                     align="center",
                     color=stock_status_color,
-                    sort_key=lambda i: i.current_stock,
+                    sort_field="stock",
                     width=130,
                 ),
             ],
@@ -367,7 +376,7 @@ class InventoryView(EditableCollectionView):
             parent,
         )
 
-        view_model.cabinetsLoaded.connect(self._on_cabinets_loaded)
+        view_model.cabinetNames.connect(self._on_cabinet_names)
 
     def filter_options(self):
         return stock_filters()
@@ -377,7 +386,7 @@ class InventoryView(EditableCollectionView):
         # Refreshed each visit rather than only when empty — cabinets get
         # added on their own screen, and a stale list here would silently
         # offer the wrong choices in the quick-add row and the dialog.
-        self._inventory_view_model.load_cabinets()
+        self._inventory_view_model.load_cabinet_choices(self._on_cabinet_choices)
 
     # ---------------- quick-add strip ----------------
 
@@ -415,23 +424,41 @@ class InventoryView(EditableCollectionView):
             return _DASH
         return self._cabinet_names.get(item.cabinet_id, _DASH)
 
-    def _on_cabinets_loaded(self, cabinets: list) -> None:
-        self._cabinet_names = {c.id: c.code for c in cabinets}
+    def on_rows_loaded(self, rows: list) -> None:
+        """Fetch the codes for the cabinets on this page.
+
+        For the ids actually on screen rather than by loading the
+        cabinets: past however many a fetch was capped at, every item
+        filed in one of the rest read as a dash.
+        """
+        self._inventory_view_model.load_cabinet_names(
+            {item.cabinet_id for item in rows if item.cabinet_id}
+        )
+
+    def _on_cabinet_names(self, names: dict) -> None:
+        # Added to rather than replaced: the codes for the page before
+        # this one cost nothing to keep and save re-fetching them on the
+        # way back.
+        self._cabinet_names.update(names)
         self.table.refresh()
+
+    def _on_cabinet_choices(self, cabinets: list) -> None:
+        self._cabinet_names.update({cabinet.id: cabinet.code for cabinet in cabinets})
+        self._cabinet_choices = {cabinet.id: cabinet.code for cabinet in cabinets}
         refill(
             self._new_cabinet,
             _NO_CABINET,
             sorted(
-                ((code, cabinet_id) for cabinet_id, code in self._cabinet_names.items()),
+                ((code, cabinet_id) for cabinet_id, code in self._cabinet_choices.items()),
                 key=lambda entry: entry[0],
             ),
         )
 
     def open_create_dialog(self) -> None:
-        InventoryItemDialog(self.view_model, self._cabinet_names, parent=self).exec()
+        InventoryItemDialog(self.view_model, self._cabinet_choices, parent=self).exec()
 
     def open_edit_dialog(self, row) -> None:
-        InventoryItemDialog(self.view_model, self._cabinet_names, item=row, parent=self).exec()
+        InventoryItemDialog(self.view_model, self._cabinet_choices, item=row, parent=self).exec()
 
 
 class ExpenseCategoriesView(EditableCollectionView):
@@ -448,7 +475,7 @@ class ExpenseCategoriesView(EditableCollectionView):
                 create_label="Add category",
             ),
             [
-                Column("NAME", lambda c: c.name, width=240),
+                Column("NAME", lambda c: c.name, sort_field="name", width=240),
                 Column("DESCRIPTION", lambda c: _or_dash(c.description)),
             ],
             view_model,

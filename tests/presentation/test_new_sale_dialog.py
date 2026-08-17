@@ -18,10 +18,27 @@ PLENTIFUL = InventoryItem(id=1, name="80 gsm Art Paper", current_stock=100, mini
 
 
 class _SalesViewModel(QObject):
-    """As much of the sales view model as the dialog touches."""
+    """As much of the sales view model as the dialog touches.
+
+    Including the two searches its pickers run: the dialog is handed the
+    first page of the catalogue and asks for the rest as it is typed into,
+    so a stand-in without them is not the contract.
+    """
 
     itemCreated = Signal(object)
     errorOccurred = Signal(str)
+    catalogueSearched = Signal(object, str, list)
+    partiesSearched = Signal(str, list)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.searched: list[tuple] = []
+
+    def search_catalogue(self, item_type, term: str) -> None:
+        self.searched.append((item_type, term))
+
+    def search_parties(self, term: str) -> None:
+        self.searched.append(("parties", term))
 
     def create(self, command) -> None:  # pragma: no cover - never reached here
         raise AssertionError("no sale should be recorded by these tests")

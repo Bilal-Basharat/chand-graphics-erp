@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from app.application.dto.commands import (
     CreateInventoryItemCommand,
     UpdateInventoryItemCommand,
 )
+from app.application.dto.queries import InventoryPageQuery, PageResult
 
 from app.domain.entities.inventory_item import InventoryItem
 from app.domain.enums.item_type import ItemType
@@ -131,15 +134,54 @@ class DeleteInventoryItemUseCase(AuthorizedUnitOfWorkUseCase[int, None]):
             items.delete(request)
 
 
-class ListInventoryItemsUseCase(AuthenticatedUseCase[int, list[InventoryItem]]):
+class PageInventoryItemsUseCase(AuthenticatedUseCase[InventoryPageQuery, PageResult]):
+    """One page of the catalogue, as a screen asks for it.
+
+    The page and the count run inside one unit of work, so a record added
+    between the two cannot leave a list of a hundred rows claiming to be a
+    hundred and one.
+    """
+
     def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
         super().__init__(current_user_session)
         self.uow = uow
 
-    def execute(self, request: int = 100) -> list[InventoryItem]:
+    def execute(self, request: InventoryPageQuery) -> PageResult:
         with self.uow as uow:
             items = self.require(uow.inventory_items, "inventory_items")
-            return items.list(limit=request)
+            rows = items.page_items(
+                search=request.search,
+                stock=request.stock,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            return PageResult(
+                rows=rows,
+                total=items.count_items(search=request.search, stock=request.stock),
+                page=request.page,
+                page_size=request.page_size,
+            )
+
+
+class GetInventoryItemNamesUseCase(AuthenticatedUseCase[Collection[int], dict[int, str]]):
+    """The names behind a set of item ids.
+
+    For naming the lines on one page of a document list without loading a
+    catalogue to look them up in — which is what the screens did until a
+    shop had more items than the catalogue was capped at, and every line
+    past that read as a dash.
+    """
+
+    def __init__(self, uow: UnitOfWork, current_user_session: CurrentUserSession | None = None) -> None:
+        super().__init__(current_user_session)
+        self.uow = uow
+
+    def execute(self, request: Collection[int]) -> dict[int, str]:
+        with self.uow as uow:
+            items = self.require(uow.inventory_items, "inventory_items")
+            return items.names_by_id(request)
 
 
 class GetInventoryItemByNameUseCase(AuthenticatedUseCase[str, InventoryItem | None]):

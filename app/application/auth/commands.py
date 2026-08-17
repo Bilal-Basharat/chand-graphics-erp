@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.application.dto.queries import PageQuery
 from app.domain.enums.login_event_type import LoginEventType
 from dataclasses import dataclass
 
@@ -63,3 +64,11 @@ class LoginHistoryQuery:
     event_type: LoginEventType | None = None
     limit: int = 100
     offset: int = 0
+
+
+@dataclass(slots=True, kw_only=True)
+class LoginHistoryPageQuery(PageQuery):
+    """One page of the sign-in history, as the profile screen asks for it."""
+
+    user_id: int | None = None
+    event_type: LoginEventType | None = None

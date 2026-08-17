@@ -13,6 +13,7 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import CreateExpenseCommand
+from app.application.dto.queries import ExpensePageQuery, PageQuery
 from app.container import AppContainer
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.formatting import DASH, date_time, money, or_dash
@@ -38,17 +39,56 @@ from app.presentation.widgets.table_model import Column
 _NO_CATEGORY = "— Uncategorised —"
 
 
-def _spent_at(expense) -> datetime:
-    """Sort key that never trips over a missing timestamp."""
-    return expense.created_at or datetime.min
+_UNCATEGORISED = "uncategorised"
+"""The filter value for spending nobody filed. A word rather than a
+category id, because "no category" and "every category" are different
+answers and an id of None already means the second."""
 
 
-def expenses_view_model(container: AppContainer, period: PeriodSelection) -> CollectionViewModel:
+class ExpensesViewModel(CollectionViewModel):
+    """The expense list, scoped to whichever period the screen is showing.
+
+    A class rather than a factory because the period and the category
+    filter both belong in the query, and only a view model can put them
+    there — the screen holds the period, the state holds the filter.
+    """
+
+    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
+        super().__init__(
+            CollectionSource(
+                page=lambda query: container.page_expenses_use_case().execute(query),
+                create=lambda command: container.create_expense_use_case().execute(command),
+            )
+        )
+        self._period = period
+
+    def build_query(self) -> ExpensePageQuery:
+        start, end = self._period.range()
+        chosen = self._state.filter_value
+        return ExpensePageQuery(
+            **self._state.as_kwargs(),
+            start=start,
+            end=end,
+            category_id=None if chosen in (None, _UNCATEGORISED) else int(chosen),
+            uncategorised=chosen == _UNCATEGORISED,
+        )
+
+
+def expenses_view_model(container: AppContainer, period: PeriodSelection) -> ExpensesViewModel:
+    return ExpensesViewModel(container, period)
+
+
+def categories_view_model(container: AppContainer) -> CollectionViewModel:
+    """The categories behind the filter and the two pickers.
+
+    One page of them, large: a category list somebody keeps by hand is
+    short by nature, and this is a lookup rather than a screen.
+    """
     return CollectionViewModel(
         CollectionSource(
-            list_all=lambda: container.list_expenses_by_date_range_use_case().execute(period.as_query()),
-            create=lambda command: container.create_expense_use_case().execute(command),
-        )
+            page=lambda query: container.page_expense_categories_use_case().execute(query),
+        ),
+        page_size=500,
     )
 
 
@@ -77,30 +117,28 @@ class ExpensesView(CollectionView):
                 create_label="Record expense",
             ),
             [
-                Column("EXPENSE", lambda e: e.expense_name),
-                Column("CATEGORY", self._category_label, width=180),
-                Column(
-                    "QTY",
-                    lambda e: or_dash(e.quantity),
-                    align="right",
-                    sort_key=lambda e: e.quantity or 0,
-                    width=80,
-                ),
+                Column("EXPENSE", lambda e: e.expense_name, sort_field="name"),
+                Column("CATEGORY", self._category_label, sort_field="category", width=180),
+                Column("QTY", lambda e: or_dash(e.quantity), align="right", width=80),
                 Column(
                     "UNIT PRICE",
                     lambda e: money(e.unit_price),
                     align="right",
-                    sort_key=lambda e: e.unit_price or Decimal("0.00"),
                     width=130,
                 ),
                 Column(
                     "TOTAL",
                     lambda e: money(e.total_amount),
                     align="right",
-                    sort_key=lambda e: e.total_amount,
+                    sort_field="amount",
                     width=140,
                 ),
-                Column("DATE", lambda e: date_time(e.created_at), sort_key=_spent_at, width=180),
+                Column(
+                    "DATE",
+                    lambda e: date_time(e.created_at),
+                    sort_field="created",
+                    width=180,
+                ),
             ],
             view_model,
             parent,
@@ -108,13 +146,13 @@ class ExpensesView(CollectionView):
 
         # Category names are a lookup for the table, not a list of their
         # own — fetched once per visit rather than per row.
-        categories.rowsLoaded.connect(self._on_categories_loaded)
+        categories.pageLoaded.connect(self._on_categories_loaded)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
         super().showEvent(event)
         # Categories are created on their own screen mid-session, so this
         # refreshes rather than loading only at construction.
-        self._categories.load()
+        self._categories.reload()
 
     def filter_options(self):
         return self._category_filters()
@@ -125,24 +163,31 @@ class ExpensesView(CollectionView):
     def record_card(self, row) -> RecordCard:
         return expense_card(row, category=self._category_label(row))
 
-    def summary(self, rows: list):
-        return (("Spent", money(sum((e.total_amount for e in rows), Decimal("0.00")))),)
+    def summary(self):
+        # The period's figure, not the page's: added up from the rows on
+        # screen it would report a hundredth of the month under a caption
+        # claiming the month.
+        result = self.view_model.result
+        if result is None or result.totals is None:
+            return ()
+        return (("Spent", money(result.totals.total)),)
 
     def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        # From the start: another period is a different list, and page
+        # seven of it may not exist.
+        selector.periodChanged.connect(self.reload_from_start)
         return [selector]
 
     def _category_filters(self) -> list[FilterOption]:
         """One entry per category, so "what did utilities cost this month"
         is a choice rather than a search. Rebuilt whenever the categories
         themselves change — they are created on their own screen."""
-        options = []
-        for category_id, name in sorted(self._category_names.items(), key=lambda kv: kv[1]):
-            options.append(
-                FilterOption(name, lambda e, wanted=category_id: e.category_id == wanted)
-            )
-        options.append(FilterOption("Uncategorised", lambda e: not e.category_id))
+        options = [
+            FilterOption(name, str(category_id))
+            for category_id, name in sorted(self._category_names.items(), key=lambda kv: kv[1])
+        ]
+        options.append(FilterOption("Uncategorised", _UNCATEGORISED))
         return options
 
     def quick_add_fields(self):
@@ -177,8 +222,8 @@ class ExpensesView(CollectionView):
             return DASH
         return self._category_names.get(expense.category_id, DASH)
 
-    def _on_categories_loaded(self, categories: list) -> None:
-        self._category_names = {c.id: c.name for c in categories}
+    def _on_categories_loaded(self, result) -> None:
+        self._category_names = {c.id: c.name for c in result.rows}
         self.set_filter_options(self._category_filters())
         refill(
             self._new_category,

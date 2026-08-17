@@ -13,7 +13,6 @@ there is no "not enough stock" case to guard against.
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLineEdit,
@@ -31,6 +30,7 @@ from app.presentation.widgets.document_lines import DocumentTotals
 from app.presentation.widgets.form_field import field
 from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.item_picker_row import ItemPickerRow, PickedItem
+from app.presentation.widgets.searchable_combo import SearchableComboBox
 from app.shared.datetimes import now_pkt
 
 _CHOOSE_SUPPLIER = "— Choose a supplier —"
@@ -67,6 +67,11 @@ class NewPurchaseDialog(DocumentDialog):
             parent=parent,
         )
 
+        # Let go of again in `done()` — the view model outlives this.
+        self.listen(view_model.catalogueSearched, self._on_catalogue_searched)
+        self.listen(view_model.partiesSearched, self._on_parties_searched)
+        self._supplier.searchRequested.connect(view_model.search_parties)
+
     # ---------------- step 1: supplier ----------------
 
     def build_identity_step(self) -> QFrame:
@@ -76,12 +81,14 @@ class NewPurchaseDialog(DocumentDialog):
         row.setSpacing(12)
 
         self._purchase_no = QLineEdit(_new_purchase_number())
-        self._supplier = QComboBox()
+        # Searched rather than scrolled, for the same reason the item is.
+        self._supplier = SearchableComboBox()
+        self._supplier.setToolTip("Type any part of a supplier's name to find them")
         # A prompt, not a choice: stock comes from someone, and a purchase
-        # that doesn't say who leaves its payments owed to nobody.
-        self._supplier.addItem(_CHOOSE_SUPPLIER, None)
-        for supplier in self._suppliers:
-            self._supplier.addItem(supplier.name, supplier.id)
+        # that doesn't say who leaves its payments owed to nobody. Kept
+        # through every refill, or a search would quietly answer it.
+        self._supplier.set_placeholder_item(_CHOOSE_SUPPLIER, None)
+        self._supplier.set_options([(s.name, s.id) for s in self._suppliers])
         self._reference = QLineEdit()
         self._reference.setPlaceholderText("Supplier invoice or bill number")
 
@@ -94,10 +101,18 @@ class NewPurchaseDialog(DocumentDialog):
     # ---------------- step 2: picker ----------------
 
     def build_picker(self) -> QWidget:
-        self._picker = ItemPickerRow(self._catalogues)
+        self._picker = ItemPickerRow(
+            self._catalogues, search=self._view_model.search_catalogue
+        )
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
         return self._picker
+
+    def _on_catalogue_searched(self, item_type, term: str, records: list) -> None:
+        self._picker.set_options(item_type, records, term)
+
+    def _on_parties_searched(self, term: str, suppliers: list) -> None:
+        self._supplier.set_options([(s.name, s.id) for s in suppliers], term=term)
 
     def _add_line(self, picked: PickedItem) -> None:
         # Buying raises stock, so there is nothing to refuse: every

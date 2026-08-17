@@ -50,12 +50,23 @@ class Column(Generic[RowT]):
     align: Alignment = "left"
     color: Callable[[RowT], str | None] | None = None  # optional per-row hex color for this column
     sort_key: Callable[[RowT], Any] | None = None
-    """What to order by when this column's heading is clicked.
+    """What to order by when a list is ordered here rather than by the
+    database — the detail rows under a document, which are the whole of
+    that document and are never a page of it.
 
     Defaults to the getter, which is right for text. Anything the getter
     formats — money, dates, counts — needs the raw value here instead, or
     the column sorts the way the *string* reads: "1,000.00" before
     "500.00".
+    """
+    sort_field: str | None = None
+    """What the query calls this column, for a list the database orders.
+
+    A page can only be sorted by the whole list's order, so the heading
+    asks for that order by name and gets a different page back. `None`
+    means this column cannot be sorted on: the heading then carries no
+    mark and refuses the click, rather than appearing to sort and handing
+    back the same rows.
     """
     width: int | None = None
     """

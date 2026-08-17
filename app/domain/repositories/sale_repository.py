@@ -33,15 +33,6 @@ class SaleRepository(Repository[Sale], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def search_by_term(self, term: str, limit: int = 50) -> list[Sale]:
-        """Match on invoice number, customer name or note.
-
-        The customer is included because people remember who they sold to
-        far more readily than which invoice number it was.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def count_by_item(self, item_type: ItemType, item_id: int) -> int:
         """How many sales have sold one catalogue item."""
         raise NotImplementedError
@@ -111,4 +102,54 @@ class SaleRepository(Repository[Sale], ABC):
     @abstractmethod
     def outstanding_before(self, as_at: datetime) -> list[OutstandingRow]:
         """Invoices with money still on them, oldest first."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def page_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+        sort_field: str | None = None,
+        sort_desc: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Sale]:
+        """One page of a period's sales, searched, filtered and ordered.
+
+        `payment` is a `PaymentFilter` value. Plain values rather than the
+        application's page query: this is a domain port, and the layer
+        that defines that query already depends on this one.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> int:
+        """How many sales those same conditions match."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def sum_sales(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        search: str = "",
+        payment: str | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        """What they came to, and what is still owed on them.
+
+        Over everything the conditions match, not over one page of it: a
+        figure describing a period cannot be added up from a hundredth of
+        it, and one that silently is would be wrong without ever failing.
+        """
         raise NotImplementedError

@@ -464,9 +464,20 @@ period selectors, ledgers and reports have something to show.
 ```bash
 python -m scripts.seed --reset --yes     # six months of trading
 python -m scripts.seed --profile smoke   # the fixtures only, no filler
+python -m scripts.seed --profile load    # a shop that has been trading for years
 python -m scripts.seed --data-dir .\scratch   # somewhere other than data\
 python -m scripts.seed --help
 ```
+
+`load` is the one to use when changing anything about a list screen: a
+thousand-odd customers, suppliers, items, cabinets, payment methods and
+expense categories, and around two thousand invoices with the purchases,
+payments, expenses, stock movements and sign-in history around them. It
+takes a few minutes, because every row goes in through the same use case
+a person would. The names it generates are meant to be read — "Al-Noor
+Printers, Gujranwala", "Matt Paper 130gsm (20x30)" — since a screen full
+of "Load Item 00417" says nothing about whether the screen is right at
+that size.
 
 It refuses to seed on top of a database that already holds documents,
 because the document numbers would collide — pass `--reset` to start from

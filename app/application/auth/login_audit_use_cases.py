@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 
 from app.application.auth.authorization import AuthorizationService
-from app.application.auth.commands import LoginHistoryQuery, RecordLoginAuditCommand
+from app.application.auth.commands import (
+    LoginHistoryPageQuery,
+    LoginHistoryQuery,
+    RecordLoginAuditCommand,
+)
 from app.application.auth.permissions import Permission
 from app.application.auth.session import CurrentUserSession
+from app.application.dto.queries import PageResult
 from app.application.use_cases.authorized_base import AuthorizedUseCase
 from app.application.use_cases.base import UseCase
 from app.domain.entities.login_audit import LoginAudit
@@ -37,6 +42,49 @@ class RecordLoginAuditUseCase(UseCase[RecordLoginAuditCommand, LoginAudit]):
                 app_version=request.app_version or self.app_version,
             )
             return audits.add(audit)
+
+
+class PageLoginHistoryUseCase(AuthorizedUseCase[LoginHistoryPageQuery, PageResult]):
+    """One page of the sign-in history.
+
+    Security-sensitive, like the listing below it, so it asks for the same
+    permission. Paged because an installation a year old has thousands of
+    these rows and the twenty-five that fitted on screen were never the
+    interesting ones.
+    """
+
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        current_user_session: CurrentUserSession,
+        authorization_service: AuthorizationService,
+    ) -> None:
+        super().__init__(current_user_session, authorization_service)
+        self.uow = uow
+
+    def execute(self, request: LoginHistoryPageQuery) -> PageResult:
+        self.require_permission(Permission.VIEW_REPORTS)
+
+        with self.uow as uow:
+            audits = self.require(uow.login_audits, "login_audits")
+            conditions = {
+                "user_id": request.user_id,
+                "event_type": request.event_type,
+                "search": request.search,
+            }
+            rows = audits.page_audits(
+                **conditions,
+                sort_field=request.sort_field,
+                sort_desc=request.sort_desc,
+                limit=request.page_size,
+                offset=request.offset,
+            )
+            return PageResult(
+                rows=rows,
+                total=audits.count_audits(**conditions),
+                page=request.page,
+                page_size=request.page_size,
+            )
 
 
 class ListLoginHistoryUseCase(AuthorizedUseCase[LoginHistoryQuery, list[LoginAudit]]):

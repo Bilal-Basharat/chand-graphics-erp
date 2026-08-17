@@ -30,6 +30,7 @@ from app.presentation.formatting import date_time, or_dash
 from app.presentation.theme import tokens as t
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.widgets.data_table import DataTable
+from app.presentation.widgets.pagination_bar import PaginationBar
 from app.presentation.widgets.page_header import PageHeader
 from app.presentation.widgets.page_scroll import page_scroll
 from app.presentation.widgets.table_model import Column
@@ -279,11 +280,21 @@ class ProfileView(QWidget):
         )
         self._history.setMinimumHeight(220)
         layout.addWidget(self._history, 1)
+
+        # The one list in the app outside the collection screens, so it
+        # carries its own bar rather than being made into one: a page
+        # header, a breadcrumb and a toolbar do not belong in a panel.
+        self._history_pages = PaginationBar()
+        self._history_pages.pageRequested.connect(self._view_model.load_login_history)
+        layout.addWidget(self._history_pages)
         return panel
 
-    def _on_history_loaded(self, rows: list) -> None:
-        self._history.set_rows(rows)
-        self._history_note.setText("1 event" if len(rows) == 1 else f"{len(rows)} events")
+    def _on_history_loaded(self, result) -> None:
+        self._history.set_rows(result.rows)
+        self._history_pages.set_page(result)
+        self._history_note.setText(
+            "1 event" if result.total == 1 else f"{result.total:,} events"
+        )
 
     # ---------------- actions ----------------
 

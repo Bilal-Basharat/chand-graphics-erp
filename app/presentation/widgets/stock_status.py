@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from app.domain.enums.stock_filter import StockFilter
 from app.presentation.theme import tokens as t
 from app.presentation.widgets.list_controls import FilterOption
 
@@ -41,7 +42,7 @@ def stock_filters() -> tuple[FilterOption, ...]:
     """The stock filters both catalogues offer, in the order that matters:
     "what do I need to reorder" is the question that brings people here."""
     return (
-        FilterOption("Needs reordering", lambda item: item.is_low_stock),
-        FilterOption("Out of stock", lambda item: item.current_stock <= 0),
-        FilterOption("In stock", lambda item: not item.is_low_stock),
+        FilterOption("Needs reordering", StockFilter.LOW),
+        FilterOption("Out of stock", StockFilter.OUT),
+        FilterOption("In stock", StockFilter.IN),
     )

@@ -1,25 +1,26 @@
 """
 The "show me only these" control every list screen offers.
 
-Filtering runs over the rows already on screen rather than going back to
-the database. These lists are bounded by design — a period of documents,
-a shop's catalogue — so the whole set is in hand already, and re-querying
-to narrow it would cost a round trip to answer a question the screen can
-answer instantly.
+Filtering is part of the query, not something done to the rows that came
+back. A screen holds one page of a list; narrowing that page would answer
+"which of these hundred are unpaid" when the question asked was "which of
+these thousand" — and it would answer it confidently, which is worse.
+
+So each choice carries a `value` the screen's view model turns into a
+condition on the query, rather than a predicate run over rows in hand.
 
 Ordering is not here: that belongs to the column headings, where the
 column you are already looking at is the thing you click (see
 sortable_header.py).
 
-Each screen declares its own choices as data. What a filter *means* is
-the screen's business; presenting it, remembering which is chosen, and
-applying it is this widget's.
+Each screen declares its own choices as data. What a filter *means* is the
+screen's business; presenting it, remembering which is chosen, and saying
+which it is on is this widget's.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QWidget
@@ -33,12 +34,13 @@ before it has been touched."""
 @dataclass(frozen=True, slots=True)
 class FilterOption:
     label: str
-    keep: Callable[[Any], bool] | None = None
-    """`None` keeps everything — the entry the control opens on."""
+    value: str | None = None
+    """What this choice is called in the query. `None` keeps everything —
+    the entry the control opens on."""
 
 
 class FilterBox(QComboBox):
-    """One combo, its choices, and the rows they leave behind."""
+    """One combo, its choices, and which one is chosen."""
 
     changed = Signal()
 
@@ -75,9 +77,9 @@ class FilterBox(QComboBox):
         if index >= 0:
             self.setCurrentIndex(index)
 
-    def apply(self, rows: list) -> list:
+    def current_value(self) -> str | None:
+        """What the chosen entry is called in the query, or None for all."""
         index = self.currentIndex()
         if not 0 <= index < len(self._options):
-            return rows
-        keep = self._options[index].keep
-        return rows if keep is None else [row for row in rows if keep(row)]
+            return None
+        return self._options[index].value

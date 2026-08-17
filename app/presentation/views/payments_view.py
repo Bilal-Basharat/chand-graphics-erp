@@ -22,8 +22,9 @@ from app.application.dto.commands import (
     RecordPurchasePaymentCommand,
     RecordSalePaymentCommand,
 )
-from app.application.dto.queries import SearchQuery
+from app.application.dto.queries import DocumentPageQuery, PageQuery
 from app.container import AppContainer
+from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.form_dialog import FormDialog
 from app.presentation.formatting import (
     DASH,
@@ -33,7 +34,7 @@ from app.presentation.formatting import (
     money,
     payment_method_name,
 )
-from app.presentation.item_types import load_catalogues
+from app.presentation.item_types import item_names
 from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
@@ -53,7 +54,9 @@ from app.presentation.widgets.period_selector import PeriodSelection, PeriodSele
 from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.table_model import Column, detail_columns
 
-_REFERENCE_LIMIT = 500
+_METHOD_LIMIT = 200
+"""Payment methods are a short list somebody keeps by hand, and every one
+of them belongs in the dropdown. A ceiling, not a page size."""
 
 
 # ---------------------------------------------------------------- view models
@@ -68,7 +71,8 @@ class PaymentsViewModel(CollectionViewModelBase):
     built, and which use case records it.
     """
 
-    referenceLoaded = Signal(dict)  # {"parties": [...], "payment_methods": [...]}
+    referenceLoaded = Signal(dict)  # {"payment_methods": [...]}
+    namesLoaded = Signal(object)
     paymentRecorded = Signal(object)
 
     def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
@@ -77,13 +81,14 @@ class PaymentsViewModel(CollectionViewModelBase):
         self._period = period
         self._party_names: dict[int, str] = {}
         self._method_names: dict[int, str] = {}
+        self._catalogue = ItemCatalogue()
 
     # -- hooks ------------------------------------------------------------
 
-    def _fetch_documents(self) -> list:
+    def _page(self, query: DocumentPageQuery):
         raise NotImplementedError
 
-    def _fetch_parties(self) -> list:
+    def _party_names_by_id(self, party_ids) -> dict[int, str]:
         raise NotImplementedError
 
     def _build_command(self, document_id: int, amount: Decimal, method_id: int, reference, note):
@@ -104,19 +109,6 @@ class PaymentsViewModel(CollectionViewModelBase):
     def record_card(self, document) -> RecordCard:
         """The document written out in full, for the View button."""
         raise NotImplementedError
-
-    def _fetch_catalogues(self) -> dict:
-        """Anything else this screen needs to name a document's contents.
-
-        A payment list shows the same records the document lists do, and
-        its card has to say the same things about them — so it loads the
-        same catalogues. Runs off the UI thread with the rest of the
-        reference data.
-        """
-        return {}
-
-    def _catalogues_loaded(self, reference: dict) -> None:
-        """Take up what `_fetch_catalogues` fetched. On the UI thread."""
 
     @property
     def unnamed_party(self) -> str:
@@ -147,43 +139,68 @@ class PaymentsViewModel(CollectionViewModelBase):
             method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
         )
 
-    def load(self) -> None:
-        # Everything in the period, in no particular order: which of them
-        # to show and in what order is the screen's Filter and Sort, and
-        # answering that here as well would be the same rule in two places.
-        self.run_async(self._fetch_documents, on_success=self.rowsLoaded.emit)
+    def build_query(self) -> DocumentPageQuery:
+        start, end = self._period.range()
+        return DocumentPageQuery(
+            **self._state.as_kwargs(),
+            start=start,
+            end=end,
+            payment=self._state.filter_value,
+        )
 
-    def search(self, term: str) -> None:
-        term = term.strip().lower()
-        if not term:
-            self.load()
+    def fetch(self, query: DocumentPageQuery):
+        """One page of the documents this screen collects against.
+
+        The same query the document list uses — a payment screen is the
+        same records asked a different question — and the term is matched
+        against the party as well as the number, because people remember
+        who owes them far more readily than which invoice it was.
+        """
+        return self._page(query)
+
+    def load_names_for(self, documents: list) -> None:
+        """The parties and items this page points at, by id.
+
+        Never a catalogue: the party list is as long as the shop is old,
+        and past whatever it was capped at every document belonging to one
+        of the rest read as a dash.
+        """
+        party_ids = {
+            self.party_id(document)
+            for document in documents
+            if self.party_id(document) and self.party_id(document) not in self._party_names
+        }
+        item_ids = self._catalogue.missing_ids(documents, ItemType.INVENTORY_ITEM)
+        if not party_ids and not item_ids:
             return
 
-        def fetch() -> list:
-            documents = self._fetch_documents()
-            # Matched against the party too: people remember who owes them
-            # far more readily than which invoice number it was.
-            return [
-                d
-                for d in documents
-                if term in self.document_number(d).lower()
-                or term in self.party_name(d).lower()
-            ]
-
-        self.run_async(fetch, on_success=self.rowsLoaded.emit)
-
-    def load_reference_data(self) -> None:
         def fetch() -> dict:
             return {
-                "parties": self._fetch_parties(),
-                "payment_methods": self._container.list_payment_methods_use_case().execute(100),
-                **self._fetch_catalogues(),
+                "parties": self._party_names_by_id(party_ids) if party_ids else {},
+                "items": item_names(self._container, ItemType.INVENTORY_ITEM, item_ids),
+            }
+
+        def _on_success(names: dict) -> None:
+            self._party_names.update(names["parties"])
+            self._catalogue.add_names(ItemType.INVENTORY_ITEM, names["items"])
+            self.namesLoaded.emit(names)
+
+        self.run_async(fetch, on_success=_on_success)
+
+    def load_reference_data(self) -> None:
+        """The payment methods the record-payment dialog offers."""
+
+        def fetch() -> dict:
+            return {
+                "payment_methods": (
+                    self._container.page_payment_methods_use_case()
+                    .execute(PageQuery(page_size=_METHOD_LIMIT))
+                    .rows
+                )
             }
 
         def _on_success(reference: dict) -> None:
-            self._party_names = {p.id: p.name for p in reference["parties"]}
             self._method_names = {m.id: m.name for m in reference["payment_methods"]}
-            self._catalogues_loaded(reference)
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)
@@ -205,31 +222,14 @@ class PaymentsViewModel(CollectionViewModelBase):
         def _on_success(document) -> None:
             self.paymentRecorded.emit(document)
             self.itemCreated.emit(document)  # closes the dialog (FormDialog contract)
-            self.load()
+            # The page it is on, not the first: the document just settled
+            # is the one the user is looking at.
+            self.reload()
 
         self.run_async(lambda: self._record(command), on_success=_on_success)
 
 
-class _ProductCatalogueMixin:
-    """The item names a sale or purchase line points at.
-
-    Both payment screens need exactly what their document screen needs,
-    and the catalogue that answers it is already shared — so this is the
-    two-line wiring, not a second copy of the lookup.
-    """
-
-    def _fetch_catalogues(self) -> dict:
-        return {"catalogues": load_catalogues(self._container, _REFERENCE_LIMIT)}
-
-    def _catalogues_loaded(self, reference: dict) -> None:
-        self._catalogue.set_catalogues(reference["catalogues"])
-
-
-class SalePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
-    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
-        super().__init__(container, period)
-        self._catalogue = ItemCatalogue()
-
+class SalePaymentsViewModel(PaymentsViewModel):
     def record_card(self, document) -> RecordCard:
         return sale_card(
             document,
@@ -238,15 +238,11 @@ class SalePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
             payments=self.payment_lines(document),
         )
 
-    def _fetch_documents(self) -> list:
-        return self._container.list_sales_by_date_range_use_case().execute(
-            self._period.as_query(limit=_REFERENCE_LIMIT)
-        )
+    def _page(self, query: DocumentPageQuery):
+        return self._container.page_sales_use_case().execute(query)
 
-    def _fetch_parties(self) -> list:
-        return self._container.search_customers_use_case().execute(
-            SearchQuery(term="", limit=_REFERENCE_LIMIT)
-        )
+    def _party_names_by_id(self, party_ids) -> dict[int, str]:
+        return self._container.customer_names_use_case().execute(party_ids)
 
     def _build_command(self, document_id, amount, method_id, reference, note):
         return RecordSalePaymentCommand(
@@ -275,11 +271,7 @@ class SalePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
         return WALK_IN
 
 
-class PurchasePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
-    def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
-        super().__init__(container, period)
-        self._catalogue = ItemCatalogue()
-
+class PurchasePaymentsViewModel(PaymentsViewModel):
     def record_card(self, document) -> RecordCard:
         return purchase_card(
             document,
@@ -288,15 +280,11 @@ class PurchasePaymentsViewModel(_ProductCatalogueMixin, PaymentsViewModel):
             payments=self.payment_lines(document),
         )
 
-    def _fetch_documents(self) -> list:
-        return self._container.list_purchases_by_date_range_use_case().execute(
-            self._period.as_query(limit=_REFERENCE_LIMIT)
-        )
+    def _page(self, query: DocumentPageQuery):
+        return self._container.page_purchases_use_case().execute(query)
 
-    def _fetch_parties(self) -> list:
-        return self._container.search_suppliers_use_case().execute(
-            SearchQuery(term="", limit=_REFERENCE_LIMIT)
-        )
+    def _party_names_by_id(self, party_ids) -> dict[int, str]:
+        return self._container.supplier_names_use_case().execute(party_ids)
 
     def _build_command(self, document_id, amount, method_id, reference, note):
         return RecordPurchasePaymentCommand(
@@ -339,7 +327,11 @@ class PaymentsPage:
     empty_message: str
     unit: str
     number_header: str
+    number_sort: str
+    """What the query calls the document number — the two lists number
+    their documents differently."""
     party_header: str
+    party_sort: str
     search_placeholder: str
     dialog_title: str
     document_noun: str
@@ -354,7 +346,9 @@ SALE_PAYMENTS_PAGE = PaymentsPage(
     empty_message="Nothing unpaid in this period.",
     unit="invoice",
     number_header="INVOICE #",
+    number_sort="invoice",
     party_header="CUSTOMER",
+    party_sort="customer",
     search_placeholder="Search by invoice number or customer",
     dialog_title="Record payment received",
     document_noun="invoice",
@@ -369,17 +363,14 @@ PURCHASE_PAYMENTS_PAGE = PaymentsPage(
     empty_message="Nothing unpaid in this period.",
     unit="purchase",
     number_header="PURCHASE #",
+    number_sort="number",
     party_header="SUPPLIER",
+    party_sort="supplier",
     search_placeholder="Search by purchase number or supplier",
     dialog_title="Record payment made",
     document_noun="purchase",
     amount_caption="Amount paid",
 )
-
-
-def _created(document) -> datetime:
-    """Sort key that never trips over a missing timestamp."""
-    return document.created_at or datetime.min
 
 
 class PaymentsView(CollectionView):
@@ -407,27 +398,29 @@ class PaymentsView(CollectionView):
                 create_label="Record payment",
             ),
             [
-                Column(page.number_header, view_model.document_number, width=170),
-                Column(page.party_header, view_model.party_name),
+                Column(
+                    page.number_header,
+                    view_model.document_number,
+                    sort_field=page.number_sort,
+                    width=170,
+                ),
+                Column(page.party_header, view_model.party_name, sort_field=page.party_sort),
                 Column(
                     "TOTAL",
                     lambda d: money(d.grand_total),
                     align="right",
-                    sort_key=lambda d: d.grand_total,
+                    sort_field="total",
                     width=130,
                 ),
-                Column(
-                    "PAID",
-                    lambda d: money(d.paid_amount),
-                    align="right",
-                    sort_key=lambda d: d.paid_amount,
-                    width=130,
-                ),
+                # Paid is the difference between the two figures beside it
+                # rather than a column of its own, so there is nothing for
+                # the query to order by.
+                Column("PAID", lambda d: money(d.paid_amount), align="right", width=130),
                 Column(
                     "BALANCE",
                     lambda d: money(d.balance_amount),
                     align="right",
-                    sort_key=lambda d: d.balance_amount,
+                    sort_field="balance",
                     width=130,
                 ),
                 Column(
@@ -435,12 +428,17 @@ class PaymentsView(CollectionView):
                     payment_status_text,
                     align="center",
                     color=payment_status_color,
-                    sort_key=lambda d: d.balance_amount,
+                    sort_field="balance",
                     width=110,
                 ),
                 # Last, like every list in the app: what a document is
                 # comes before when it happened.
-                Column("DATE", lambda d: date_time(d.created_at), sort_key=_created, width=170),
+                Column(
+                    "DATE",
+                    lambda d: date_time(d.created_at),
+                    sort_field="created",
+                    width=170,
+                ),
             ],
             view_model,
             parent,
@@ -450,12 +448,15 @@ class PaymentsView(CollectionView):
         # is the control — double-click opens the payment form.
         self.table.doubleClicked.connect(lambda _index: self.open_create_dialog())
         view_model.referenceLoaded.connect(self._on_reference_loaded)
+        view_model.namesLoaded.connect(lambda _names: self.table.refresh())
 
         # This screen exists to get money moved, so it opens on the
-        # documents that still need it, biggest first.
-        self.table.sorting.sort_by("BALANCE", descending=True)
-        if self.filter_box is not None:
-            self.filter_box.select(NOT_FULLY_PAID)
+        # documents that still need it, biggest first. Through
+        # `set_initial_sort` so the query is ordered the way the heading
+        # says it is — marking the column alone would be a claim about
+        # rows the query never sorted.
+        self.set_initial_sort("BALANCE", descending=True)
+        self.set_initial_filter(NOT_FULLY_PAID)
 
     def create_table(self, columns: Sequence[Column]) -> GroupedTable:
         # A document paid in instalments stays one row. Its payments are
@@ -491,15 +492,23 @@ class PaymentsView(CollectionView):
     def record_card(self, row) -> RecordCard:
         return self._payments_view_model.record_card(row)
 
-    def summary(self, rows: list):
+    def summary(self):
+        # The period's figures, not this page's — see the sale list.
+        result = self.view_model.result
+        if result is None or result.totals is None:
+            return ()
         return (
-            ("Total", money(sum((d.grand_total for d in rows), ZERO))),
-            ("Balance", money(sum((d.balance_amount for d in rows), ZERO))),
+            ("Total", money(result.totals.total)),
+            ("Balance", money(result.totals.outstanding)),
         )
+
+    def on_rows_loaded(self, rows: list) -> None:
+        self._payments_view_model.load_names_for(rows)
 
     def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
-        selector.periodChanged.connect(self.reload)
+        # From the start: another period is a different list.
+        selector.periodChanged.connect(self.reload_from_start)
         return [selector]
 
     def _on_reference_loaded(self, reference: dict) -> None:

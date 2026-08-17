@@ -16,7 +16,10 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from itertools import chain
 
-from app.application.auth.commands import EnsureInitialAdminUserCommand
+from app.application.auth.commands import (
+    EnsureInitialAdminUserCommand,
+    RecordLoginAuditCommand,
+)
 from app.application.dto.commands import (
     CreateCabinetCommand,
     CreateCompanySettingsCommand,
@@ -38,6 +41,7 @@ from app.config import constants
 from app.container import AppContainer
 from app.domain.entities.user import User
 from app.domain.enums.item_type import ItemType
+from app.domain.enums.login_event_type import LoginEventType
 from app.domain.enums.movement_type import MovementType
 from app.infrastructure.db.database import engine
 from app.shared.datetimes import now_pkt
@@ -53,6 +57,7 @@ _DOCUMENT_AT = time(10, 30)
 _PAYMENT_AT = time(15, 45)
 _EXPENSE_AT = time(17, 0)
 _MOVEMENT_AT = time(9, 15)
+_SIGN_IN_AT = time(8, 45)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +70,7 @@ class SeedReport:
     payments: int = 0
     expenses: int = 0
     movements: int = 0
+    audits: int = 0
     dated_rows: int = 0
 
 
@@ -126,6 +132,7 @@ class Seeder:
         self._documents()
         self._expenses()
         self._movements()
+        self._audits()
 
         return SeedReport(
             customers=len(self._customers),
@@ -136,6 +143,7 @@ class Seeder:
             payments=self._payments,
             expenses=len(self.dataset.expenses),
             movements=self._movements_recorded,
+            audits=len(self.dataset.audits),
             dated_rows=self._backdater.apply(engine),
         )
 
@@ -378,6 +386,28 @@ class Seeder:
                 when=self._moment(movement.days_ago, _MOVEMENT_AT),
                 reason=movement.reason,
                 note=movement.note,
+            )
+
+    def _audits(self) -> None:
+        """Sign-in history, written the way signing in writes it.
+
+        Nothing else produces any: a seeding run signs in once and
+        deliberately leaves no trace of itself, so without this the
+        history screen shows one row and its paging is never exercised.
+        """
+        record_audit = self.container.record_login_audit_use_case()
+        for audit in self.dataset.audits:
+            record = record_audit.execute(
+                RecordLoginAuditCommand(
+                    email=audit.email,
+                    event_type=LoginEventType(audit.event_type),
+                    user_id=self._user_id,
+                    success=audit.success,
+                    message=audit.message,
+                )
+            )
+            self._backdater.row(
+                "login_audits", record.id, self._moment(audit.days_ago, _SIGN_IN_AT)
             )
 
     def _record_movement(
