@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Generic, TypeVar
 
+from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.domain.enums.payment_filter import PaymentFilter
 from app.domain.enums.stock_filter import StockFilter
@@ -154,7 +155,13 @@ class ExpensePageQuery(PageQuery):
 
 @dataclass(slots=True, kw_only=True)
 class MovementPageQuery(PageQuery):
-    inventory_item_id: int
+    inventory_item_id: int | None = None
+    """Which item's history to read, or None for the whole register.
+
+    Optional because the screen answers two questions: "what has moved
+    lately?" and "why is this item's count what it is?".
+    """
+
     movement_type: MovementType | None = None
 
 
@@ -403,3 +410,80 @@ class SalePaymentStatus:
     grand_total: Decimal
     paid_amount: Decimal
     balance_amount: Decimal
+
+@dataclass(frozen=True, slots=True)
+class ReturnableLine:
+    """One line of a document, and how much of it can still come back."""
+
+    line_id: int
+    item_type: ItemType
+    inventory_item_id: int | None
+    label: str
+    quantity: int
+    returned: int
+    unit_price: Decimal
+
+    @property
+    def remaining(self) -> int:
+        return self.quantity - self.returned
+
+    @property
+    def is_returnable(self) -> bool:
+        return self.remaining > 0
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnableDocument:
+    """A sale or a purchase, as the return dialog needs to see it.
+
+    One shape for both, because a return dialog differs between them only
+    in the noun it uses. `refundable` is the most that can honestly be
+    handed back: money that came in and has not already gone out again.
+    """
+
+    document_id: int
+    reference: str
+    party_id: int | None
+    party_name: str
+    lines: tuple[ReturnableLine, ...]
+    paid_amount: Decimal
+    balance_amount: Decimal
+    """What is still owed on it, so the form can tell a credit that has
+    somewhere to go from one that has not."""
+
+    refundable: Decimal
+
+    @property
+    def has_party(self) -> bool:
+        """Whether this document belongs to an account.
+
+        False for a walk-in sale, which has no ledger to carry credit —
+        so a return on one is refunded at the counter or not at all.
+        """
+        return self.party_id is not None
+
+    @property
+    def returnable_lines(self) -> tuple[ReturnableLine, ...]:
+        return tuple(line for line in self.lines if line.is_returnable)
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnableDocumentQuery:
+    """Which document a return is being recorded against.
+
+    Two ways in, because there are two: the row action on a document list
+    already holds the id, and the stock register only has the number the
+    customer is holding.
+    """
+
+    document_id: int | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if self.document_id is None and not self.reference.strip():
+            raise ValueError("a document id or a reference is required")
+
+    @property
+    def wanted(self) -> str:
+        """What was asked for, for an error message to name."""
+        return self.reference.strip() or f"id={self.document_id}"

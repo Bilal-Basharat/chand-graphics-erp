@@ -35,7 +35,9 @@ from app.presentation.viewmodels.document_items import (
     DocumentItemLine,
     ItemCatalogue,
     PaymentLine,
+    ReturnLine,
     payment_lines,
+    returns_of,
 )
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import payment_filters
@@ -91,6 +93,16 @@ class PurchasesViewModel(CollectionViewModelBase):
             purchase,
             dated=lambda payment: payment.paid_at or payment.created_at,
             method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
+        )
+
+    def return_lines(self, purchase) -> list[ReturnLine]:
+        """What went back off one purchase — usually nothing, and then free."""
+        return returns_of(
+            purchase,
+            lambda purchase_id: (
+                self._container.list_purchase_returns_use_case().execute(purchase_id)
+            ),
+            self._catalogue,
         )
 
     def build_query(self) -> DocumentPageQuery:
@@ -297,6 +309,7 @@ class PurchasesView(CollectionView):
         )
 
     def row_actions(self) -> Sequence[RowAction]:
+        # See the sale list: returning goods lives on the stock register.
         return (VIEW_ACTION,)
 
     def record_card(self, row) -> RecordCard:
@@ -305,6 +318,7 @@ class PurchasesView(CollectionView):
             supplier=self._purchases_view_model.supplier_name(row),
             items=self._purchases_view_model.item_lines(row),
             payments=self._purchases_view_model.payment_lines(row),
+            returns=self._purchases_view_model.return_lines(row),
         )
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)

@@ -114,6 +114,10 @@ class SalesView(CollectionView):
         )
 
     def row_actions(self) -> Sequence[RowAction]:
+        # Opening the record is all a row does. Recording a return is on
+        # the stock register, which is where the goods are counted — a
+        # second button here sat a few pixels from the one every reader
+        # of the list presses, and started a form that changes stock.
         return (VIEW_ACTION,)
 
     def record_card(self, row) -> RecordCard:
@@ -122,6 +126,7 @@ class SalesView(CollectionView):
             customer=self._sales_view_model.customer_name(row),
             items=self._sales_view_model.item_lines(row),
             payments=self._sales_view_model.payment_lines(row),
+            returns=self._sales_view_model.return_lines(row),
         )
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)

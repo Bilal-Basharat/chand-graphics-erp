@@ -44,6 +44,26 @@ class PurchaseModel(Base, AuditMixin):
         default=0,
     )
 
+    returned_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=0,
+    )
+    """Value of the goods that came back off this document.
+
+    Stored beside the totals rather than summed from the return rows:
+    `balance_amount` is read by every list, ageing report and payment
+    screen, and none of them load a document's returns.
+    """
+
+    refunded_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=0,
+    )
+    """Money handed back against those returns — see the entity, where the
+    two are kept apart because a return need not be refunded."""
+
     reference_no: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,

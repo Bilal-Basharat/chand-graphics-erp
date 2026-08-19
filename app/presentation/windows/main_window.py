@@ -61,6 +61,10 @@ from app.presentation.views.expenses_view import (
     expenses_view_model,
 )
 from app.presentation.views.license_view import LicenseView
+from app.presentation.viewmodels.returns_viewmodel import (
+    PurchaseReturnsViewModel,
+    SaleReturnsViewModel,
+)
 from app.presentation.views.inventory_movement_view import (
     InventoryMovementView,
     InventoryMovementViewModel,
@@ -274,7 +278,11 @@ class MainWindow(QMainWindow):
 
         self._add_page(
             Route.INVENTORY_MOVEMENT,
-            InventoryMovementView(InventoryMovementViewModel(self._container)),
+            InventoryMovementView(
+                InventoryMovementViewModel(self._container),
+                SaleReturnsViewModel(self._container),
+                PurchaseReturnsViewModel(self._container),
+            ),
             "Inventory movement",
         )
 

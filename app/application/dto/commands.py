@@ -238,3 +238,48 @@ class InventoryMovementCommand:
     reason: str | None = None
     note: str | None = None
     created_by_user_id: int | None = None
+
+
+@dataclass(slots=True)
+class ReturnedLineCommand:
+    """One line of a document, and how many of it are coming back.
+
+    The line, not the item: what can come back is bounded by what that
+    document sold or bought, and only a line id can say so. Shared by
+    both kinds of return, which ask the same two things.
+    """
+
+    line_id: int
+    quantity: int
+
+
+@dataclass(slots=True)
+class RecordSaleReturnCommand:
+    """Goods off one sale, coming back over the counter.
+
+    Several lines at once, because a customer hands back several things
+    as one act — one return number, one decision about the refund.
+    """
+
+    return_no: str
+    sale_id: int
+    lines: list[ReturnedLineCommand]
+    refund_amount: Decimal = Decimal("0.00")
+    refund_method_id: int | None = None
+    reason: str | None = None
+    note: str | None = None
+    created_by_user_id: int | None = None
+
+
+@dataclass(slots=True)
+class RecordPurchaseReturnCommand:
+    """Goods off one purchase, going back to the supplier."""
+
+    return_no: str
+    purchase_id: int
+    lines: list[ReturnedLineCommand]
+    refund_amount: Decimal = Decimal("0.00")
+    refund_method_id: int | None = None
+    reason: str | None = None
+    note: str | None = None
+    created_by_user_id: int | None = None

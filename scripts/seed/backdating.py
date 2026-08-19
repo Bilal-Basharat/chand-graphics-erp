@@ -35,6 +35,14 @@ class _DocumentTables:
 SALE = _DocumentTables("sales", "sale_payments", "sale_id", "received_at")
 PURCHASE = _DocumentTables("purchases", "purchase_payments", "purchase_id", "paid_at")
 
+SALE_RETURN = "sale_returns"
+PURCHASE_RETURN = "purchase_returns"
+"""Return tables, dated by `row()` on their own `returned_at` column.
+
+Not `_DocumentTables`: a return has no payments hanging off it — the
+money that went back with it is a column on the return itself.
+"""
+
 
 @dataclass(slots=True)
 class Backdater:

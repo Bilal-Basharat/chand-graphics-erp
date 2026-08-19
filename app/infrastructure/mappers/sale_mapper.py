@@ -17,6 +17,8 @@ class SaleMapper:
             customer_id=model.customer_id,
             note=model.note,
             discount_amount=model.discount_amount,
+            returned_amount=model.returned_amount,
+            refunded_amount=model.refunded_amount,
             items=[SaleItemMapper.to_entity(item) for item in getattr(model, "items", [])],
             payments=[SalePaymentMapper.to_entity(payment) for payment in getattr(model, "payments", [])],
         )
@@ -33,6 +35,11 @@ class SaleMapper:
             subtotal=entity.subtotal,
             grand_total=entity.grand_total,
             balance_amount=entity.balance_amount,
+            # Every stored column is written on every save: this mapper
+            # rebuilds the model from the entity, so a column left out
+            # here is zeroed the next time a payment is recorded.
+            returned_amount=entity.returned_amount,
+            refunded_amount=entity.refunded_amount,
         )
 
         model.items = [SaleItemMapper.to_model(item) for item in entity.items]

@@ -99,6 +99,11 @@ class ModernSpinBox(QWidget):
     def setValue(self, value: int) -> None:
         self._spin.setValue(value)
 
+    def maximum(self) -> int:
+        """The most this will accept — the cap a caller set with
+        `setRange`, readable back for one that has to explain it."""
+        return self._spin.maximum()
+
     def setRange(self, minimum: int, maximum: int) -> None:
         self._spin.setRange(minimum, maximum)
         self._sync_step_buttons()

@@ -24,7 +24,11 @@ from app.presentation.formatting import payment_method_name
 from app.presentation.item_types import ITEM_KINDS, item_names
 from app.presentation.records.builders import purchase_card, sale_card
 from app.presentation.records.card import RecordCard
-from app.presentation.viewmodels.document_items import ItemCatalogue, payment_lines
+from app.presentation.viewmodels.document_items import (
+    ItemCatalogue,
+    payment_lines,
+    returns_of,
+)
 
 _METHOD_LIMIT = 200
 """Payment methods are a short hand-kept list, as every screen assumes.
@@ -70,21 +74,43 @@ class DocumentNames:
         )
 
 
-def sale_record_card(sale, *, customer: str, names: DocumentNames) -> RecordCard:
+def sale_record_card(
+    sale, *, customer: str, names: DocumentNames, container: AppContainer | None = None
+) -> RecordCard:
     return sale_card(
         sale,
         customer=customer,
         items=names.catalogue.lines_of(sale),
         payments=payment_lines(sale, dated=_received, method_name=names.method_name),
+        returns=_returns(container, sale, names, "list_sale_returns_use_case"),
     )
 
 
-def purchase_record_card(purchase, *, supplier: str, names: DocumentNames) -> RecordCard:
+def purchase_record_card(
+    purchase, *, supplier: str, names: DocumentNames, container: AppContainer | None = None
+) -> RecordCard:
     return purchase_card(
         purchase,
         supplier=supplier,
         items=names.catalogue.lines_of(purchase),
         payments=payment_lines(purchase, dated=_paid, method_name=names.method_name),
+        returns=_returns(container, purchase, names, "list_purchase_returns_use_case"),
+    )
+
+
+def _returns(container: AppContainer | None, document, names: DocumentNames, factory: str):
+    """What came back off a document, when the caller can go and ask.
+
+    The container is optional because a card can be written from data
+    already in hand. A document nothing came back off costs no lookup
+    either way — see `returns_of`.
+    """
+    if container is None:
+        return ()
+    return returns_of(
+        document,
+        lambda document_id: getattr(container, factory)().execute(document_id),
+        names.catalogue,
     )
 
 

@@ -19,6 +19,13 @@ class Purchase(AuditEntity):
     id: int | None = None
     supplier_id: int | None = None
 
+    returned_amount: Decimal = Decimal("0.00")
+    """What the goods sent back off this bill were worth. Stored for the
+    same reason as `Sale.returned_amount`."""
+
+    refunded_amount: Decimal = Decimal("0.00")
+    """Money the supplier gave back against those returns."""
+
 
     def __post_init__(self) -> None:
 
@@ -26,6 +33,10 @@ class Purchase(AuditEntity):
             raise ValueError("purchase_no cannot be empty")
         if self.discount_amount < 0:
             raise ValueError("discount_amount cannot be negative")
+        if self.returned_amount < 0:
+            raise ValueError("returned_amount cannot be negative")
+        if self.refunded_amount < 0:
+            raise ValueError("refunded_amount cannot be negative")
 
 
     def add_item(self, item: PurchaseItem) -> None:
@@ -56,5 +67,17 @@ class Purchase(AuditEntity):
 
 
     @property
+    def net_total(self) -> Decimal:
+        """What the bill is worth now, after anything sent back."""
+        return self.grand_total - self.returned_amount
+
+
+    @property
     def balance_amount(self) -> Decimal:
-        return self.grand_total - self.paid_amount
+        """What is still owed to the supplier — see `Sale.balance_amount`."""
+        return self.net_total - (self.paid_amount - self.refunded_amount)
+
+
+    @property
+    def has_returns(self) -> bool:
+        return self.returned_amount > 0

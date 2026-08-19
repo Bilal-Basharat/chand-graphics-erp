@@ -7,9 +7,9 @@ document family — job orders in the other build of this app — means one
 more `LedgerSource` here and one line in the container. Nothing above
 this file changes.
 
-Each source answers with two queries for the window and one aggregate for
-everything before it, so a ledger costs a fixed handful of queries however
-long the party's history is.
+Each source answers with three queries for the window and one aggregate
+for everything before it, so a ledger costs a fixed handful of queries
+however long the party's history is.
 """
 from __future__ import annotations
 
@@ -28,12 +28,18 @@ from app.domain.uow import UnitOfWork
 
 SALE = "sale"
 PURCHASE = "purchase"
+SALE_RETURN = "sale_return"
+PURCHASE_RETURN = "purchase_return"
 """What each source calls the documents it reads.
 
 Every line a source produces is tagged with one of these, which is what
 lets a screen open the document behind a line without knowing which
 ledger it is drawing. A new family arrives as a new word here, set by the
 source that owns it.
+
+A return is its own kind rather than another sale line, so a statement
+can say plainly which entries were goods coming back — and so the screen
+can open the invoice they came off.
 """
 
 _CASH = "Cash"
@@ -95,14 +101,75 @@ def _settled_with(label: str, methods: dict[int, str], method_id: int | None) ->
     return f"{label} · {methods.get(method_id, _CASH)}"
 
 
+def _return_events(
+    returns,
+    numbers: dict[int, str],
+    document_id_of,
+    methods: dict[int, str],
+    kind: str,
+    goods_detail: str,
+    refund_label: str,
+    goods_direction: LedgerDirection,
+) -> list[LedgerEvent]:
+    """One return, said as the one or two things that actually happened.
+
+    Goods coming back and money going back are separate facts and move a
+    balance opposite ways, so they are separate lines. A return with no
+    refund leaves the party in credit, which is the truth of it — the
+    value is theirs to spend against the next document.
+
+    Written once because a customer's return and a supplier's differ only
+    in which direction each half points, which the caller passes in.
+    """
+    refund_direction = (
+        LedgerDirection.CHARGE
+        if goods_direction is LedgerDirection.PAYMENT
+        else LedgerDirection.PAYMENT
+    )
+
+    events: list[LedgerEvent] = []
+    for record in returns:
+        reference = numbers.get(document_id_of(record), record.return_no)
+        events.append(
+            LedgerEvent(
+                occurred_at=record.returned_at,
+                reference=reference,
+                document_kind=kind,
+                detail=f"{goods_detail} · {record.return_no}",
+                amount=record.return_amount,
+                direction=goods_direction,
+            )
+        )
+        if record.refund_amount > 0:
+            events.append(
+                LedgerEvent(
+                    occurred_at=record.returned_at,
+                    reference=reference,
+                    document_kind=kind,
+                    detail=_settled_with(refund_label, methods, record.refund_method_id),
+                    amount=record.refund_amount,
+                    direction=refund_direction,
+                )
+            )
+    return events
+
+
 class SaleLedgerSource(LedgerSource):
-    """Invoices raised on a customer, and the money received against them."""
+    """Invoices raised on a customer, the money received against them, and
+    anything that came back."""
 
     def net_before(self, uow: UnitOfWork, party_id: int, before: datetime) -> Decimal:
         sales = UseCase.require(uow.sales, "sales")
         payments = UseCase.require(uow.sale_payments, "sale_payments")
-        return sales.total_by_customer(party_id, before) - payments.total_by_customer(
-            party_id, before
+        returns = UseCase.require(uow.sale_returns, "sale_returns")
+        # Charges, less what was paid, less the value of what came back,
+        # plus any refund handed over — the same four figures the lines
+        # below produce, so the opening balance agrees with them.
+        return (
+            sales.total_by_customer(party_id, before)
+            - payments.total_by_customer(party_id, before)
+            - returns.credit_before(party_id, before)
+            + returns.refund_before(party_id, before)
         )
 
     def events(
@@ -144,6 +211,27 @@ class SaleLedgerSource(LedgerSource):
             )
             for payment in received
         )
+
+        # The invoice a return came off may be older than the window, so
+        # its number is fetched the same way a receipt's is.
+        returned = UseCase.require(uow.sale_returns, "sale_returns").list_by_customer(
+            party_id, start, end, limit
+        )
+        if returned:
+            events.extend(
+                _return_events(
+                    returned,
+                    sales.numbers_by_id({record.sale_id for record in returned}),
+                    lambda record: record.sale_id,
+                    methods or _method_names(uow),
+                    SALE_RETURN,
+                    "Goods returned",
+                    "Refund paid",
+                    # Goods back reduce what the customer owes; the refund
+                    # that may follow puts it back up again.
+                    LedgerDirection.PAYMENT,
+                )
+            )
         return events
 
 
@@ -153,8 +241,12 @@ class PurchaseLedgerSource(LedgerSource):
     def net_before(self, uow: UnitOfWork, party_id: int, before: datetime) -> Decimal:
         purchases = UseCase.require(uow.purchases, "purchases")
         payments = UseCase.require(uow.purchase_payments, "purchase_payments")
-        return purchases.total_by_supplier(party_id, before) - payments.total_by_supplier(
-            party_id, before
+        returns = UseCase.require(uow.purchase_returns, "purchase_returns")
+        return (
+            purchases.total_by_supplier(party_id, before)
+            - payments.total_by_supplier(party_id, before)
+            - returns.credit_before(party_id, before)
+            + returns.refund_before(party_id, before)
         )
 
     def events(
@@ -194,4 +286,23 @@ class PurchaseLedgerSource(LedgerSource):
             )
             for payment in paid
         )
+
+        returned = UseCase.require(uow.purchase_returns, "purchase_returns").list_by_supplier(
+            party_id, start, end, limit
+        )
+        if returned:
+            events.extend(
+                _return_events(
+                    returned,
+                    purchases.numbers_by_id({record.purchase_id for record in returned}),
+                    lambda record: record.purchase_id,
+                    methods or _method_names(uow),
+                    PURCHASE_RETURN,
+                    "Goods sent back",
+                    "Refund received",
+                    # Goods back reduce what is owed to the supplier; a
+                    # refund they hand over puts it back up again.
+                    LedgerDirection.PAYMENT,
+                )
+            )
         return events

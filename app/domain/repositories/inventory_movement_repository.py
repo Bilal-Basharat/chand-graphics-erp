@@ -21,7 +21,7 @@ class InventoryMovementRepository(Repository[InventoryMovement], ABC):
     def page_movements(
         self,
         *,
-        inventory_item_id: int,
+        inventory_item_id: int | None = None,
         movement_type: str | None = None,
         search: str = "",
         sort_field: str | None = None,
@@ -29,14 +29,18 @@ class InventoryMovementRepository(Repository[InventoryMovement], ABC):
         limit: int = 100,
         offset: int = 0,
     ) -> list[InventoryMovement]:
-        """One page of one item's movement history."""
+        """One page of the stock register.
+
+        No item means every item — the register as a whole, which is how
+        the screen opens.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def count_movements(
         self,
         *,
-        inventory_item_id: int,
+        inventory_item_id: int | None = None,
         movement_type: str | None = None,
         search: str = "",
     ) -> int:

@@ -126,3 +126,65 @@ def payment_lines(
             )
         )
     return lines
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnLine:
+    """One item that came back, on one return."""
+
+    when: datetime | None
+    reference: str
+    """The return's own number, so the row on the card and the row in the
+    stock register can be recognised as the same event."""
+    label: str
+    quantity: int
+    value: Decimal
+    refunded: Decimal
+    """What was handed back for the whole return, against its first item
+    only — see `return_lines`."""
+
+
+def return_lines(returns, *, catalogue: ItemCatalogue) -> list[ReturnLine]:
+    """What came back off one document, oldest first, one row per item.
+
+    One function for sales and purchases: a return carries the same facts
+    either way, and which direction the goods travelled is the card's
+    caption, not the row's.
+
+    A return can bring back several items at once, and each is its own
+    row — that is what the card is being read for. The refund is not:
+    one lot of goods going back is one movement of money, so it is shown
+    once, against the first of them. Repeating it down the rows would
+    read as a refund per item and total to several times what was paid.
+
+    Names come from the catalogue the document's own lines already
+    filled — a return is always of something that document sold or
+    bought, so nothing extra has to be fetched.
+    """
+    return [
+        ReturnLine(
+            when=record.returned_at or record.created_at,
+            reference=record.return_no,
+            label=catalogue.label_for(item),
+            quantity=item.quantity,
+            value=item.total_amount,
+            # Blank rather than zero on the rows after the first — see
+            # `money_or_blank`, which the card renders it through.
+            refunded=record.refund_amount if position == 0 else Decimal("0.00"),
+        )
+        for record in sorted(returns, key=lambda r: r.returned_at or datetime.min)
+        for position, item in enumerate(record.items)
+    ]
+
+
+def returns_of(document, load, catalogue: ItemCatalogue) -> list[ReturnLine]:
+    """What came back off `document`, fetched only if anything did.
+
+    A document carries the value of its returns on itself, so the common
+    case — nothing came back — is answered without a query at all. The one
+    that did is a single lookup by document id, made when a card is
+    opened rather than for every row of a list.
+    """
+    if not getattr(document, "returned_amount", 0):
+        return []
+    return return_lines(load(document.id), catalogue=catalogue)

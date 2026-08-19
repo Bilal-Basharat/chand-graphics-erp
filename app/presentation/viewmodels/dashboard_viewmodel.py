@@ -134,7 +134,7 @@ class DashboardViewModel(BaseViewModel):
 
         for sale in sales:
             party = customers.get(sale.customer_id, WALK_IN) if sale.customer_id else WALK_IN
-            card = sale_record_card(sale, customer=party, names=names)
+            card = sale_record_card(sale, customer=party, names=names, container=self._container)
             documents.append(
                 DocumentRow(
                     document_no=sale.invoice_no,
@@ -172,7 +172,9 @@ class DashboardViewModel(BaseViewModel):
                 if purchase.supplier_id
                 else NO_SUPPLIER
             )
-            card = purchase_record_card(purchase, supplier=party, names=names)
+            card = purchase_record_card(
+                purchase, supplier=party, names=names, container=self._container
+            )
             documents.append(
                 DocumentRow(
                     document_no=purchase.purchase_no,

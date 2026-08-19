@@ -43,6 +43,7 @@ from app.presentation.viewmodels.document_items import (
     ItemCatalogue,
     PaymentLine,
     payment_lines,
+    returns_of,
 )
 from app.presentation.views.collection_view import VIEW_ACTION, CollectionPage, CollectionView
 from app.presentation.views.document_lists import NOT_FULLY_PAID, payment_filters
@@ -236,6 +237,13 @@ class SalePaymentsViewModel(PaymentsViewModel):
             customer=self.party_name(document),
             items=self._catalogue.lines_of(document),
             payments=self.payment_lines(document),
+            # A receipt has to say what the invoice behind it is worth
+            # now, or the balance printed on it looks wrong.
+            returns=returns_of(
+                document,
+                lambda sale_id: self._container.list_sale_returns_use_case().execute(sale_id),
+                self._catalogue,
+            ),
         )
 
     def _page(self, query: DocumentPageQuery):
@@ -278,6 +286,13 @@ class PurchasePaymentsViewModel(PaymentsViewModel):
             supplier=self.party_name(document),
             items=self._catalogue.lines_of(document),
             payments=self.payment_lines(document),
+            returns=returns_of(
+                document,
+                lambda purchase_id: (
+                    self._container.list_purchase_returns_use_case().execute(purchase_id)
+                ),
+                self._catalogue,
+            ),
         )
 
     def _page(self, query: DocumentPageQuery):

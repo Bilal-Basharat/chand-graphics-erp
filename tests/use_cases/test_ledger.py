@@ -12,7 +12,10 @@ from app.application.dto.commands import (
     CreateSaleCommand,
     CreateSupplierCommand,
     PurchaseItemCommand,
+    RecordPurchaseReturnCommand,
     RecordSalePaymentCommand,
+    RecordSaleReturnCommand,
+    ReturnedLineCommand,
     SaleItemCommand,
     SalePaymentCommand,
 )
@@ -21,7 +24,9 @@ from app.application.exceptions import NotFoundError
 from app.application.ledger.ports import LedgerDirection, LedgerEvent, LedgerParty
 from app.application.ledger.sources import (
     PURCHASE,
+    PURCHASE_RETURN,
     SALE,
+    SALE_RETURN,
     CustomerLookup,
     PurchaseLedgerSource,
     SaleLedgerSource,
@@ -34,6 +39,10 @@ from app.application.use_cases.master_data import (
     CreateSupplierUseCase,
 )
 from app.application.use_cases.purchases import CreatePurchaseUseCase
+from app.application.use_cases.returns import (
+    RecordPurchaseReturnUseCase,
+    RecordSaleReturnUseCase,
+)
 from app.application.use_cases.sales import CreateSaleUseCase, RecordSalePaymentUseCase
 from app.domain.enums.item_type import ItemType
 
@@ -424,3 +433,185 @@ def test_statement_totals_land_on_the_same_side_as_their_lines(page_name):
     assert totals["Credit"] == next(v for v in credit_column if v)
     # Named for what it is on both statements, not for who owes whom.
     assert totals["Closing balance"] == "350.00"
+
+
+# ------------------------------------------------------------- goods coming back
+
+# A return is two facts, and they move a balance opposite ways: the goods
+# reduce what the party owes, the refund that may follow puts it back. The
+# cases below pin both halves, and the one where a return has no account
+# to reach at all.
+
+
+def _returnable_sale(uow, admin_session, customer_id, *, paid: str | None = None):
+    item = _stocked_item(uow, admin_session)
+    payments = (
+        [
+            SalePaymentCommand(
+                amount=Decimal(paid), received_by_user_id=admin_session.get_user().user_id
+            )
+        ]
+        if paid
+        else []
+    )
+    return CreateSaleUseCase(uow, admin_session).execute(
+        CreateSaleCommand(
+            invoice_no="INV-RET",
+            customer_id=customer_id,
+            items=[
+                SaleItemCommand(
+                    item_type=ItemType.INVENTORY_ITEM,
+                    inventory_item_id=item.id,
+                    quantity=10,
+                    unit_price=Decimal("100.00"),
+                )
+            ],
+            payments=payments,
+        )
+    )
+
+
+def test_goods_returned_credit_the_customers_account(uow, admin_session):
+    customer = CreateCustomerUseCase(uow, admin_session).execute(
+        CreateCustomerCommand(name="Ahmad Traders")
+    )
+    sale = _returnable_sale(uow, admin_session, customer.id)
+
+    RecordSaleReturnUseCase(uow, admin_session).execute(
+        RecordSaleReturnCommand(
+            return_no="SR-1",
+            sale_id=sale.id,
+            lines=[ReturnedLineCommand(line_id=sale.items[0].id, quantity=2)],
+        )
+    )
+
+    ledger = _customer_ledger(uow, admin_session, customer.id)
+
+    assert ledger.total_charges == Decimal("1000.00")
+    assert ledger.total_payments == Decimal("200.00")
+    assert ledger.closing_balance == Decimal("800.00")
+
+    _charge, credit = ledger.lines
+    assert credit.document_kind == SALE_RETURN
+    assert credit.detail == "Goods returned · SR-1"
+    # The invoice it came off, so the line opens that document.
+    assert credit.reference == "INV-RET"
+
+
+def test_a_refund_hands_the_money_back_and_leaves_the_balance_where_it_was(
+    uow, admin_session
+):
+    """The two halves cancel: the customer has their goods' worth in cash
+    rather than in credit, and owes exactly what they did before."""
+    customer = CreateCustomerUseCase(uow, admin_session).execute(
+        CreateCustomerCommand(name="Ahmad Traders")
+    )
+    sale = _returnable_sale(uow, admin_session, customer.id, paid="1000.00")
+    before = _customer_ledger(uow, admin_session, customer.id).closing_balance
+
+    RecordSaleReturnUseCase(uow, admin_session).execute(
+        RecordSaleReturnCommand(
+            return_no="SR-1",
+            sale_id=sale.id,
+            lines=[
+                ReturnedLineCommand(
+                    line_id=sale.items[0].id,
+                    quantity=2,
+                )
+            ],
+            refund_amount=Decimal("200.00"),
+        )
+    )
+
+    ledger = _customer_ledger(uow, admin_session, customer.id)
+    assert ledger.closing_balance == before == Decimal("0.00")
+
+    refund = ledger.lines[-1]
+    assert refund.detail == "Refund paid · Cash"
+    assert refund.charge == Decimal("200.00")
+    assert refund.payment == Decimal("0.00")
+
+
+def test_a_walk_in_return_reaches_no_ledger(uow, admin_session):
+    """There is no account to credit, which is why the dialog offers to
+    refund one in full."""
+    customer = CreateCustomerUseCase(uow, admin_session).execute(
+        CreateCustomerCommand(name="Ahmad Traders")
+    )
+    sale = _returnable_sale(uow, admin_session, None)
+
+    RecordSaleReturnUseCase(uow, admin_session).execute(
+        RecordSaleReturnCommand(
+            return_no="SR-1",
+            sale_id=sale.id,
+            lines=[ReturnedLineCommand(line_id=sale.items[0].id, quantity=2)],
+        )
+    )
+
+    assert _customer_ledger(uow, admin_session, customer.id).lines == ()
+
+
+def test_a_return_before_the_window_lands_in_the_opening_balance(uow, admin_session):
+    """Otherwise the statement opens at a figure its own lines contradict."""
+    customer = CreateCustomerUseCase(uow, admin_session).execute(
+        CreateCustomerCommand(name="Ahmad Traders")
+    )
+    sale = _returnable_sale(uow, admin_session, customer.id)
+    RecordSaleReturnUseCase(uow, admin_session).execute(
+        RecordSaleReturnCommand(
+            return_no="SR-1",
+            sale_id=sale.id,
+            lines=[ReturnedLineCommand(line_id=sale.items[0].id, quantity=2)],
+        )
+    )
+
+    later = datetime.now() + timedelta(days=1)
+    ledger = _customer_ledger(uow, admin_session, customer.id, start=later, end=_FAR_FUTURE)
+
+    assert ledger.lines == ()
+    assert ledger.opening_balance == Decimal("800.00")
+    assert ledger.closing_balance == Decimal("800.00")
+
+
+def test_goods_sent_back_reduce_what_is_owed_to_a_supplier(uow, admin_session):
+    supplier = CreateSupplierUseCase(uow, admin_session).execute(
+        CreateSupplierCommand(name="Paper House")
+    )
+    item = CreateInventoryItemUseCase(uow, admin_session).execute(
+        CreateInventoryItemCommand(name="Board 300gsm", unit="sheets")
+    )
+    purchase = CreatePurchaseUseCase(uow, admin_session).execute(
+        CreatePurchaseCommand(
+            purchase_no="PUR-RET",
+            supplier_id=supplier.id,
+            items=[
+                PurchaseItemCommand(
+                    item_type=ItemType.INVENTORY_ITEM,
+                    inventory_item_id=item.id,
+                    quantity=50,
+                    unit_price=Decimal("20.00"),
+                )
+            ],
+        )
+    )
+
+    RecordPurchaseReturnUseCase(uow, admin_session).execute(
+        RecordPurchaseReturnCommand(
+            return_no="PR-1",
+            purchase_id=purchase.id,
+            lines=[
+                ReturnedLineCommand(
+                    line_id=purchase.items[0].id,
+                    quantity=5,
+                )
+            ],
+        )
+    )
+
+    ledger = _supplier_ledger(uow, admin_session, supplier.id)
+
+    assert ledger.total_charges == Decimal("1000.00")
+    assert ledger.total_payments == Decimal("100.00")
+    assert ledger.closing_balance == Decimal("900.00")
+    assert ledger.lines[-1].document_kind == PURCHASE_RETURN
+    assert ledger.lines[-1].detail == "Goods sent back · PR-1"

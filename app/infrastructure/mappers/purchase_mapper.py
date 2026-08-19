@@ -18,6 +18,8 @@ class PurchaseMapper:
             reference_no=model.reference_no,
             note=model.note,
             discount_amount=model.discount_amount,
+            returned_amount=model.returned_amount,
+            refunded_amount=model.refunded_amount,
             items=[PurchaseItemMapper.to_entity(item) for item in getattr(model, "items", [])],
             payments=[
                 PurchasePaymentMapper.to_entity(payment)
@@ -38,6 +40,10 @@ class PurchaseMapper:
             subtotal=entity.subtotal,
             grand_total=entity.grand_total,
             balance_amount=entity.balance_amount,
+            # See SaleMapper.to_model: a stored column omitted here is
+            # zeroed on the next save.
+            returned_amount=entity.returned_amount,
+            refunded_amount=entity.refunded_amount,
         )
 
         model.items = [PurchaseItemMapper.to_model(item) for item in entity.items]

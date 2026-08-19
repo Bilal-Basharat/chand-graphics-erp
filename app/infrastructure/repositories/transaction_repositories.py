@@ -11,8 +11,10 @@ from app.domain.entities.expense import Expense
 from app.domain.entities.inventory_movement import InventoryMovement
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_payment import PurchasePayment
+from app.domain.entities.purchase_return import PurchaseReturn
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_payment import SalePayment
+from app.domain.entities.sale_return import SaleReturn
 from app.domain.enums.item_type import ItemType
 from app.domain.enums.payment_filter import PaymentFilter
 from app.domain.repositories.aggregates import (
@@ -30,27 +32,42 @@ from app.domain.repositories.purchase_payment_repository import (
     PurchasePaymentRepository as PurchasePaymentRepositoryPort,
 )
 from app.domain.repositories.purchase_repository import PurchaseRepository as PurchaseRepositoryPort
+from app.domain.repositories.purchase_return_repository import (
+    PurchaseReturnRepository as PurchaseReturnRepositoryPort,
+)
 from app.domain.repositories.sale_payment_repository import (
     SalePaymentRepository as SalePaymentRepositoryPort,
 )
 from app.domain.repositories.sale_repository import SaleRepository as SaleRepositoryPort
+from app.domain.repositories.sale_return_repository import (
+    SaleReturnRepository as SaleReturnRepositoryPort,
+)
 from app.infrastructure.db.models.expense_category_model import ExpenseCategoryModel
 from app.infrastructure.db.models.expense_model import ExpenseModel
+from app.infrastructure.db.models.inventory_item_model import InventoryItemModel
 from app.infrastructure.db.models.inventory_movement_model import InventoryMovementModel
 from app.infrastructure.db.models.customer_model import CustomerModel
 from app.infrastructure.db.models.purchase_item_model import PurchaseItemModel
 from app.infrastructure.db.models.purchase_model import PurchaseModel
 from app.infrastructure.db.models.purchase_payment_model import PurchasePaymentModel
+from app.infrastructure.db.models.purchase_return_item_model import (
+    PurchaseReturnItemModel,
+)
+from app.infrastructure.db.models.purchase_return_model import PurchaseReturnModel
 from app.infrastructure.db.models.sale_item_model import SaleItemModel
 from app.infrastructure.db.models.sale_model import SaleModel
 from app.infrastructure.db.models.sale_payment_model import SalePaymentModel
+from app.infrastructure.db.models.sale_return_item_model import SaleReturnItemModel
+from app.infrastructure.db.models.sale_return_model import SaleReturnModel
 from app.infrastructure.db.models.supplier_model import SupplierModel
 from app.infrastructure.mappers.expense_mapper import ExpenseMapper
 from app.infrastructure.mappers.inventory_movement_mapper import InventoryMovementMapper
 from app.infrastructure.mappers.purchase_mapper import PurchaseMapper
 from app.infrastructure.mappers.purchase_payment_mapper import PurchasePaymentMapper
+from app.infrastructure.mappers.purchase_return_mapper import PurchaseReturnMapper
 from app.infrastructure.mappers.sale_mapper import SaleMapper
 from app.infrastructure.mappers.sale_payment_mapper import SalePaymentMapper
+from app.infrastructure.mappers.sale_return_mapper import SaleReturnMapper
 from app.infrastructure.repositories.base import SQLAlchemyRepository
 from app.infrastructure.repositories.paging import contains, matching, totals
 
@@ -103,14 +120,28 @@ def _count_documents_holding_item(
     return int(session.execute(stmt).scalar_one())
 
 
+def _net_total(model):
+    """What a document is worth now, as a column expression.
+
+    `grand_total` keeps its original meaning — what was invoiced on the
+    day — so anything comparing against "the whole document" has to take
+    the goods that came back off it. The entity computes the same figure
+    in `Sale.net_total`.
+    """
+    return model.grand_total - model.returned_amount
+
+
 def _paid_as(model, payment: str | None):
     """How far paid, as a condition on a document's stored figures.
 
-    Written against `grand_total` and `balance_amount` — the columns the
-    document was saved with — because a page of a thousand rows cannot ask
-    each entity to add its own lines up. `Sale` and `Purchase` compute the
-    same two figures from their lines, and the mapper writes them back on
-    every save, so the list and the document agree.
+    Written against the stored columns — because a page of a thousand rows
+    cannot ask each entity to add its own lines up. `Sale` and `Purchase`
+    compute the same figures from their lines, and the mapper writes them
+    back on every save, so the list and the document agree.
+
+    Measured against the net total, not the gross: an invoice half of
+    which came back and which nobody has paid a rupee on is unpaid, not
+    part paid.
 
     None means "every document": the absence of a filter, not a filter
     that matches nothing.
@@ -118,9 +149,9 @@ def _paid_as(model, payment: str | None):
     if payment == PaymentFilter.NOT_FULLY_PAID:
         return model.balance_amount > 0
     if payment == PaymentFilter.NOTHING_PAID:
-        return model.balance_amount >= model.grand_total
+        return model.balance_amount >= _net_total(model)
     if payment == PaymentFilter.PART_PAID:
-        return (model.balance_amount > 0) & (model.balance_amount < model.grand_total)
+        return (model.balance_amount > 0) & (model.balance_amount < _net_total(model))
     if payment == PaymentFilter.FULLY_PAID:
         return model.balance_amount <= 0
     return None
@@ -128,11 +159,29 @@ def _paid_as(model, payment: str | None):
 
 def _sum_of(model):
     """What a document list adds up to: what it came to, and what is left
-    owing on it."""
+    owing on it.
+
+    Net of returns — goods that came back were not sold, and a period
+    total that still counts them overstates the shop's trading.
+    """
     return (
-        func.coalesce(func.sum(model.grand_total), 0),
+        func.coalesce(func.sum(_net_total(model)), 0),
         func.coalesce(func.sum(model.balance_amount), 0),
     )
+
+
+_NO_RETURNS: tuple[int, Decimal, Decimal] = (0, Decimal("0.00"), Decimal("0.00"))
+"""An item nothing came back on, so a margin row subtracts nothing."""
+
+
+def _return_value(line_model):
+    """What a returned line's goods were worth, as a column expression.
+
+    The entity's `return_amount`, said in SQL. Not stored: it is two
+    columns multiplied, and storing it would be a third copy to keep in
+    step.
+    """
+    return line_model.unit_price * line_model.quantity
 
 
 ############################################################
@@ -480,7 +529,19 @@ class SqlAlchemyPurchaseRepository(
             PurchaseItemModel.quantity > 0,
         )
         total, quantity = self.session.execute(stmt).one()
-        if not quantity:
+
+        # Stock sent back was never really bought, so it comes off both
+        # sides of the average. Left in, returning a badly priced delivery
+        # would leave its price in the cost of everything sold afterwards.
+        returned = select(
+            func.coalesce(func.sum(_return_value(PurchaseReturnItemModel)), 0),
+            func.coalesce(func.sum(PurchaseReturnItemModel.quantity), 0),
+        ).where(_item_column(PurchaseReturnItemModel, item_type) == item_id)
+        returned_total, returned_quantity = self.session.execute(returned).one()
+        total = Decimal(total or 0) - Decimal(returned_total)
+        quantity = int(quantity or 0) - int(returned_quantity)
+
+        if quantity <= 0:
             return None
         # Quantized here, and the same way the migration's backfill rounds,
         # so a line written today and one reconstructed by the migration
@@ -734,7 +795,14 @@ class SqlAlchemySaleRepository(
     # the screen these replaced did at two thousand documents.
 
     def revenue_between(self, start: datetime, end: datetime) -> RevenueTotals:
-        """What was invoiced in a period, before and after discounts."""
+        """What was invoiced in a period, before and after discounts.
+
+        Net of returns: goods that came back were not sold, and revenue
+        that still counts them overstates the shop's trading. Returns are
+        taken in the period they came back in rather than the period the
+        invoice was raised in — a closed month is not reopened by a
+        customer walking in the next one.
+        """
         stmt = select(
             func.coalesce(func.sum(SaleModel.subtotal), 0),
             func.coalesce(func.sum(SaleModel.discount_amount), 0),
@@ -743,12 +811,32 @@ class SqlAlchemySaleRepository(
         ).where(SaleModel.created_at >= start, SaleModel.created_at <= end)
 
         gross, discounts, net, count = self.session.execute(stmt).one()
+        returned = self._returned_between(start, end)
         return RevenueTotals(
-            gross=_money(gross),
+            gross=_money(gross) - returned,
             discounts=_money(discounts),
-            net=_money(net),
+            net=_money(net) - returned,
             invoice_count=int(count),
         )
+
+    def _returned_between(self, start: datetime, end: datetime) -> Decimal:
+        """What the goods returned in a period had been invoiced for.
+
+        Read here rather than through the return repository so a report
+        stays one round trip per figure — the sale repository already owns
+        every other question this screen asks.
+        """
+        stmt = (
+            select(func.coalesce(func.sum(_return_value(SaleReturnItemModel)), 0))
+            .select_from(SaleReturnItemModel)
+            .join(
+                SaleReturnModel,
+                SaleReturnItemModel.sale_return_id == SaleReturnModel.id,
+            )
+            .where(SaleReturnModel.returned_at >= start)
+            .where(SaleReturnModel.returned_at <= end)
+        )
+        return _money(self.session.execute(stmt).scalar_one())
 
     def cost_of_sales_between(self, start: datetime, end: datetime) -> CostTotals:
         """What the stock sold in a period had cost.
@@ -780,10 +868,45 @@ class SqlAlchemySaleRepository(
 
         cost, uncosted_lines, uncosted_revenue = self.session.execute(stmt).one()
         return CostTotals(
-            cost_of_goods_sold=_money(cost),
+            cost_of_goods_sold=_money(cost) - self._cost_returned_between(start, end),
             uncosted_lines=int(uncosted_lines),
             uncosted_revenue=_money(uncosted_revenue),
         )
+
+    def _cost_returned_between(self, start: datetime, end: datetime) -> Decimal:
+        """What the stock returned in a period had cost.
+
+        Costed from the sale line the return points at, so a return is
+        costed exactly as the sale it reverses was. A line whose cost was
+        never known contributes nothing rather than zero — the same rule
+        `cost_of_sales_between` follows on the way in.
+        """
+        costed = SaleItemModel.unit_cost.is_not(None)
+        stmt = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                )
+            )
+            # The aggregate reads sale_item columns, so the left side of
+            # the join has to be named or SQLAlchemy starts from the wrong
+            # table.
+            .select_from(SaleReturnItemModel)
+            .join(
+                SaleReturnModel,
+                SaleReturnItemModel.sale_return_id == SaleReturnModel.id,
+            )
+            .join(SaleItemModel, SaleReturnItemModel.sale_item_id == SaleItemModel.id)
+            .where(SaleReturnModel.returned_at >= start)
+            .where(SaleReturnModel.returned_at <= end)
+        )
+        return _money(self.session.execute(stmt).scalar_one())
 
     def margin_by_item_between(self, start: datetime, end: datetime) -> list[ItemMarginRow]:
         """Every item sold in a period, one row each."""
@@ -808,16 +931,57 @@ class SqlAlchemySaleRepository(
             .where(SaleModel.created_at >= start, SaleModel.created_at <= end)
             .group_by(SaleItemModel.inventory_item_id)
         )
+        returned = self._returns_by_item_between(start, end)
         return [
             ItemMarginRow(
                 item_id=item_id,
-                quantity_sold=int(quantity),
-                revenue=_money(revenue),
-                cost=_money(cost),
+                quantity_sold=int(quantity) - returned.get(item_id, _NO_RETURNS)[0],
+                revenue=_money(revenue) - returned.get(item_id, _NO_RETURNS)[1],
+                cost=_money(cost) - returned.get(item_id, _NO_RETURNS)[2],
                 uncosted_lines=int(uncosted),
             )
             for item_id, quantity, revenue, cost, uncosted in self.session.execute(stmt)
         ]
+
+    def _returns_by_item_between(
+        self, start: datetime, end: datetime
+    ) -> dict[int, tuple[int, Decimal, Decimal]]:
+        """Per item: how many came back, what they sold for, what they cost.
+
+        One query for the whole report rather than one per row. Keyed the
+        same way `margin_by_item_between` groups, so a row subtracts its
+        own returns and an item with none subtracts nothing.
+        """
+        costed = SaleItemModel.unit_cost.is_not(None)
+        stmt = (
+            select(
+                SaleItemModel.inventory_item_id,
+                func.coalesce(func.sum(SaleReturnItemModel.quantity), 0),
+                func.coalesce(func.sum(_return_value(SaleReturnItemModel)), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            )
+            .select_from(SaleReturnItemModel)
+            .join(
+                SaleReturnModel,
+                SaleReturnItemModel.sale_return_id == SaleReturnModel.id,
+            )
+            .join(SaleItemModel, SaleReturnItemModel.sale_item_id == SaleItemModel.id)
+            .where(SaleReturnModel.returned_at >= start)
+            .where(SaleReturnModel.returned_at <= end)
+            .group_by(SaleItemModel.inventory_item_id)
+        )
+        return {
+            item_id: (int(quantity), _money(revenue), _money(cost))
+            for item_id, quantity, revenue, cost in self.session.execute(stmt)
+        }
 
     def outstanding_before(self, as_at: datetime) -> list[OutstandingRow]:
         """Invoices with money still on them, oldest first."""
@@ -1007,6 +1171,186 @@ class SqlAlchemySalePaymentRepository(
 
 
 ############################################################
+################## Sale Return Repository ##################
+############################################################
+class SqlAlchemySaleReturnRepository(
+    SQLAlchemyRepository[SaleReturn, SaleReturnModel],
+    SaleReturnRepositoryPort,
+):
+    """
+    Persistence for goods coming back off sales.
+    """
+
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, SaleReturnModel, SaleReturnMapper)
+
+    def list_by_sale_id(self, sale_id: int) -> list[SaleReturn]:
+        stmt = (
+            select(SaleReturnModel)
+            .where(SaleReturnModel.sale_id == sale_id)
+            .order_by(SaleReturnModel.returned_at.asc())
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [SaleReturnMapper.to_entity(model) for model in models]
+
+    def returned_quantity_for_line(self, sale_item_id: int) -> int:
+        stmt = select(func.coalesce(func.sum(SaleReturnItemModel.quantity), 0)).where(
+            SaleReturnItemModel.sale_item_id == sale_item_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
+
+    def returned_quantities_for_sale(self, sale_id: int) -> dict[int, int]:
+        stmt = (
+            select(
+                SaleReturnItemModel.sale_item_id,
+                func.coalesce(func.sum(SaleReturnItemModel.quantity), 0),
+            )
+            .join(SaleReturnModel, SaleReturnItemModel.sale_return_id == SaleReturnModel.id)
+            .where(SaleReturnModel.sale_id == sale_id)
+            .group_by(SaleReturnItemModel.sale_item_id)
+        )
+        return {line_id: int(quantity) for line_id, quantity in self.session.execute(stmt)}
+
+    def list_by_customer(
+        self,
+        customer_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[SaleReturn]:
+        # Joined to the sale for the customer, which a return row does not
+        # carry: whose return it is, is a fact about the invoice. A walk-in
+        # sale has no customer_id, so its returns match nothing here and
+        # never reach a ledger.
+        stmt = (
+            select(SaleReturnModel)
+            .join(SaleModel, SaleReturnModel.sale_id == SaleModel.id)
+            .where(SaleModel.customer_id == customer_id)
+            .where(SaleReturnModel.returned_at >= start)
+            .where(SaleReturnModel.returned_at <= end)
+            .order_by(SaleReturnModel.returned_at.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [SaleReturnMapper.to_entity(model) for model in models]
+
+    def _before(self, customer_id: int, before: datetime) -> tuple:
+        """Whose returns, and which of them count towards an opening
+        balance. Shared so the two figures below cannot come to disagree
+        about what they are totalling."""
+        return (
+            SaleModel.customer_id == customer_id,
+            SaleReturnModel.returned_at < before,
+        )
+
+    def credit_before(self, customer_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(_return_value(SaleReturnItemModel)), 0))
+            .select_from(SaleReturnItemModel)
+            .join(SaleReturnModel, SaleReturnItemModel.sale_return_id == SaleReturnModel.id)
+            .join(SaleModel, SaleReturnModel.sale_id == SaleModel.id)
+            .where(*self._before(customer_id, before))
+        )
+        return _money(self.session.execute(stmt).scalar_one())
+
+    def refund_before(self, customer_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(SaleReturnModel.refund_amount), 0))
+            .join(SaleModel, SaleReturnModel.sale_id == SaleModel.id)
+            .where(*self._before(customer_id, before))
+        )
+        return _money(self.session.execute(stmt).scalar_one())
+
+
+############################################################
+################ Purchase Return Repository ################
+############################################################
+class SqlAlchemyPurchaseReturnRepository(
+    SQLAlchemyRepository[PurchaseReturn, PurchaseReturnModel],
+    PurchaseReturnRepositoryPort,
+):
+    """
+    Persistence for goods going back to suppliers.
+    """
+
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, PurchaseReturnModel, PurchaseReturnMapper)
+
+    def list_by_purchase_id(self, purchase_id: int) -> list[PurchaseReturn]:
+        stmt = (
+            select(PurchaseReturnModel)
+            .where(PurchaseReturnModel.purchase_id == purchase_id)
+            .order_by(PurchaseReturnModel.returned_at.asc())
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [PurchaseReturnMapper.to_entity(model) for model in models]
+
+    def returned_quantity_for_line(self, purchase_item_id: int) -> int:
+        stmt = select(func.coalesce(func.sum(PurchaseReturnItemModel.quantity), 0)).where(
+            PurchaseReturnItemModel.purchase_item_id == purchase_item_id
+        )
+        return int(self.session.execute(stmt).scalar_one())
+
+    def returned_quantities_for_purchase(self, purchase_id: int) -> dict[int, int]:
+        stmt = (
+            select(
+                PurchaseReturnItemModel.purchase_item_id,
+                func.coalesce(func.sum(PurchaseReturnItemModel.quantity), 0),
+            )
+            .join(PurchaseReturnModel, PurchaseReturnItemModel.purchase_return_id == PurchaseReturnModel.id)
+            .where(PurchaseReturnModel.purchase_id == purchase_id)
+            .group_by(PurchaseReturnItemModel.purchase_item_id)
+        )
+        return {line_id: int(quantity) for line_id, quantity in self.session.execute(stmt)}
+
+    def list_by_supplier(
+        self,
+        supplier_id: int,
+        start: datetime,
+        end: datetime,
+        limit: int = 500,
+    ) -> list[PurchaseReturn]:
+        stmt = (
+            select(PurchaseReturnModel)
+            .join(PurchaseModel, PurchaseReturnModel.purchase_id == PurchaseModel.id)
+            .where(PurchaseModel.supplier_id == supplier_id)
+            .where(PurchaseReturnModel.returned_at >= start)
+            .where(PurchaseReturnModel.returned_at <= end)
+            .order_by(PurchaseReturnModel.returned_at.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [PurchaseReturnMapper.to_entity(model) for model in models]
+
+    def _before(self, supplier_id: int, before: datetime) -> tuple:
+        """Whose returns, and which of them count towards an opening
+        balance. Shared so the two figures below cannot come to disagree
+        about what they are totalling."""
+        return (
+            PurchaseModel.supplier_id == supplier_id,
+            PurchaseReturnModel.returned_at < before,
+        )
+
+    def credit_before(self, supplier_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(_return_value(PurchaseReturnItemModel)), 0))
+            .select_from(PurchaseReturnItemModel)
+            .join(PurchaseReturnModel, PurchaseReturnItemModel.purchase_return_id == PurchaseReturnModel.id)
+            .join(PurchaseModel, PurchaseReturnModel.purchase_id == PurchaseModel.id)
+            .where(*self._before(supplier_id, before))
+        )
+        return _money(self.session.execute(stmt).scalar_one())
+
+    def refund_before(self, supplier_id: int, before: datetime) -> Decimal:
+        stmt = (
+            select(func.coalesce(func.sum(PurchaseReturnModel.refund_amount), 0))
+            .join(PurchaseModel, PurchaseReturnModel.purchase_id == PurchaseModel.id)
+            .where(*self._before(supplier_id, before))
+        )
+        return _money(self.session.execute(stmt).scalar_one())
+
+
+############################################################
 ############## Inventory Movement Repository ###############
 ############################################################
 class SqlAlchemyInventoryMovementRepository(
@@ -1015,7 +1359,7 @@ class SqlAlchemyInventoryMovementRepository(
 ):
     """
     Persistence for special stock movements:
-    adjustments, transfers, damages, and returns.
+    adjustments, damages, and returns.
     """
 
     def __init__(self, session: Session) -> None:
@@ -1024,20 +1368,40 @@ class SqlAlchemyInventoryMovementRepository(
     _SORTABLE = {
         "occurred": InventoryMovementModel.occurred_at,
         "type": InventoryMovementModel.movement_type,
+        "item": InventoryItemModel.name,
         "quantity": InventoryMovementModel.quantity,
         "stock": InventoryMovementModel.resulting_stock,
     }
 
-    def _filtered_movements(self, inventory_item_id: int, movement_type: str | None, search: str):
-        stmt = select(InventoryMovementModel).where(
-            InventoryMovementModel.inventory_item_id == inventory_item_id
+    def _filtered_movements(
+        self,
+        inventory_item_id: int | None,
+        movement_type: str | None,
+        search: str,
+    ):
+        """The register, narrowed by whatever was asked for.
+
+        The item is optional. Reading one item's history is one question
+        this screen answers — "why is this count what it is?" — and
+        "what has moved lately?" is the other, which no query could ask
+        while the item was mandatory.
+
+        Joined to the catalogue so a movement can be found and sorted by
+        the name of the item it moved, rather than only by its own text.
+        """
+        stmt = select(InventoryMovementModel).join(
+            InventoryItemModel,
+            InventoryMovementModel.inventory_item_id == InventoryItemModel.id,
         )
+        if inventory_item_id is not None:
+            stmt = stmt.where(InventoryMovementModel.inventory_item_id == inventory_item_id)
         if movement_type:
             stmt = stmt.where(InventoryMovementModel.movement_type == movement_type)
         if search:
             stmt = stmt.where(
                 matching(
                     contains(search),
+                    InventoryItemModel.name,
                     InventoryMovementModel.reference_no,
                     InventoryMovementModel.reason,
                     InventoryMovementModel.note,
@@ -1048,7 +1412,7 @@ class SqlAlchemyInventoryMovementRepository(
     def page_movements(
         self,
         *,
-        inventory_item_id: int,
+        inventory_item_id: int | None = None,
         movement_type: str | None = None,
         search: str = "",
         sort_field: str | None = None,
@@ -1070,7 +1434,7 @@ class SqlAlchemyInventoryMovementRepository(
     def count_movements(
         self,
         *,
-        inventory_item_id: int,
+        inventory_item_id: int | None = None,
         movement_type: str | None = None,
         search: str = "",
     ) -> int:

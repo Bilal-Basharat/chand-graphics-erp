@@ -24,6 +24,7 @@ import logging
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from sqlalchemy import Connection, Engine
 
@@ -408,12 +409,195 @@ def _add_sale_line_cost(connection: Connection) -> None:
     )
 
 
+def _add_document_returns(connection: Connection) -> None:
+    """Documents record what came back off them, and what was refunded.
+
+    Both figures are stored on the document rather than summed from the
+    return rows, because `balance_amount` is read by every list, ageing
+    report and payment screen and none of them load returns. Existing rows
+    take zero, which is what they meant before the columns existed.
+
+    The `sale_returns` and `purchase_returns` tables themselves need no
+    DDL here — `create_all` builds tables that are missing, and these are
+    new in their entirety.
+
+    TRANSFER left the movement enum in the same build. No row should hold
+    it (the type was never recorded by any screen), but one that did would
+    raise the moment `MovementType` parsed it, so it is rewritten to the
+    correction it always effectively was.
+
+    Safe to rerun: `_add_column` is guarded and the UPDATE matches nothing
+    the second time.
+    """
+    for table in ("sales", "purchases"):
+        _add_column(connection, table, "returned_amount", "NUMERIC(12, 2) NOT NULL DEFAULT 0")
+        _add_column(connection, table, "refunded_amount", "NUMERIC(12, 2) NOT NULL DEFAULT 0")
+
+    connection.exec_driver_sql(
+        "UPDATE inventory_movements "
+        "   SET movement_type = 'ADJUSTMENT', "
+        "       reason = COALESCE(reason, 'Recorded before transfers were removed') "
+        " WHERE movement_type = 'TRANSFER'"
+    )
+
+
+class _ReturnTables(NamedTuple):
+    """A kind of return, and every name that differs between the two."""
+
+    header: str
+    lines: str
+    header_column: str
+    """What a line calls the return it belongs to."""
+    line_column: str
+    """What a line calls the document line it reverses."""
+    document_column: str
+    """What a return calls the document it is against."""
+    document_lines: str
+    """The table holding that document's own lines."""
+    movement_kind: str
+    """What a return of this kind calls itself on the stock movement it
+    writes — the only other record of what came back."""
+
+
+_RETURN_TABLES: tuple[_ReturnTables, ...] = (
+    _ReturnTables(
+        "sale_returns", "sale_return_items", "sale_return_id",
+        "sale_item_id", "sale_id", "sale_items", "SALE_RETURN",
+    ),
+    _ReturnTables(
+        "purchase_returns", "purchase_return_items", "purchase_return_id",
+        "purchase_item_id", "purchase_id", "purchase_items", "PURCHASE_RETURN",
+    ),
+)
+
+_RETURN_HEADER_COLUMNS: tuple[str, ...] = (
+    "id", "return_no", "refund_amount", "refund_method_id", "reason", "note",
+    "returned_at", "created_by_user_id", "updated_by_user_id", "created_at",
+    "updated_at",
+)
+"""What is still a return's own once its goods have moved to its lines.
+The document column differs by kind and is added to this."""
+
+_LIFTED_LINE = (
+    "item_type, inventory_item_id, quantity, unit_price, created_at, updated_at"
+)
+"""What a return said about its goods before it had lines to say it."""
+
+
+def _lift_return_lines(connection: Connection) -> None:
+    """A return became a document with lines of its own.
+
+    It was written one row per returned line, because a return could only
+    be recorded one line at a time. A customer hands back two things in
+    one act — one number, one conversation about the refund — so it is
+    now a header with lines, exactly like the sale it reverses.
+
+    Rows already recorded are carried across rather than dropped: each
+    becomes a return with a single line, which is what it always was.
+
+    The order is the whole of this. The line table `create_all` has just
+    built is dropped before the header is rebuilt and created again
+    after, because a rebuild renames the header aside — and with foreign
+    keys enforced SQLite repoints everything that references it at the
+    renamed copy, which is then dropped and takes those lines with it.
+
+    Safe to rerun: a database whose lines have already moved no longer
+    has the column this reads, and is skipped.
+    """
+    from app.infrastructure.db.base import Base
+
+    for returns in _RETURN_TABLES:
+        if returns.line_column not in _table_columns(connection, returns.header):
+            continue
+
+        logger.info("Lifting %s lines into %s", returns.header, returns.lines)
+        lifted = connection.exec_driver_sql(
+            f"SELECT id, {returns.line_column}, {_LIFTED_LINE} FROM {returns.header}"
+        ).fetchall()
+
+        connection.exec_driver_sql(f"DROP TABLE {returns.lines}")
+        _rebuild_to_match_model(
+            connection,
+            returns.header,
+            (returns.document_column, *_RETURN_HEADER_COLUMNS),
+        )
+        Base.metadata.tables[returns.lines].create(bind=connection)
+
+        if lifted:
+            connection.exec_driver_sql(
+                f"INSERT INTO {returns.lines} "
+                f"       ({returns.header_column}, {returns.line_column}, "
+                f"        {_LIFTED_LINE}) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [tuple(row) for row in lifted],
+            )
+
+
+def _repair_lifted_return_lines(connection: Connection) -> None:
+    """Put back return lines an earlier build of the step above lost.
+
+    That build rebuilt the return table while the new line table already
+    pointed at it. With foreign keys enforced — which is how this
+    application opens a database — SQLite follows a renamed table, so the
+    line table came to reference the copy being rebuilt from; dropping
+    that copy cascaded the lines away with it and left the reference
+    naming a table that is no longer there.
+
+    Both are put right here. The line table is recreated so its foreign
+    key names the table that is actually there, and its rows are read
+    back off the stock movement each return wrote: that movement carries
+    the item, the quantity and the price, which is all a line is. The
+    document line it reverses is the one that traded that item on that
+    document.
+
+    A database that never ran the faulty build has nothing naming a
+    missing table, and is left alone.
+    """
+    from app.infrastructure.db.base import Base
+
+    for returns in _RETURN_TABLES:
+        if not _references_a_missing_table(connection, returns.lines):
+            continue
+
+        logger.info("Repairing %s", returns.lines)
+        connection.exec_driver_sql(f"DROP TABLE {returns.lines}")
+        Base.metadata.tables[returns.lines].create(bind=connection)
+        connection.exec_driver_sql(
+            f"INSERT INTO {returns.lines} "
+            f"       ({returns.header_column}, {returns.line_column}, item_type, "
+            f"        inventory_item_id, quantity, unit_price, created_at) "
+            f"SELECT m.source_document_id, line.id, m.item_type, "
+            f"       m.inventory_item_id, m.quantity, m.unit_price, m.created_at "
+            f"  FROM inventory_movements m "
+            f"  JOIN {returns.header} r ON r.id = m.source_document_id "
+            f"  JOIN {returns.document_lines} line "
+            f"    ON line.id = (SELECT MIN(other.id) FROM {returns.document_lines} other "
+            f"                   WHERE other.{returns.document_column} "
+            f"                         = r.{returns.document_column} "
+            f"                     AND other.inventory_item_id = m.inventory_item_id) "
+            f" WHERE m.source_document_type = '{returns.movement_kind}'"
+        )
+
+
+def _references_a_missing_table(connection: Connection, table: str) -> bool:
+    """Whether any of this table's foreign keys names a table that is
+    not there — which is what a rebuild leaves behind when foreign keys
+    are enforced while something still points at what it rebuilt."""
+    return any(
+        not _table_exists(connection, row[2])
+        for row in connection.exec_driver_sql(f"PRAGMA foreign_key_list({table})")
+    )
+
+
 _STEPS: tuple[Callable[[Connection], None], ...] = (
     _drop_catalogue_prices,
     _relax_payment_method_links,
     _fold_cards_into_inventory,
     _add_party_opening_balance,
     _add_sale_line_cost,
+    _add_document_returns,
+    _lift_return_lines,
+    _repair_lifted_return_lines,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

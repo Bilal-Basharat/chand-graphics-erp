@@ -92,6 +92,18 @@ class CollectionPage:
     unit_plural: str | None = None
     search_placeholder: str | None = None
     create_label: str | None = None
+    secondary_create_labels: tuple[str, ...] = ()
+    """Other things this screen records, beside its primary action.
+
+    Only the stock register has any: a correction, a customer return and
+    a return to a supplier are three unrelated forms, and folding them
+    into one would mean half the rows appearing and vanishing on a
+    dropdown. They sit before the primary action and are drawn as
+    outlines, so which one is primary stays obvious.
+
+    Screens that set them answer `open_secondary_dialog`, by position.
+    """
+
     quick_add_label: str | None = None
     """Wording on the inline row's button. Defaults to "Add"."""
 
@@ -124,6 +136,12 @@ class CollectionView(QWidget):
         outer.setSpacing(16)
 
         self._header = PageHeader(page.crumb, page.title, page.subtitle)
+        # Secondary actions first, so the primary one keeps the trailing
+        # edge — see `PageHeader.add_action`.
+        for index, label in enumerate(page.secondary_create_labels):
+            self._header.add_action(
+                label, lambda *_, at=index: self.open_secondary_dialog(at)
+            )
         if page.create_label:
             self._header.add_action(page.create_label, self.open_create_dialog, variant="primary")
         outer.addWidget(self._header)
@@ -332,6 +350,9 @@ class CollectionView(QWidget):
     def create_table(self, columns: Sequence[Column]) -> TableWidget:
         """The table widget for this screen. Override for a grouped list."""
         return DataTable(columns, placeholder=self._page.empty_message)
+
+    def open_secondary_dialog(self, index: int) -> None:
+        """One of `secondary_create_labels` was clicked, given by position."""
 
     def row_actions(self) -> Sequence[RowAction]:
         """Buttons drawn inside every row. Empty means no actions column."""

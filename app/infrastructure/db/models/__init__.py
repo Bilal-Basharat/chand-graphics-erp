@@ -10,9 +10,13 @@ from .payment_method_model import PaymentMethodModel
 from .purchase_item_model import PurchaseItemModel
 from .purchase_model import PurchaseModel
 from .purchase_payment_model import PurchasePaymentModel
+from .purchase_return_item_model import PurchaseReturnItemModel
+from .purchase_return_model import PurchaseReturnModel
 from .sale_item_model import SaleItemModel
 from .sale_model import SaleModel
 from .sale_payment_model import SalePaymentModel
+from .sale_return_item_model import SaleReturnItemModel
+from .sale_return_model import SaleReturnModel
 from .supplier_model import SupplierModel
 from .user_model import UserModel
 
@@ -29,9 +33,13 @@ __all__ = [
     "PurchaseItemModel",
     "PurchaseModel",
     "PurchasePaymentModel",
+    "PurchaseReturnItemModel",
+    "PurchaseReturnModel",
     "SaleItemModel",
     "SaleModel",
     "SalePaymentModel",
+    "SaleReturnItemModel",
+    "SaleReturnModel",
     "SupplierModel",
     "UserModel",
 ]

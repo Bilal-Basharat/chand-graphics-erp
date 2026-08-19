@@ -22,8 +22,10 @@ from app.infrastructure.repositories.transaction_repositories import (
     SqlAlchemyInventoryMovementRepository,
     SqlAlchemyPurchasePaymentRepository,
     SqlAlchemyPurchaseRepository,
+    SqlAlchemyPurchaseReturnRepository,
     SqlAlchemySalePaymentRepository,
     SqlAlchemySaleRepository,
+    SqlAlchemySaleReturnRepository,
 )
 from app.infrastructure.repositories.login_audit_repository import SqlAlchemyLoginAuditRepository
 
@@ -51,6 +53,8 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.purchase_payments: SqlAlchemyPurchasePaymentRepository | None = None
         self.sales: SqlAlchemySaleRepository | None = None
         self.sale_payments: SqlAlchemySalePaymentRepository | None = None
+        self.sale_returns: SqlAlchemySaleReturnRepository | None = None
+        self.purchase_returns: SqlAlchemyPurchaseReturnRepository | None = None
         self.expenses: SqlAlchemyExpenseRepository | None = None
         self.inventory_movements: SqlAlchemyInventoryMovementRepository | None = None
         self.login_audits = None
@@ -81,6 +85,8 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.purchase_payments = SqlAlchemyPurchasePaymentRepository(self.session)
         self.sales = SqlAlchemySaleRepository(self.session)
         self.sale_payments = SqlAlchemySalePaymentRepository(self.session)
+        self.sale_returns = SqlAlchemySaleReturnRepository(self.session)
+        self.purchase_returns = SqlAlchemyPurchaseReturnRepository(self.session)
         self.expenses = SqlAlchemyExpenseRepository(self.session)
         self.inventory_movements = SqlAlchemyInventoryMovementRepository(self.session)
 

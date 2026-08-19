@@ -33,7 +33,12 @@ from app.application.dto.queries import (
     PageResult,
     PartyLedger,
 )
-from app.application.ledger.sources import PURCHASE, SALE
+from app.application.ledger.sources import (
+    PURCHASE,
+    PURCHASE_RETURN,
+    SALE,
+    SALE_RETURN,
+)
 from app.container import AppContainer
 from app.presentation.dialogs.record_card_dialog import RecordCardDialog, print_card, save_pdf
 from app.presentation.formatting import date_time, money, money_or_blank, or_dash
@@ -72,24 +77,36 @@ class _Document:
     fetch: Callable[[AppContainer, str], object | None]
     """By document number: it is what the line already carries, and both
     families are looked up by it everywhere else in the app."""
-    card: Callable[[object, str, DocumentNames], RecordCard]
+    card: Callable[[AppContainer, object, str, DocumentNames], RecordCard]
 
+
+_SALE = _Document(
+    fetch=lambda container, number: (
+        container.get_sale_by_invoice_no_use_case().execute(number)
+    ),
+    card=lambda container, sale, party, names: sale_record_card(
+        sale, customer=party, names=names, container=container
+    ),
+)
+
+_PURCHASE = _Document(
+    fetch=lambda container, number: (
+        container.get_purchase_by_no_use_case().execute(number)
+    ),
+    card=lambda container, purchase, party, names: purchase_record_card(
+        purchase, supplier=party, names=names, container=container
+    ),
+)
 
 _DOCUMENTS: dict[str, _Document] = {
-    SALE: _Document(
-        fetch=lambda container, number: (
-            container.get_sale_by_invoice_no_use_case().execute(number)
-        ),
-        card=lambda sale, party, names: sale_record_card(sale, customer=party, names=names),
-    ),
-    PURCHASE: _Document(
-        fetch=lambda container, number: (
-            container.get_purchase_by_no_use_case().execute(number)
-        ),
-        card=lambda purchase, party, names: purchase_record_card(
-            purchase, supplier=party, names=names
-        ),
-    ),
+    SALE: _SALE,
+    PURCHASE: _PURCHASE,
+    # A return carries the number of the document it came off, so opening
+    # one opens that invoice — where the return is written out in full,
+    # under the lines it reverses. There is nothing else to show: a return
+    # is a line on its parent, not a document of its own.
+    SALE_RETURN: _SALE,
+    PURCHASE_RETURN: _PURCHASE,
 }
 
 
@@ -255,7 +272,7 @@ class AccountLedgerViewModel(CollectionViewModelBase):
             if record is None:
                 return None
             names = DocumentNames.load(self._container, [record])
-            return document.card(record, ledger.party_name, names)
+            return document.card(self._container, record, ledger.party_name, names)
 
         self.run_async(fetch, on_success=self._on_document_loaded)
 

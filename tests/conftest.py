@@ -25,9 +25,17 @@ def _register_models() -> None:
     from app.infrastructure.db.models.purchase_item_model import PurchaseItemModel  # noqa: F401
     from app.infrastructure.db.models.purchase_model import PurchaseModel  # noqa: F401
     from app.infrastructure.db.models.purchase_payment_model import PurchasePaymentModel  # noqa: F401
+    from app.infrastructure.db.models.purchase_return_item_model import (  # noqa: F401
+        PurchaseReturnItemModel,
+    )
+    from app.infrastructure.db.models.purchase_return_model import PurchaseReturnModel  # noqa: F401
     from app.infrastructure.db.models.sale_item_model import SaleItemModel  # noqa: F401
     from app.infrastructure.db.models.sale_model import SaleModel  # noqa: F401
     from app.infrastructure.db.models.sale_payment_model import SalePaymentModel  # noqa: F401
+    from app.infrastructure.db.models.sale_return_item_model import (  # noqa: F401
+        SaleReturnItemModel,
+    )
+    from app.infrastructure.db.models.sale_return_model import SaleReturnModel  # noqa: F401
     from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
     from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
 

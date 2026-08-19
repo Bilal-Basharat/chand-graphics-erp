@@ -32,6 +32,9 @@ from app.application.dto.commands import (
     CreateSaleCommand,
     CreateSupplierCommand,
     InventoryMovementCommand,
+    RecordPurchaseReturnCommand,
+    RecordSaleReturnCommand,
+    ReturnedLineCommand,
     PurchaseItemCommand,
     PurchasePaymentCommand,
     SaleItemCommand,
@@ -48,7 +51,13 @@ from app.shared.datetimes import now_pkt
 
 from scripts.seed import backdating
 from scripts.seed.backdating import Backdater
-from scripts.seed.dataset import Dataset, DocumentSeed, ItemSeed, LineSeed
+from scripts.seed.dataset import (
+    Dataset,
+    DocumentSeed,
+    ItemSeed,
+    LineSeed,
+    ReturnSeed,
+)
 
 # Everything on a given day happens at the same hour, and a payment
 # always lands after the document it settles. Fixed rather than random so
@@ -70,6 +79,7 @@ class SeedReport:
     payments: int = 0
     expenses: int = 0
     movements: int = 0
+    returns: int = 0
     audits: int = 0
     dated_rows: int = 0
 
@@ -120,6 +130,9 @@ class Seeder:
     _items: dict[str, tuple[int, ItemSeed]] = field(default_factory=dict)
     _payments: int = 0
     _movements_recorded: int = 0
+    _documents_by_reference: dict[str, object] = field(default_factory=dict)
+    """Every seeded sale and purchase, by its number — what a return needs
+    to find the line it reverses."""
 
     def run(self) -> SeedReport:
         sign_in_admin(self.container)
@@ -130,6 +143,7 @@ class Seeder:
         self._company()
         self._master_data()
         self._documents()
+        self._returns()
         self._expenses()
         self._movements()
         self._audits()
@@ -142,6 +156,7 @@ class Seeder:
             sales=len(self.dataset.sales),
             payments=self._payments,
             expenses=len(self.dataset.expenses),
+            returns=len(self.dataset.returns),
             movements=self._movements_recorded,
             audits=len(self.dataset.audits),
             dated_rows=self._backdater.apply(engine),
@@ -321,6 +336,7 @@ class Seeder:
             )
         )
         self._dated(backdating.PURCHASE, record.id, document)
+        self._documents_by_reference[record.purchase_no] = record
 
     def _sale(self, document: DocumentSeed) -> None:
         record = self.container.create_sale_use_case().execute(
@@ -349,6 +365,7 @@ class Seeder:
             )
         )
         self._dated(backdating.SALE, record.id, document)
+        self._documents_by_reference[record.invoice_no] = record
 
     def _dated(self, tables, document_id: int, document: DocumentSeed) -> None:
         self._backdater.document(
@@ -376,6 +393,81 @@ class Seeder:
             self._backdater.row(
                 "expenses", record.id, self._moment(expense.days_ago, _EXPENSE_AT)
             )
+
+    def _returns(self) -> None:
+        """Goods coming back off documents already written.
+
+        After `_documents`, because a return needs the line it reverses to
+        exist — and that is the whole point of the record: what can come
+        back is bounded by what that document actually traded.
+        """
+        for record in self.dataset.returns:
+            try:
+                self._return(record)
+            except Exception as exc:  # noqa: BLE001 - re-raised, named
+                raise RuntimeError(f"return against {record.document}: {exc}") from exc
+
+    def _return(self, record: ReturnSeed) -> None:
+        document = self._documents_by_reference.get(record.document)
+        if document is None:
+            raise RuntimeError("no such document in this dataset")
+
+        lines = [
+            ReturnedLineCommand(
+                line_id=self._line_of(document, seed.item).id, quantity=seed.quantity
+            )
+            for seed in record.lines
+        ]
+        when = self._moment(record.days_ago, _MOVEMENT_AT)
+        if record.selling:
+            saved = self.container.record_sale_return_use_case().execute(
+                RecordSaleReturnCommand(
+                    return_no=f"SR-{document.invoice_no}",
+                    sale_id=document.id,
+                    lines=lines,
+                    refund_amount=record.refund,
+                    reason=record.reason,
+                    note=record.note,
+                )
+            )
+            table = backdating.SALE_RETURN
+        else:
+            saved = self.container.record_purchase_return_use_case().execute(
+                RecordPurchaseReturnCommand(
+                    return_no=f"PR-{document.purchase_no}",
+                    purchase_id=document.id,
+                    lines=lines,
+                    refund_amount=record.refund,
+                    reason=record.reason,
+                    note=record.note,
+                )
+            )
+            table = backdating.PURCHASE_RETURN
+
+        self._backdater.row(table, saved.id, when, "returned_at")
+        # The stock movements the return wrote carry the same date, or the
+        # register shows them happening today. One per line returned.
+        for movement_id in self._movements_of(table, saved.id):
+            self._backdater.row("inventory_movements", movement_id, when, "occurred_at")
+
+    def _line_of(self, document, item: str):
+        """The document line that sold or bought `item`."""
+        item_id = self._items[item][0]
+        line = next(
+            (line for line in document.items if line.inventory_item_id == item_id), None
+        )
+        if line is None:
+            raise RuntimeError(f"'{item}' is not on it")
+        return line
+
+    def _movements_of(self, table: str, return_id: int) -> list[int]:
+        """The stock movements a return wrote, so they can be dated with it."""
+        kind = "SALE_RETURN" if table == backdating.SALE_RETURN else "PURCHASE_RETURN"
+        movements = self.container.list_inventory_movements_by_source_document_use_case()
+        found = movements.execute((kind, return_id))
+        if not found:
+            raise RuntimeError("the return wrote no stock movement")
+        return [movement.id for movement in found]
 
     def _movements(self) -> None:
         for movement in self.dataset.movements:

@@ -14,12 +14,25 @@ from app.application.auth.permissions import Permission
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
 from app.application.use_cases.authorized_base import AuthorizedUseCase
 
+def _is_return_document(source_document_type: str | None) -> bool:
+    """Whether a movement is being written by a return use case.
+
+    Named by the strings those use cases stamp on the movements they
+    write — see `application.use_cases.returns`.
+    """
+    return (source_document_type or "").strip().upper() in _RETURN_DOCUMENTS
+
+
+_RETURN_DOCUMENTS = frozenset({"SALE_RETURN", "PURCHASE_RETURN"})
+
+
 class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand, InventoryMovement]):
     """
-    Handles exceptional stock changes only:
-    adjustment, damage, return, transfer.
+    Handles exceptional stock changes only: adjustment and damage.
 
-    Normal purchase/sale stock changes are stored in purchase_items/sale_items.
+    Normal purchase/sale stock changes are stored in purchase_items and
+    sale_items. Returns are written by `use_cases.returns`, which is the
+    only thing that may record one — see the RETURN guard below.
     """
 
     def __init__(
@@ -43,6 +56,18 @@ class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand,
 
         if request.movement_type == MovementType.DAMAGE and request.quantity_change > 0:
             raise ValueError("DAMAGE movements can only decrease stock")
+
+        # A return always reverses a document, and only the return use
+        # cases know which one. Recorded from here it would name nothing,
+        # which is exactly what let stock be returned that was never sold:
+        # an item bought a hundred times and never sold could still be
+        # "returned by a customer" and take the count to a hundred and ten.
+        if request.movement_type is MovementType.RETURN and not _is_return_document(
+            request.source_document_type
+        ):
+            raise ValueError(
+                "A return must be recorded against the sale or purchase it reverses."
+            )
 
         if request.movement_type in (MovementType.DAMAGE, MovementType.ADJUSTMENT) and not (
             request.reason and request.reason.strip()

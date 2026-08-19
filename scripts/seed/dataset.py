@@ -164,13 +164,37 @@ class ExpenseSeed:
 
 @dataclass(frozen=True, slots=True)
 class MovementSeed:
-    """Stock that moved without a document — damage, a return, a count
-    correction."""
+    """Stock that moved without a document — damage, or a count correction.
+
+    Never a return: a return names the sale or purchase it reverses, so it
+    is seeded as a `ReturnSeed` against a real document.
+    """
 
     item: str
     movement_type: str
     quantity_change: int
     days_ago: int
+    reason: str | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnSeed:
+    """Goods coming back off one seeded document, as one return.
+
+    Each line is named by its item rather than by an id, because ids are
+    only known once the document has been written. `LineSeed.unit_price`
+    is ignored: what a return is worth is what the document charged.
+    """
+
+    document: str
+    lines: tuple[LineSeed, ...]
+    days_ago: int
+    selling: bool
+    """True for goods a customer brought back, False for goods sent back
+    to a supplier."""
+
+    refund: Decimal = Decimal("0.00")
     reason: str | None = None
     note: str | None = None
 
@@ -213,6 +237,7 @@ class Dataset:
     sales: tuple[DocumentSeed, ...]
     expenses: tuple[ExpenseSeed, ...]
     movements: tuple[MovementSeed, ...]
+    returns: tuple[ReturnSeed, ...] = ()
     audits: tuple[AuditSeed, ...] = ()
 
 
@@ -456,12 +481,52 @@ FIXTURE_MOVEMENTS = (
         days_ago=20,
         reason="Stock count correction",
     ),
-    MovementSeed(
-        item="Art Card 250gsm (23x36)",
-        movement_type="RETURN",
-        quantity_change=-100,
+)
+
+FIXTURE_RETURNS = (
+    # A customer return with the money handed back: the invoice was
+    # settled, so there is no balance for the credit to come off.
+    ReturnSeed(
+        document="INV-2001",
+        lines=(LineSeed("Art Card 250gsm (23x36)", 20),),
+        days_ago=110,
+        selling=True,
+        refund=Decimal("1100.00"),  # the full value: 20 sheets at 55.00
+        reason="Wrong shade",
+    ),
+    # And one left as credit against an invoice still being paid — which
+    # is what puts a "Goods returned" line on a customer's statement with
+    # no refund beside it.
+    ReturnSeed(
+        document="INV-2002",
+        lines=(LineSeed("Offset Paper 70gsm (23x36)", 150),),
+        days_ago=40,
+        selling=True,
+        reason="Short delivery credited back",
+    ),
+    # Stock sent back to the mill. The old dataset recorded this as a bare
+    # RETURN movement with nothing behind it; now it names the bill.
+    ReturnSeed(
+        document="PUR-1001",
+        lines=(LineSeed("Art Card 250gsm (23x36)", 100),),
         days_ago=33,
-        note="Sent back to the mill — wrong shade.",
+        selling=False,
+        reason="Wrong shade",
+        note="Sent back to the mill.",
+    ),
+    # Two items handed back in one trip to the counter, off a walk-in
+    # sale. There is no account to carry credit, so the money goes back
+    # over the counter: 10 sheets at 20.00 and one spool at 1200.00.
+    ReturnSeed(
+        document="INV-2003",
+        lines=(
+            LineSeed("Matt Paper 130gsm (20x30)", 10),
+            LineSeed("Binding Wire Spool", 1),
+        ),
+        days_ago=25,
+        selling=True,
+        refund=Decimal("1400.00"),
+        reason="Customer changed their order",
     ),
 )
 
@@ -542,6 +607,7 @@ def build(profile: Profile, rng: Random) -> Dataset:
         sales=FIXTURE_SALES + _filler_sales(profile, rng, months, ITEMS, CUSTOMERS),
         expenses=FIXTURE_EXPENSES + _filler_expenses(profile, rng, months),
         movements=FIXTURE_MOVEMENTS,
+        returns=FIXTURE_RETURNS,
     )
 
 
@@ -1052,5 +1118,6 @@ def _build_load(rng: Random) -> Dataset:
         sales=sales,
         expenses=expenses,
         movements=FIXTURE_MOVEMENTS,
+        returns=FIXTURE_RETURNS,
         audits=_load_audits(rng, months, 30, constants.DEFAULT_ADMIN_EMAIL),
     )

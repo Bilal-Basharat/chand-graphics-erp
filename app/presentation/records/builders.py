@@ -35,7 +35,11 @@ from app.presentation.records.card import (
     Tone,
     Total,
 )
-from app.presentation.viewmodels.document_items import DocumentItemLine, PaymentLine
+from app.presentation.viewmodels.document_items import (
+    DocumentItemLine,
+    PaymentLine,
+    ReturnLine,
+)
 from app.presentation.widgets.payment_status import payment_status_text
 
 _ZERO = Decimal("0.00")
@@ -109,15 +113,72 @@ def _payments_section(title: str, lines: Sequence[PaymentLine]) -> Section:
     )
 
 
+_RETURN_HEADINGS = (
+    Heading("DATE", width=170),
+    Heading("RETURN #", width=150),
+    Heading("ITEM"),
+    Heading("QTY", "right", 70),
+    Heading("VALUE", "right", 120),
+    Heading("REFUNDED", "right", 120),
+)
+
+
+def _returns_section(title: str, lines: Sequence[ReturnLine]) -> Section:
+    return Section(
+        title=title,
+        headings=_RETURN_HEADINGS,
+        rows=tuple(
+            (
+                date_time(line.when),
+                line.reference,
+                line.label,
+                str(line.quantity),
+                money(line.value),
+                money_or_blank(line.refunded),
+            )
+            for line in lines
+        ),
+        empty="Nothing has come back off this.",
+    )
+
+
+def _returns_made(lines: Sequence[ReturnLine]) -> int:
+    """How many returns those rows came off.
+
+    The rows are one per item and a return can bring back several, so
+    counting rows would report two returns where a customer made one.
+    """
+    return len({line.reference for line in lines})
+
+
 def _settlement_totals(document) -> tuple[Total, ...]:
-    """Subtotal down to what is left to pay — the same five figures, in the
-    same order, on every document that can be paid in instalments."""
+    """Subtotal down to what is left to pay — the same figures, in the same
+    order, on every document that can be paid in instalments.
+
+    Returns appear only on a document that has any. An invoice nothing
+    came back off reads exactly as it always did, and the two extra lines
+    are then a signal rather than a pair of zeros to skip over.
+    """
     settled = document.balance_amount <= _ZERO
+    returned = getattr(document, "returned_amount", _ZERO)
+    refunded = getattr(document, "refunded_amount", _ZERO)
     return (
         Total("Subtotal", money(document.subtotal)),
         Total("Discount", money(document.discount_amount), tone="muted"),
-        Total("Total", money(document.grand_total), strong=True),
+        Total("Total", money(document.grand_total), strong=not returned),
+        # Between the total and what was paid, because that is where it
+        # acts: the goods came back off the total before the money was
+        # ever counted against it.
+        *(
+            (
+                Total("Returned", money(returned), tone="warning"),
+                Total("Net total", money(document.net_total), strong=True),
+            )
+            if returned
+            else ()
+        ),
         Total("Paid", money(document.paid_amount), tone="success"),
+        *((Total("Refunded", money(refunded), tone="muted"),) if refunded else ()),
         Total(
             "Left to pay",
             money(document.balance_amount),
@@ -126,23 +187,47 @@ def _settlement_totals(document) -> tuple[Total, ...]:
     )
 
 
+def _return_status(document, status: str, tone: Tone) -> tuple[str, Tone]:
+    """What the head of the card says, once goods have come back.
+
+    A fully returned document is not "Paid" whatever the money did — the
+    first thing to know about it is that none of it stands.
+    """
+    returned = getattr(document, "returned_amount", _ZERO)
+    if not returned:
+        return status, tone
+    if document.net_total <= _ZERO:
+        return "Returned", "danger"
+    return f"{status} · returned", "warning"
+
+
 def sale_card(sale, *, customer: str, items: Sequence[DocumentItemLine],
-              payments: Sequence[PaymentLine]) -> RecordCard:
+              payments: Sequence[PaymentLine],
+              returns: Sequence[ReturnLine] = ()) -> RecordCard:
+    status, tone = _return_status(sale, payment_status_text(sale), _payment_tone(sale))
     return RecordCard(
         kind="Sale invoice",
         reference=sale.invoice_no,
         subtitle=f"{customer} • {date_time(sale.created_at)}",
-        status=payment_status_text(sale),
-        status_tone=_payment_tone(sale),
+        status=status,
+        status_tone=tone,
         fields=(
             Field("Customer", customer),
             Field("Raised", date_time(sale.created_at)),
             Field("Items", counted(len(sale.items), "item")),
             Field("Payments", counted(len(sale.payments), "payment")),
+            # Only when there is something to say: a Returns field reading
+            # "0 returns" on every invoice in the shop is noise.
+            *((Field("Returns", counted(_returns_made(returns), "return"), tone="warning"),)
+              if returns else ()),
         ),
         sections=(
             _item_section("Items sold", items, "This invoice has no lines."),
             _payments_section("Payments received", payments),
+            # Its own table rather than a note, because a return is a
+            # dated event with a number, and the customer's statement
+            # names that number too.
+            *((_returns_section("Goods returned", returns),) if returns else ()),
         ),
         totals=_settlement_totals(sale),
         note=sale.note or "",
@@ -150,22 +235,29 @@ def sale_card(sale, *, customer: str, items: Sequence[DocumentItemLine],
 
 
 def purchase_card(purchase, *, supplier: str, items: Sequence[DocumentItemLine],
-                  payments: Sequence[PaymentLine]) -> RecordCard:
+                  payments: Sequence[PaymentLine],
+                  returns: Sequence[ReturnLine] = ()) -> RecordCard:
+    status, tone = _return_status(
+        purchase, payment_status_text(purchase), _payment_tone(purchase)
+    )
     return RecordCard(
         kind="Purchase",
         reference=purchase.purchase_no,
         subtitle=f"{supplier} • {date_time(purchase.created_at)}",
-        status=payment_status_text(purchase),
-        status_tone=_payment_tone(purchase),
+        status=status,
+        status_tone=tone,
         fields=(
             Field("Supplier", supplier),
             Field("Supplier reference", or_dash(purchase.reference_no)),
             Field("Recorded", date_time(purchase.created_at)),
             Field("Items", counted(len(purchase.items), "item")),
+            *((Field("Returns", counted(_returns_made(returns), "return"), tone="warning"),)
+              if returns else ()),
         ),
         sections=(
             _item_section("Items bought", items, "This purchase has no lines."),
             _payments_section("Payments made", payments),
+            *((_returns_section("Goods sent back", returns),) if returns else ()),
         ),
         totals=_settlement_totals(purchase),
         note=purchase.note or "",

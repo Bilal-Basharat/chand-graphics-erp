@@ -28,7 +28,9 @@ from app.presentation.viewmodels.document_items import (
     DocumentItemLine,
     ItemCatalogue,
     PaymentLine,
+    ReturnLine,
     payment_lines,
+    returns_of,
 )
 from app.presentation.widgets.period_selector import PeriodSelection
 
@@ -84,6 +86,14 @@ class SalesViewModel(CollectionViewModelBase):
             sale,
             dated=lambda payment: payment.received_at or payment.created_at,
             method_name=lambda method_id: payment_method_name(self._method_names.get(method_id)),
+        )
+
+    def return_lines(self, sale) -> list[ReturnLine]:
+        """What came back off one invoice — usually nothing, and then free."""
+        return returns_of(
+            sale,
+            lambda sale_id: self._container.list_sale_returns_use_case().execute(sale_id),
+            self._catalogue,
         )
 
     # ---------------- names for the page in hand ----------------

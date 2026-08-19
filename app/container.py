@@ -400,6 +400,36 @@ class AppContainer:
         return ListSalesByDateRangeUseCase(self.create_uow(), self.current_user_session)
 
     ############################################################
+    ##################### Return Use Cases #########################
+    ############################################################
+    # Goods coming back. Each of these moves stock, a document, a party's
+    # account and possibly the till, all inside one unit of work — see
+    # `application.use_cases.returns`.
+    def get_returnable_sale_use_case(self):
+        from app.application.use_cases.returns import GetReturnableSaleUseCase
+        return GetReturnableSaleUseCase(self.create_uow(), self.current_user_session)
+
+    def get_returnable_purchase_use_case(self):
+        from app.application.use_cases.returns import GetReturnablePurchaseUseCase
+        return GetReturnablePurchaseUseCase(self.create_uow(), self.current_user_session)
+
+    def record_sale_return_use_case(self):
+        from app.application.use_cases.returns import RecordSaleReturnUseCase
+        return RecordSaleReturnUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def record_purchase_return_use_case(self):
+        from app.application.use_cases.returns import RecordPurchaseReturnUseCase
+        return RecordPurchaseReturnUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def list_sale_returns_use_case(self):
+        from app.application.use_cases.returns import ListSaleReturnsUseCase
+        return ListSaleReturnsUseCase(self.create_uow(), self.current_user_session)
+
+    def list_purchase_returns_use_case(self):
+        from app.application.use_cases.returns import ListPurchaseReturnsUseCase
+        return ListPurchaseReturnsUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
     ############### Inventory Movement Use Cases ###################
     ############################################################
     def record_inventory_movement_use_case(self):

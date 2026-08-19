@@ -15,7 +15,10 @@ from app.application.dto.commands import (
     CreateSupplierCommand,
     InventoryMovementCommand,
     PurchaseItemCommand,
+    RecordPurchaseReturnCommand,
     RecordSalePaymentCommand,
+    RecordSaleReturnCommand,
+    ReturnedLineCommand,
     SaleItemCommand,
     SalePaymentCommand,
 )
@@ -29,6 +32,10 @@ from app.application.use_cases.master_data import (
     CreateSupplierUseCase,
 )
 from app.application.use_cases.purchases import CreatePurchaseUseCase
+from app.application.use_cases.returns import (
+    RecordPurchaseReturnUseCase,
+    RecordSaleReturnUseCase,
+)
 from app.application.use_cases.reports import (
     AGE_BANDS,
     UNCATEGORISED,
@@ -556,3 +563,103 @@ def test_reports_refuse_a_user_without_permission(uow, staff_session, report):
 
     with pytest.raises(AuthorizationError):
         use_cases[report]()
+
+
+# ------------------------------------------------------ returns come off the top
+
+# Goods that came back were not sold, and neither their revenue nor their
+# cost belongs in a period's trading. Every figure below moved by exactly
+# a quarter of what was sold, because a quarter of it came back.
+
+
+def _return(uow, admin_session, sale, quantity: int, number: str = "SR-1"):
+    return RecordSaleReturnUseCase(uow, admin_session).execute(
+        RecordSaleReturnCommand(
+            return_no=number,
+            sale_id=sale.id,
+            lines=[
+                ReturnedLineCommand(
+                    line_id=sale.items[0].id,
+                    quantity=quantity,
+                )
+            ],
+        )
+    )
+
+
+def test_returned_goods_come_off_revenue_and_off_cost_of_sales(uow, admin_session):
+    item = _stocked_item(uow, admin_session)
+    _buy(uow, admin_session, item, 100, "10.00", "PUR-1")
+    sale = _sell(uow, admin_session, item, 40, "40.00", "INV-1")
+
+    _return(uow, admin_session, sale, 10)
+
+    report = _profit(uow, admin_session)
+
+    assert report.revenue == Decimal("1200.00")  # 1600 sold, 400 back
+    assert report.cost_of_goods_sold == Decimal("300.00")  # 400 costed, 100 back
+    assert report.gross_profit == Decimal("900.00")
+
+
+def test_a_returned_line_leaves_item_profitability_showing_what_actually_sold(
+    uow, admin_session
+):
+    item = _stocked_item(uow, admin_session, "Art Card")
+    _buy(uow, admin_session, item, 100, "10.00", "PUR-1")
+    sale = _sell(uow, admin_session, item, 40, "40.00", "INV-1")
+
+    _return(uow, admin_session, sale, 10)
+
+    report = GetItemProfitabilityUseCase(uow, admin_session).execute(
+        ReportQuery(start=_ALL_TIME, end=_FAR_FUTURE)
+    )
+
+    row = report.rows[0]
+    assert row.quantity_sold == 30
+    assert row.revenue == Decimal("1200.00")
+    assert row.cost == Decimal("300.00")
+    assert row.profit == Decimal("900.00")
+
+
+def test_stock_sent_back_to_a_supplier_leaves_the_average_cost_where_it_was(
+    uow, admin_session
+):
+    """A delivery returned in full should not leave its price in the cost
+    of everything sold afterwards."""
+    item = _stocked_item(uow, admin_session)
+    _buy(uow, admin_session, item, 100, "10.00", "PUR-1")
+    dear = _buy(uow, admin_session, item, 100, "30.00", "PUR-2")
+
+    RecordPurchaseReturnUseCase(uow, admin_session).execute(
+        RecordPurchaseReturnCommand(
+            return_no="PR-1",
+            purchase_id=dear.id,
+            lines=[
+                ReturnedLineCommand(
+                    line_id=dear.items[0].id,
+                    quantity=100,
+                )
+            ],
+        )
+    )
+
+    sale = _sell(uow, admin_session, item, 10, "40.00", "INV-1")
+    assert sale.items[0].unit_cost == Decimal("10.00")
+
+
+def test_a_returned_invoice_stops_showing_as_money_owed(uow, admin_session):
+    """The whole invoice came back, so there is nothing left to chase."""
+    customer = CreateCustomerUseCase(uow, admin_session).execute(
+        CreateCustomerCommand(name="Ahmad Traders")
+    )
+    item = _stocked_item(uow, admin_session)
+    _buy(uow, admin_session, item, 100, "10.00", "PUR-1")
+    sale = _sell(uow, admin_session, item, 10, "40.00", "INV-1", customer_id=customer.id)
+
+    _return(uow, admin_session, sale, 10)
+
+    ageing = GetAgeingUseCase(uow, admin_session, source=ReceivablesSource()).execute(
+        AgeingQuery(as_at=_FAR_FUTURE)
+    )
+    assert ageing.lines == ()
+    assert ageing.total == Decimal("0.00")
