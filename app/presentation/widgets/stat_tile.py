@@ -1,9 +1,11 @@
 """
-KPI tile: label + optional tone-tagged badge, a value, and a note line.
+KPI tile: label + optional tone-tagged badge, a value with an optional
+unit after it, and a note line.
 Reused by Dashboard (and future Reports).
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 _VALID_TONES = {"success", "info", "warning", "danger"}
@@ -15,6 +17,7 @@ class StatTile(QFrame):
         label: str,
         value: str,
         note: str = "",
+        unit: str = "",
         tag_text: str | None = None,
         tag_tone: str = "info",
         parent=None,
@@ -27,9 +30,9 @@ class StatTile(QFrame):
         outer.setSpacing(5)
 
         top_row = QHBoxLayout()
-        self._label_widget = QLabel(label.upper())
-        self._label_widget.setProperty("role", "statLabel")
-        top_row.addWidget(self._label_widget)
+        label_widget = QLabel(label.upper())
+        label_widget.setProperty("role", "statLabel")
+        top_row.addWidget(label_widget)
         top_row.addStretch(1)
 
         if tag_text:
@@ -42,20 +45,36 @@ class StatTile(QFrame):
         self._value_label = QLabel(value)
         self._value_label.setProperty("role", "statValue")
 
+        value_row = QHBoxLayout()
+        value_row.setSpacing(5)
+        value_row.addWidget(self._value_label)
+        if unit:
+            # Small, and after the figure rather than before it: every
+            # money tile carries the same unit, so it is the number that
+            # is being scanned for and the number that should be read
+            # first. Sat on the baseline so it reads as part of the value.
+            unit_label = QLabel(unit)
+            unit_label.setProperty("role", "statUnit")
+            value_row.addWidget(unit_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        value_row.addStretch(1)
+
         self._note_label = QLabel(note)
         self._note_label.setProperty("role", "statNote")
 
         outer.addLayout(top_row)
-        outer.addWidget(self._value_label)
+        outer.addLayout(value_row)
         outer.addWidget(self._note_label)
 
-    def set_label(self, label: str) -> None:
-        """Uppercased here as at construction, so callers pass ordinary
-        words and the tiles stay typographically identical."""
-        self._label_widget.setText(label.upper())
+    def set_value(self, value: str, color: str = "") -> None:
+        """The figure, and the colour it is to be read in.
 
-    def set_value(self, value: str) -> None:
+        Left to the caller because the same number means opposite things
+        on different tiles — no sales is a bad month, no low-stock items
+        is a full shelf — and only the screen knows which it is showing.
+        No colour returns the figure to the tile's ordinary ink.
+        """
         self._value_label.setText(value)
+        self._value_label.setStyleSheet(f"color: {color};" if color else "")
 
     def set_note(self, note: str) -> None:
         self._note_label.setText(note)

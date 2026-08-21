@@ -68,6 +68,7 @@ FONT_SIZE_VALUE = 15
 WEIGHT_REGULAR = 400
 WEIGHT_MEDIUM = 500
 WEIGHT_SEMIBOLD = 600
+WEIGHT_BOLD = 700
 
 # ---------------------------------------------------------------- Layout
 SIDEBAR_WIDTH = 232

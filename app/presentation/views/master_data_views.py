@@ -68,7 +68,6 @@ class CabinetsView(EditableCollectionView):
             CollectionPage(
                 crumb=("Items", "Cabinets"),
                 title="Cabinets",
-                subtitle="Physical storage locations that stock is filed under.",
                 panel_title="Cabinet list",
                 empty_message="No cabinets yet. Add one to start filing stock.",
                 unit="cabinet",
@@ -118,7 +117,6 @@ class PaymentMethodsView(EditableCollectionView):
             CollectionPage(
                 crumb=("Operations", "Payment methods"),
                 title="Payment methods",
-                subtitle="Ways money moves in and out besides cash — offered on every sale and purchase.",
                 panel_title="Method list",
                 empty_message="No payment methods yet. Payments record as cash until you add one.",
                 unit="method",
@@ -245,7 +243,6 @@ class CustomersView(_PartyView):
             CollectionPage(
                 crumb=("Parties", "Customers"),
                 title="Customers",
-                subtitle="People and businesses you sell to. Attach one to a sale to track its balance.",
                 panel_title="Customer list",
                 empty_message=(
                     "No customers yet. Add one in the row below, or record walk-in "
@@ -288,7 +285,6 @@ class SuppliersView(_PartyView):
             CollectionPage(
                 crumb=("Parties", "Suppliers"),
                 title="Suppliers",
-                subtitle="People and businesses you buy from. Attach one to a purchase to track its balance.",
                 panel_title="Supplier list",
                 empty_message=(
                     "No suppliers yet. Add one in the row below to record purchases "
@@ -334,7 +330,6 @@ class InventoryView(EditableCollectionView):
             CollectionPage(
                 crumb=("Items", "Inventory"),
                 title="Inventory",
-                subtitle="Everything you keep in stock, where it is filed, and how much is left.",
                 panel_title="Item list",
                 empty_message="No items yet. Add one above, or use the quick-add row below.",
                 unit="item",
@@ -467,7 +462,6 @@ class ExpenseCategoriesView(EditableCollectionView):
             CollectionPage(
                 crumb=("Finance", "Expense categories"),
                 title="Expense categories",
-                subtitle="Groupings that let reports break spending down by kind.",
                 panel_title="Category list",
                 empty_message="No categories yet. Add one to start grouping expenses.",
                 unit="category",

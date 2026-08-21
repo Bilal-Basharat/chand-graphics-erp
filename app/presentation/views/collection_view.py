@@ -17,6 +17,7 @@ Hooks, all optional:
     open_create_dialog()  - what the header's primary button does
     filter_options()      - the screen's Filter choices
     summary()             - the figures shown beside the panel title
+    toolbar_leading()     - widgets at the start of the toolbar
     toolbar_extras()      - extra widgets placed left of Refresh
     quick_add_fields()    - an inline "add another" row under the table
     build_quick_add()     - the command that row submits
@@ -84,7 +85,6 @@ down every list stays quieter beside the record than a word would.
 class CollectionPage:
     crumb: tuple[str, ...]
     title: str
-    subtitle: str
     panel_title: str
     empty_message: str
     unit: str
@@ -135,7 +135,7 @@ class CollectionView(QWidget):
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(16)
 
-        self._header = PageHeader(page.crumb, page.title, page.subtitle)
+        self._header = PageHeader(page.crumb, page.title)
         # Secondary actions first, so the primary one keeps the trailing
         # edge — see `PageHeader.add_action`.
         for index, label in enumerate(page.secondary_create_labels):
@@ -193,9 +193,10 @@ class CollectionView(QWidget):
             self._filter = FilterBox(filters)
             self._filter.changed.connect(self._on_filter_changed)
 
+        leading = self.toolbar_leading()
         extras = self.toolbar_extras()
-        if self._page.search_placeholder or extras or self._filter is not None:
-            layout.addLayout(self._build_toolbar(extras, refresh))
+        if self._page.search_placeholder or leading or extras or self._filter is not None:
+            layout.addLayout(self._build_toolbar(leading, extras, refresh))
         else:
             # Nothing else would share the row — a toolbar holding only
             # Refresh reads as an empty band under the title.
@@ -274,7 +275,9 @@ class CollectionView(QWidget):
         if card is not None:
             RecordCardDialog(card, parent=self).exec()
 
-    def _build_toolbar(self, extras: list[QWidget], refresh: QPushButton) -> QHBoxLayout:
+    def _build_toolbar(
+        self, leading: list[QWidget], extras: list[QWidget], refresh: QPushButton
+    ) -> QHBoxLayout:
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(18, 0, 18, 12)
         toolbar.setSpacing(8)
@@ -293,6 +296,9 @@ class CollectionView(QWidget):
             self._search.textChanged.connect(lambda _: self._search_timer.start())
             toolbar.addWidget(self._search)
 
+        for widget in leading:
+            toolbar.addWidget(widget)
+
         toolbar.addStretch(1)
 
         # The filter first: it narrows what the rest of the row's controls
@@ -310,6 +316,15 @@ class CollectionView(QWidget):
 
     def open_create_dialog(self) -> None:
         """Override in screens that declare a `create_label`."""
+
+    def toolbar_leading(self) -> list[QWidget]:
+        """Controls for the start of the toolbar, where the search box sits.
+
+        For a screen whose list is about one chosen thing: the choice is
+        read before the rows it produced, not hunted for at the far end of
+        the row. `toolbar_extras` is the other end.
+        """
+        return []
 
     def filter_options(self) -> Sequence[FilterOption]:
         """This screen's Filter choices. Empty means no filter box.

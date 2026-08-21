@@ -92,11 +92,7 @@ class ProfitAndLossView(QWidget):
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(16)
 
-        header = PageHeader(
-            ("Finance", "Profit & loss"),
-            "Profit & loss",
-            "What was sold, what it cost, and what was left after the bills.",
-        )
+        header = PageHeader(("Finance", "Profit & loss"), "Profit & loss")
         selector = PeriodSelector(period)
         selector.periodChanged.connect(self.reload)
         header.add_widget(selector)

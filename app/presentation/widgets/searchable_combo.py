@@ -54,6 +54,13 @@ class SearchableComboBox(QComboBox):
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.lineEdit().setObjectName("ComboSearchField")
         self.lineEdit().editingFinished.connect(self._settle)
+        # A line edit is left with its cursor at the end of any text it is
+        # given, and scrolls there — so a name wider than the box reads
+        # "…& Sons (Lahore)" when what tells one customer from another is
+        # how the name begins. Both the ways a name arrives are caught:
+        # written into the box, and picked from the list.
+        self.lineEdit().textChanged.connect(self._on_text_set)
+        self.currentIndexChanged.connect(self._on_choice_made)
 
         self._typing = QTimer(self)
         self._typing.setSingleShot(True)
@@ -248,14 +255,37 @@ class SearchableComboBox(QComboBox):
         """Ready for the next search: what is in the box is selected, so
         typing replaces the last choice instead of being appended to it."""
         self.setFocus()
-        self.lineEdit().selectAll()
+        self._select_all()
+
+    def _on_text_set(self, _text: str) -> None:
+        # Never while it is being typed into: the cursor is then somebody's
+        # place in what they are writing, not a scroll position.
+        if not self.hasFocus():
+            self.lineEdit().setCursorPosition(0)
+
+    def _on_choice_made(self) -> None:
+        # Not while text is selected: arriving on the box selects what it
+        # holds so that typing replaces it, and moving the cursor would
+        # drop that selection — see `focusInEvent`.
+        if not self.lineEdit().hasSelectedText():
+            self.lineEdit().setCursorPosition(0)
 
     def _select_all(self) -> None:
-        # Only while the box still holds the focus it was given a moment
-        # ago: something else may have taken it since, and selecting must
-        # never be a way of taking it back.
-        if self.hasFocus():
-            self.lineEdit().selectAll()
+        """Select what the box holds, with its start left on screen.
+
+        Selected backwards, from the end to the beginning, so the cursor
+        comes to rest at the start of the name and the box scrolls there.
+        Selected the usual way round the cursor sits at the end, and a
+        name wider than the box shows only how it finishes.
+
+        Only while the box still holds the focus it was given a moment
+        ago: something else may have taken it since, and selecting must
+        never be a way of taking it back.
+        """
+        if not self.hasFocus():
+            return
+        length = len(self.lineEdit().text())
+        self.lineEdit().setSelection(length, -length)
 
     def _settle(self) -> None:
         """Leave the box showing a real choice, once typing has finished.

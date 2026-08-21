@@ -157,7 +157,6 @@ class InventoryMovementView(CollectionView):
             CollectionPage(
                 crumb=("Items", "Inventory movement"),
                 title="Inventory movement",
-                subtitle="The stock register — every exceptional change to a count, and why.",
                 panel_title="Movement history",
                 empty_message="No stock movements recorded yet.",
                 unit="movement",

@@ -112,7 +112,7 @@ loaded **only when running from source** — a packaged build reads no
 ```env
 APP_NAME=Printing Press ERP
 COMPANY_NAME=Chand Graphics
-APP_VERSION=1.0.2
+APP_VERSION=1.0.3
 DEVELOPED_BY=Alvi-Systems
 
 MAX_LOGIN_ATTEMPTS=5

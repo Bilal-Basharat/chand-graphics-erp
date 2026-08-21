@@ -88,11 +88,7 @@ class ProfileView(QWidget):
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(16)
 
-        self._header = PageHeader(
-            ("System", "My profile"),
-            "My profile",
-            "Your account, what your role allows, and how you've signed in recently.",
-        )
+        self._header = PageHeader(("System", "My profile"), "My profile")
         self._header.add_action("Change email", self._open_change_email, variant="outline")
         self._header.add_action("Change password", self._open_change_password, variant="primary")
         outer.addWidget(self._header)

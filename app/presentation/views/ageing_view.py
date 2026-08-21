@@ -48,7 +48,6 @@ class AgeingPage:
 
     crumb: tuple[str, ...]
     title: str
-    subtitle: str
     panel_title: str
     empty_message: str
     party_header: str
@@ -59,7 +58,6 @@ class AgeingPage:
 RECEIVABLES_PAGE = AgeingPage(
     crumb=("Finance", "Receivables ageing"),
     title="Receivables ageing",
-    subtitle="What customers still owe you, and how long they have owed it.",
     panel_title="Unpaid invoices",
     empty_message="Nothing is owed to you.",
     party_header="CUSTOMER",
@@ -70,7 +68,6 @@ RECEIVABLES_PAGE = AgeingPage(
 PAYABLES_PAGE = AgeingPage(
     crumb=("Finance", "Payables ageing"),
     title="Payables ageing",
-    subtitle="What you still owe suppliers, and how long you have owed it.",
     panel_title="Unpaid bills",
     empty_message="You owe nothing.",
     party_header="SUPPLIER",
@@ -166,7 +163,6 @@ class AgeingView(CollectionView):
             CollectionPage(
                 crumb=page.crumb,
                 title=page.title,
-                subtitle=page.subtitle,
                 panel_title=page.panel_title,
                 empty_message=page.empty_message,
                 unit="document",

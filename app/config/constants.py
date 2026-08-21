@@ -27,7 +27,7 @@ EXPENSE_MODULE = "EXPENSE"
 # ------------------------------------------------------------ identity
 
 APP_NAME = "Chand Graphics ERP"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 COMPANY_NAME = "Chand Graphics"
 
 # The folder this application owns under %LOCALAPPDATA%. Changing it

@@ -337,7 +337,6 @@ class PaymentsPage:
 
     crumb: tuple[str, ...]
     title: str
-    subtitle: str
     panel_title: str
     empty_message: str
     unit: str
@@ -356,7 +355,6 @@ class PaymentsPage:
 SALE_PAYMENTS_PAGE = PaymentsPage(
     crumb=("Operations", "Sale payments"),
     title="Sale payments",
-    subtitle="What customers still have to pay you, and a place to record it as it comes in.",
     panel_title="Invoices",
     empty_message="Nothing unpaid in this period.",
     unit="invoice",
@@ -373,7 +371,6 @@ SALE_PAYMENTS_PAGE = PaymentsPage(
 PURCHASE_PAYMENTS_PAGE = PaymentsPage(
     crumb=("Operations", "Purchase payments"),
     title="Purchase payments",
-    subtitle="What you still have to pay suppliers, and a place to record payments as you make them.",
     panel_title="Purchases",
     empty_message="Nothing unpaid in this period.",
     unit="purchase",
@@ -405,7 +402,6 @@ class PaymentsView(CollectionView):
             CollectionPage(
                 crumb=page.crumb,
                 title=page.title,
-                subtitle=page.subtitle,
                 panel_title=page.panel_title,
                 empty_message=page.empty_message,
                 unit=page.unit,

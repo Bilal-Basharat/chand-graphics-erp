@@ -16,10 +16,11 @@ same painting engine as the rest of the app so the type and colours match.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import ceil
 
 from PySide6.QtCharts import QBarCategoryAxis, QBarSeries, QBarSet, QChart, QChartView, QValueAxis
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QResizeEvent
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 
 from app.presentation.theme import tokens as t
@@ -39,9 +40,17 @@ this".
 
 _EMPTY_MESSAGE = "Nothing recorded in this period."
 
-_CROWDED_BUCKETS = 14
-"""Past this many columns the category labels overlap, so they are turned
-on their side rather than left to collide."""
+_LABEL_SIZE = 11
+
+_LABEL_GAP = 8
+"""Blank pixels wanted between one bucket label and the next. Closer than
+this and the labels read as one run of characters instead of one name per
+column."""
+
+_AXIS_GUTTER = 60
+"""About what the amounts axis takes off the left before the columns
+start. Only the label spacing is worked out from it, and that in whole
+columns, so being a few pixels out costs nothing."""
 
 
 class PeriodBars(QWidget):
@@ -49,6 +58,8 @@ class PeriodBars(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._buckets: Sequence = []
+        self._categories: QBarCategoryAxis | None = None
         self.setMinimumHeight(260)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -72,9 +83,11 @@ class PeriodBars(QWidget):
 
     def set_buckets(self, buckets: Sequence) -> None:
         """Render `BucketTotals`, oldest first."""
+        self._buckets = buckets
         if not buckets or not any(
             b.sales or b.purchases or b.expenses for b in buckets
         ):
+            self._categories = None
             self._layout.setCurrentWidget(self._empty)
             return
 
@@ -105,12 +118,15 @@ class PeriodBars(QWidget):
         chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
 
         categories = QBarCategoryAxis()
-        categories.append([bucket.label for bucket in buckets])
-        if len(buckets) > _CROWDED_BUCKETS:
-            categories.setLabelsAngle(-60)
+        categories.append(self._labels())
+        # Qt otherwise cuts each label down to its own column's width, and
+        # a column narrow enough leaves nothing but the ellipsis. Spacing
+        # the labels out is `_labels`' job; here they are drawn whole.
+        categories.setTruncateLabels(False)
         _style_axis(categories)
         chart.addAxis(categories, Qt.AlignmentFlag.AlignBottom)
         series.attachAxis(categories)
+        self._categories = categories
 
         amounts = QValueAxis()
         amounts.setLabelFormat("%d")
@@ -129,6 +145,31 @@ class PeriodBars(QWidget):
             previous.deleteLater()
         self._layout.setCurrentWidget(self._view)
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        # How many labels fit is a fact about the width, so it is settled
+        # again every time the width changes.
+        super().resizeEvent(event)
+        if self._categories is not None:
+            labels = self._labels()
+            if labels != self._categories.categories():
+                self._categories.setCategories(labels)
+
+    def _labels(self) -> list[str]:
+        """A label for every column that has room for one, blank for the rest.
+
+        Every bucket keeps its bar — dropping columns would redraw the
+        period — but a month of days or three years of months cannot all
+        be named across a panel this wide. Naming every second or third
+        column still says where in the period the eye is, which is all the
+        axis is for, and is the reading a squeezed label never gives.
+        """
+        labels = [bucket.label for bucket in self._buckets]
+        metrics = QFontMetrics(_font(_LABEL_SIZE))
+        widest = max(metrics.horizontalAdvance(label) for label in labels)
+        column = max(self.width() - _AXIS_GUTTER, 1) / len(labels)
+        stride = ceil((widest + _LABEL_GAP) / column)
+        return [name if index % stride == 0 else "" for index, name in enumerate(labels)]
+
 
 def _paint(bar_set: QBarSet, color: str) -> None:
     bar_set.setColor(QColor(color))
@@ -138,7 +179,9 @@ def _paint(bar_set: QBarSet, color: str) -> None:
 
 def _style_axis(axis) -> None:
     axis.setLabelsColor(QColor(t.MUTED))
-    axis.setLabelsFont(_font(11))
+    # The size `_labels` measures against, so what is drawn and what was
+    # measured cannot drift apart.
+    axis.setLabelsFont(_font(_LABEL_SIZE))
     axis.setLineVisible(False)
     axis.setGridLineVisible(isinstance(axis, QValueAxis))
 

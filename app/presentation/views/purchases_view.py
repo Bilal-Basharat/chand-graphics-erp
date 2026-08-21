@@ -233,7 +233,6 @@ class PurchasesView(CollectionView):
             CollectionPage(
                 crumb=("Operations", "Purchases"),
                 title="Purchases",
-                subtitle="Stock bought in, what it cost, and what is still to pay.",
                 panel_title="Purchase list",
                 empty_message="No purchases in this period.",
                 unit="purchase",

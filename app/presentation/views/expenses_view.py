@@ -110,7 +110,6 @@ class ExpensesView(CollectionView):
             CollectionPage(
                 crumb=("Finance", "Expenses"),
                 title="Expenses",
-                subtitle="Money spent running the press, grouped by category and filtered by period.",
                 panel_title="Expense list",
                 empty_message="No expenses in this period.",
                 unit="expense",

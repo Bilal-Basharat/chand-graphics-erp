@@ -125,7 +125,6 @@ class LedgerPage:
 
     crumb: tuple[str, ...]
     title: str
-    subtitle: str
     empty_message: str
     party_noun: str
     """"Customer" or "Supplier" — the picker's label and the card's."""
@@ -143,7 +142,6 @@ class LedgerPage:
 CUSTOMER_LEDGER_PAGE = LedgerPage(
     crumb=("Parties", "Customer ledger"),
     title="Customer ledger",
-    subtitle="One customer's account: what they owed, what they bought, what they paid.",
     empty_message="Choose a customer above to see their account.",
     party_noun="Customer",
     party_placeholder="— choose a customer —",
@@ -154,7 +152,6 @@ CUSTOMER_LEDGER_PAGE = LedgerPage(
 SUPPLIER_LEDGER_PAGE = LedgerPage(
     crumb=("Parties", "Supplier ledger"),
     title="Supplier ledger",
-    subtitle="One supplier's account: what you owed, what you bought, what you paid.",
     empty_message="Choose a supplier above to see their account.",
     party_noun="Supplier",
     party_placeholder="— choose a supplier —",
@@ -328,7 +325,6 @@ class AccountLedgerView(CollectionView):
             CollectionPage(
                 crumb=page.crumb,
                 title=page.title,
-                subtitle=page.subtitle,
                 panel_title="Account activity",
                 empty_message=page.empty_message,
                 unit="entry",
@@ -392,18 +388,22 @@ class AccountLedgerView(CollectionView):
         # picker is refilled on each visit rather than at construction.
         self._ledger_view_model.load_parties()
 
-    def toolbar_extras(self) -> list[QWidget]:
+    def toolbar_leading(self) -> list[QWidget]:
         # Searched rather than scrolled: the account being read is one
-        # name in a list as long as the shop is old.
+        # name in a list as long as the shop is old. It leads the row
+        # because every figure below it is about the name it holds.
         self._party = SearchableComboBox()
+        self._party.setProperty("role", "subject")
         self._party.setToolTip(f"Type any part of a {self._ledger_page.party_noun.lower()}'s name")
-        self._party.setMinimumWidth(260)
+        self._party.setMinimumWidth(320)
         self._party.currentIndexChanged.connect(self._on_party_changed)
         self._party.searchRequested.connect(self._ledger_view_model.load_parties)
+        return [self._party]
 
+    def toolbar_extras(self) -> list[QWidget]:
         selector = PeriodSelector(self._period)
         selector.periodChanged.connect(self.reload_from_start)
-        return [self._party, selector]
+        return [selector]
 
     def summary(self) -> Sequence[tuple[str, str]]:
         # Read from the ledger rather than from `rows`: the opening and

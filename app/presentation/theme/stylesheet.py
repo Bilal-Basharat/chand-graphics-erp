@@ -302,6 +302,15 @@ def build_stylesheet() -> str:
         border-radius: 0px;
         padding: 0px;
     }}
+    /* The combo that names what a whole screen is about — the ledgers'
+       customer and supplier pickers. Set bold because the rows below it
+       are meaningless without it: it is a heading that happens to be a
+       control. The inner field is named too; the text of an editable
+       combo is drawn by that, not by the box around it. */
+    QComboBox[role="subject"],
+    QComboBox[role="subject"] QLineEdit#ComboSearchField {{
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
     /* The open combo's list: flat, same surface and radius as the box it
        drops out of, rather than the platform's boxed popup. The list of
        search matches is styled with it: a completer's popup is a
@@ -508,8 +517,8 @@ def build_stylesheet() -> str:
         color: {t.MUTED};
     }}
     QLabel[role="pageTitle"] {{
-        font-size: 21px;
-        font-weight: {t.WEIGHT_SEMIBOLD};
+        font-size: 24px;
+        font-weight: {t.WEIGHT_BOLD};
         color: {t.INK};
     }}
     QLabel[role="pageSub"] {{
@@ -538,17 +547,22 @@ def build_stylesheet() -> str:
         border-radius: {t.RADIUS}px;
     }}
     QLabel[role="statLabel"] {{
-        font-size: 11px;
-        font-weight: {t.WEIGHT_SEMIBOLD};
+        font-size: 12.5px;
+        font-weight: {t.WEIGHT_BOLD};
         color: {t.MUTED};
     }}
     QLabel[role="statValue"] {{
-        font-size: 21px;
-        font-weight: {t.WEIGHT_SEMIBOLD};
+        font-size: 26px;
+        font-weight: {t.WEIGHT_BOLD};
         color: {t.INK};
     }}
+    QLabel[role="statUnit"] {{
+        font-size: 13px;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+        color: {t.MUTED};
+    }}
     QLabel[role="statNote"] {{
-        font-size: 12.5px;
+        font-size: 11.5px;
         color: {t.MUTED};
     }}
 

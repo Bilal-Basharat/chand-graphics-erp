@@ -52,11 +52,7 @@ class LicenseView(QWidget):
         outer.setContentsMargins(24, 20, 24, 24)
         outer.setSpacing(0)
 
-        header = PageHeader(
-            ("Settings", "Licence"),
-            "Licence",
-            "What this installation is licensed for, and how long it runs.",
-        )
+        header = PageHeader(("Settings", "Licence"), "Licence")
         header.add_action("Deactivate", self._deactivate)
         # Always available — a shop renewing early, moving up a plan or
         # replacing a mistyped key needs it while the licence is still in
@@ -138,13 +134,6 @@ class LicenseView(QWidget):
         title = QLabel("Support")
         title.setProperty("role", "panelTitle")
         column.addWidget(title)
-
-        subtitle = QLabel(
-            "For a licence key, a problem with the app, or a change you would like made."
-        )
-        subtitle.setProperty("role", "panelSub")
-        subtitle.setWordWrap(True)
-        column.addWidget(subtitle)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(24)

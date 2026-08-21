@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
 from app.presentation.widgets.input_validation import NOT_A_PHONE, PhoneInput, parse_phone
+from app.presentation.widgets.page_header import panel_title
 from app.presentation.widgets.page_scroll import page_scroll
 
 
@@ -41,10 +42,7 @@ class CompanySettingsView(QWidget):
 
         title = QLabel("Company settings")
         title.setProperty("role", "pageTitle")
-        sub = QLabel("Business identity, currency and invoice presentation.")
-        sub.setProperty("role", "pageSub")
         outer.addWidget(title)
-        outer.addWidget(sub)
         outer.addSpacing(16)
 
         outer.addWidget(self._build_profile_panel())
@@ -89,16 +87,7 @@ class CompanySettingsView(QWidget):
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
 
-        header = QVBoxLayout()
-        header.setContentsMargins(18, 14, 18, 10)
-        header.setSpacing(2)
-        title = QLabel("Company profile")
-        title.setProperty("role", "panelTitle")
-        sub = QLabel("Shown on invoices, quotations and printed reports")
-        sub.setProperty("role", "panelSub")
-        header.addWidget(title)
-        header.addWidget(sub)
-        outer.addLayout(header)
+        outer.addWidget(panel_title("Company profile"))
 
         grid = QGridLayout()
         grid.setContentsMargins(18, 0, 18, 18)
@@ -125,16 +114,7 @@ class CompanySettingsView(QWidget):
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
 
-        header = QVBoxLayout()
-        header.setContentsMargins(18, 14, 18, 10)
-        header.setSpacing(2)
-        title = QLabel("Invoicing")
-        title.setProperty("role", "panelTitle")
-        sub = QLabel("Currency and default invoice footer")
-        sub.setProperty("role", "panelSub")
-        header.addWidget(title)
-        header.addWidget(sub)
-        outer.addLayout(header)
+        outer.addWidget(panel_title("Invoicing"))
 
         body = QVBoxLayout()
         body.setContentsMargins(18, 0, 18, 18)

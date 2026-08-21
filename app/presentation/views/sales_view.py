@@ -43,7 +43,6 @@ class SalesView(CollectionView):
             CollectionPage(
                 crumb=("Operations", "Sales"),
                 title="Sales",
-                subtitle="Invoices raised, what they came to, and what is still unpaid.",
                 panel_title="Sale list",
                 empty_message="No sales in this period.",
                 unit="sale",

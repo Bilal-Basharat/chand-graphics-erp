@@ -19,14 +19,14 @@
 ; separate declarations of the same release; if they disagree, the
 ; version a customer sees in Add/Remove Programs is not the version the
 ; application reports about itself.
-#define AppVersion "1.0.2"
+#define AppVersion "1.0.3"
 #define AppPublisher "Alvi-Systems"
 #define AppExeName "ChandGraphicsERP.exe"
 #define AppSourceDir "..\dist\ChandGraphicsERP"
 
 [Setup]
 ; Fixed for the lifetime of the product. This is what tells Windows that
-; version 1.0.3 is an upgrade of 1.0.2 rather than a second application:
+; version 1.0.3 is an upgrade of 1.0.3 rather than a second application:
 ; change it and every customer ends up with two entries in Add/Remove
 ; Programs and two copies on disk. Never regenerate it.
 AppId={{7C1F4A6E-2B93-4D58-9E0A-5F6C3D82B14E}

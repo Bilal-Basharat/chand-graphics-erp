@@ -114,7 +114,6 @@ class ItemProfitabilityView(CollectionView):
             CollectionPage(
                 crumb=("Finance", "Item profitability"),
                 title="Item profitability",
-                subtitle="What each item sold for, what it cost, and what was left.",
                 panel_title="Items sold",
                 empty_message="Nothing was sold in this period.",
                 unit="item",

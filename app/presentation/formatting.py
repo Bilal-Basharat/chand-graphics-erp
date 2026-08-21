@@ -13,6 +13,13 @@ from decimal import Decimal
 
 DASH = "—"
 
+CURRENCY = "PKR"
+"""The currency every figure is in.
+
+Named once so a tile that sets it beside its value and a line that
+appends it to a figure cannot end up disagreeing.
+"""
+
 TO_COLLECT = "To collect from customers"
 TO_PAY = "To pay suppliers"
 
@@ -89,15 +96,23 @@ def money_or_blank(value: Decimal | int | float) -> str:
     return money(value) if value else ""
 
 
-def pkr(value: Decimal | int | float) -> str:
-    """A headline figure: "PKR 12,500".
+def whole_money(value: Decimal | int | float) -> str:
+    """A headline figure, uncurrencied: "12,500".
 
-    Whole rupees with the currency named — for tiles and summaries, where
-    the number stands alone and paisa would be noise. Table cells keep
-    `money()`: there the column heading carries the currency and the
+    Whole rupees — for tiles and summaries, where the number stands alone
+    and paisa would be noise. Table cells keep `money()`: there the
     decimals line up down the column.
     """
-    return f"PKR {Decimal(value):,.0f}"
+    return f"{Decimal(value):,.0f}"
+
+
+def pkr(value: Decimal | int | float) -> str:
+    """A headline figure with its currency after it: "12,500 PKR".
+
+    The unit trails the number, as it is spoken and as a tile shows it,
+    so the figure itself is what the eye lands on first.
+    """
+    return f"{whole_money(value)} {CURRENCY}"
 
 
 def date_time(value: datetime | None) -> str:

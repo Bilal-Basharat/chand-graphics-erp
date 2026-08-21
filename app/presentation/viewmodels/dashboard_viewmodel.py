@@ -67,7 +67,6 @@ class BucketTotals:
 
 @dataclass(slots=True)
 class DashboardData:
-    period_label: str
     sales_total: Decimal
     sales_count: int
     purchases_total: Decimal
@@ -217,7 +216,6 @@ class DashboardViewModel(BaseViewModel):
         activity.sort(key=lambda a: a.when or datetime.min, reverse=True)
 
         return DashboardData(
-            period_label=self._period.label,
             sales_total=sum((s.grand_total for s in sales), Decimal("0.00")),
             sales_count=len(sales),
             purchases_total=sum((p.grand_total for p in purchases), Decimal("0.00")),
@@ -287,7 +285,11 @@ def _bucket_totals(
     if span <= _DAILY_UP_TO:
         starts = _day_starts(begin, end)
         key: Callable[[datetime], object] = lambda when: (when.year, when.month, when.day)
-        label: Callable[[datetime], str] = lambda at: f"{at:%d %b}"
+        # The month is only worth the width when the period crosses one:
+        # under a single month's columns it is the same word thirty times,
+        # and the width it takes is what costs the days their labels.
+        pattern = "%d" if (begin.year, begin.month) == (end.year, end.month) else "%d %b"
+        label: Callable[[datetime], str] = lambda at: format(at, pattern)
     elif span <= _MONTHLY_UP_TO:
         starts = _month_starts(begin, end)
         key = lambda when: (when.year, when.month)
