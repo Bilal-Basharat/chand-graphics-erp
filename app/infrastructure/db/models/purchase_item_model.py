@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Enum, ForeignKey, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -32,11 +32,31 @@ class PurchaseItemModel(Base, TimestampMixin):
     )
     """Which catalogue record the line bought — see SaleItemModel."""
 
-    quantity: Mapped[int] = mapped_column(
-        Integer,
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
         nullable=False,
         default=1,
     )
+    """How many were bought, in the unit the line was entered in — a
+    delivery counted in Boxes is counted here in Boxes."""
+
+    uom_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sku_units.id"),
+        nullable=True,
+        index=True,
+    )
+    """Which of the SKU's units, or NULL for its base unit — see
+    `SaleItemModel.uom_id`."""
+
+    base_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    """What that came to in base units, at the conversion in force when
+    the bill was entered. What stock moved by, and what the weighted
+    average cost is divided by — see `SaleItemModel.base_quantity`."""
 
     unit_price: Mapped[Decimal] = mapped_column(
             Numeric(12, 2),
@@ -56,13 +76,13 @@ class PurchaseItemModel(Base, TimestampMixin):
         default=0,
     )
 
-    previous_stock: Mapped[int | None] = mapped_column(
-        Integer,
+    previous_stock: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 4),
         nullable=True,
     )
 
-    resulting_stock: Mapped[int | None] = mapped_column(
-        Integer,
+    resulting_stock: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 4),
         nullable=True,
     )
 

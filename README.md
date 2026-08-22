@@ -29,7 +29,8 @@ The architecture is intentionally designed to support:
 ## features
 
 - login and role-based access
-- inventory and stock levels, filed under cabinets
+- a catalogue of categories, products and their variants, filed under cabinets
+- stock counted in one unit per item, traded in as many as the shop uses
 - sales and purchases with partial payments
 - stock movement ledger (adjustment, damage, return, transfer)
 - expense tracking
@@ -306,6 +307,61 @@ Any change to an existing table needs a step appended to `_STEPS` in
 `app/infrastructure/db/upgrade.py`. Write it so running it twice is
 harmless, and never reorder or remove an existing step: its position in
 that list is the version number recorded in every database in the field.
+
+### The catalogue
+
+Three records, and the middle one is what a shopkeeper thinks in:
+
+| Record | Table | What it is |
+| --- | --- | --- |
+| Category | `categories` | A shelf. Grouping, and nothing else — moving a product between shelves cannot change what is on it. |
+| Product | `products` | What the shop trades in: the name a customer asks for. |
+| SKU | `inventory_items` | The stockable identity — the record every document line and every count has always pointed at. |
+
+**Nearly every product has exactly one SKU**, and the catalogue screen
+shows that product as a single row carrying its item's stock, unit and
+minimum. The word "SKU" is not on the screen. A product that genuinely
+comes in two — matt and gloss — gets a row that opens, and only then are
+its variants listed.
+
+`inventory_items` is untouched by all of this: same table, same primary
+keys, same foreign keys from every sale, purchase, return and movement.
+What was added above it is a `product_id`, and `_add_catalogue_grouping`
+gives one to every item a database already holds.
+
+There is always a `General` category. It is created on an empty database
+by the initializer and on an existing one by the migration, so adding a
+product never has to start by asking where to file it.
+
+### Units
+
+A SKU's `unit` is its **base unit** — the word `current_stock` and
+`minimum_stock` are counted in, always, whatever unit a document was
+written in. Anything else the shop trades it by is a row in `sku_units`:
+a name and how many base units one of them is worth. "Box = 288" means a
+purchase of ten boxes puts 2,880 on the shelf.
+
+Quantities are `Decimal`, four places. Half a sheet is sellable; a
+quarter sold three times is three quarters, which it would not reliably
+be in binary floating point.
+
+Every document line carries three things: the `quantity` typed, the
+`uom_id` it was typed in (NULL for the base unit — which is what every
+line written before this feature existed means), and the `base_quantity`
+that came to at the time. **The last of those is why the column exists.**
+Re-deriving it would use today's conversion, so correcting a factor next
+year would silently restate an invoice handed over last year. A return
+takes its conversion from the line it reverses, for the same reason.
+
+Costing follows: `weighted_average_cost` divides by base quantity, so
+`SaleItem.unit_cost` is the cost of one *base* unit and a line multiplies
+it by its own `base_quantity`. A delivery bought by the box and one
+bought by the piece average against each other correctly.
+
+Conversion happens in two places and no others:
+`SkuUnit.to_base` (the arithmetic) and `to_base_quantity` in
+`app/application/use_cases/stock_helpers.py` (which unit belongs to which
+SKU, and whether it is still in use).
 
 ### Adding a special item module
 

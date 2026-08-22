@@ -1,6 +1,9 @@
 """
-The master-data screens: cabinets, payment methods, customers, suppliers,
-inventory and expense categories.
+The master-data screens: cabinets, payment methods, customers, suppliers
+and expense categories.
+
+The catalogue is not among them: it groups three records into one tree and
+has a screen of its own — see `catalogue_view`.
 
 All six are `CollectionView` subclasses, so what each one contributes is
 just its copy, its columns, and which dialog its primary button opens.
@@ -17,7 +20,6 @@ from app.application.dto.commands import (
     CreateCabinetCommand,
     CreateCustomerCommand,
     CreateExpenseCategoryCommand,
-    CreateInventoryItemCommand,
     CreatePaymentMethodCommand,
     CreateSupplierCommand,
 )
@@ -25,16 +27,13 @@ from app.presentation.dialogs.master_data_dialogs import (
     CabinetDialog,
     CustomerDialog,
     ExpenseCategoryDialog,
-    InventoryItemDialog,
     PaymentMethodDialog,
     SupplierDialog,
 )
 from app.presentation.formatting import money
 from app.presentation.viewmodels.collection_viewmodel import CollectionViewModel
-from app.presentation.viewmodels.master_data_viewmodels import InventoryViewModel
 from app.presentation.views.collection_view import CollectionPage, EditableCollectionView
 from app.presentation.widgets.input_validation import parse_balance, parse_phone
-from app.presentation.widgets.modern_spinbox import ModernSpinBox
 from app.presentation.widgets.row_actions import RowAction
 from app.presentation.widgets.quick_add_strip import (
     QuickAddField,
@@ -43,11 +42,6 @@ from app.presentation.widgets.quick_add_strip import (
     money_edit,
     phone_edit,
     refill,
-)
-from app.presentation.widgets.stock_status import (
-    stock_filters,
-    stock_status_color,
-    stock_status_text,
 )
 from app.presentation.widgets.table_model import Column
 
@@ -316,144 +310,6 @@ class SuppliersView(_PartyView):
 
     def open_edit_dialog(self, row) -> None:
         SupplierDialog(self.view_model, supplier=row, parent=self).exec()
-
-
-class InventoryView(EditableCollectionView):
-    def __init__(self, view_model: InventoryViewModel, parent: QWidget | None = None) -> None:
-        self._inventory_view_model = view_model
-        self._cabinet_names: dict[int, str] = {}
-        """Codes for the cabinets on the pages seen so far, for the list."""
-        self._cabinet_choices: dict[int, str] = {}
-        """The cabinets an item may be filed under, for the two pickers."""
-
-        super().__init__(
-            CollectionPage(
-                crumb=("Items", "Inventory"),
-                title="Inventory",
-                panel_title="Item list",
-                empty_message="No items yet. Add one above, or use the quick-add row below.",
-                unit="item",
-                search_placeholder="Search items by name",
-                create_label="Add item",
-            ),
-            [
-                Column("NAME", lambda i: i.name, sort_field="name"),
-                Column("DESCRIPTION", lambda i: _or_dash(i.description)),
-                # No sort on the cabinet: the column holds a code fetched
-                # for the ids on this page, and the query behind the list
-                # has nothing to order by that the screen could mean.
-                Column("CABINET", self._cabinet_label, width=150),
-                Column("UNIT", lambda i: _or_dash(i.unit), width=110),
-                Column(
-                    "STOCK",
-                    lambda i: i.current_stock,
-                    align="right",
-                    sort_field="stock",
-                    width=100,
-                ),
-                Column(
-                    "MINIMUM",
-                    lambda i: i.minimum_stock,
-                    align="right",
-                    sort_field="minimum",
-                    width=110,
-                ),
-                Column(
-                    "STATUS",
-                    stock_status_text,
-                    align="center",
-                    color=stock_status_color,
-                    sort_field="stock",
-                    width=130,
-                ),
-            ],
-            view_model,
-            parent,
-        )
-
-        view_model.cabinetNames.connect(self._on_cabinet_names)
-
-    def filter_options(self):
-        return stock_filters()
-
-    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
-        super().showEvent(event)
-        # Refreshed each visit rather than only when empty — cabinets get
-        # added on their own screen, and a stale list here would silently
-        # offer the wrong choices in the quick-add row and the dialog.
-        self._inventory_view_model.load_cabinet_choices(self._on_cabinet_choices)
-
-    # ---------------- quick-add strip ----------------
-
-    def quick_add_fields(self):
-        self._new_item = line_edit("e.g. A4 Ivory Sheet 250gsm")
-        self._new_unit = line_edit("Unit, e.g. sheets")
-        self._new_cabinet = combo(_NO_CABINET)
-        self._new_minimum = ModernSpinBox()
-        self._new_minimum.setRange(0, 1_000_000)
-        self._new_minimum.setPrefix("Min: ")
-        return (
-            QuickAddField(self._new_item, 3),
-            QuickAddField(self._new_unit, 2),
-            QuickAddField(self._new_cabinet, 2),
-            QuickAddField(self._new_minimum, 1),
-        )
-
-    def build_quick_add(self) -> CreateInventoryItemCommand | None:
-        name = self._new_item.text().strip()
-        if not name:
-            self._new_item.setFocus()
-            return None
-        return CreateInventoryItemCommand(
-            name=name,
-            minimum_stock=self._new_minimum.value(),
-            current_stock=0,
-            cabinet_id=self._new_cabinet.currentData(),
-            unit=self._new_unit.text().strip() or None,
-        )
-
-    # ---------------- cabinets ----------------
-
-    def _cabinet_label(self, item) -> str:
-        if not item.cabinet_id:
-            return _DASH
-        return self._cabinet_names.get(item.cabinet_id, _DASH)
-
-    def on_rows_loaded(self, rows: list) -> None:
-        """Fetch the codes for the cabinets on this page.
-
-        For the ids actually on screen rather than by loading the
-        cabinets: past however many a fetch was capped at, every item
-        filed in one of the rest read as a dash.
-        """
-        self._inventory_view_model.load_cabinet_names(
-            {item.cabinet_id for item in rows if item.cabinet_id}
-        )
-
-    def _on_cabinet_names(self, names: dict) -> None:
-        # Added to rather than replaced: the codes for the page before
-        # this one cost nothing to keep and save re-fetching them on the
-        # way back.
-        self._cabinet_names.update(names)
-        self.table.refresh()
-
-    def _on_cabinet_choices(self, cabinets: list) -> None:
-        self._cabinet_names.update({cabinet.id: cabinet.code for cabinet in cabinets})
-        self._cabinet_choices = {cabinet.id: cabinet.code for cabinet in cabinets}
-        refill(
-            self._new_cabinet,
-            _NO_CABINET,
-            sorted(
-                ((code, cabinet_id) for cabinet_id, code in self._cabinet_choices.items()),
-                key=lambda entry: entry[0],
-            ),
-        )
-
-    def open_create_dialog(self) -> None:
-        InventoryItemDialog(self.view_model, self._cabinet_choices, parent=self).exec()
-
-    def open_edit_dialog(self, row) -> None:
-        InventoryItemDialog(self.view_model, self._cabinet_choices, item=row, parent=self).exec()
 
 
 class ExpenseCategoriesView(EditableCollectionView):

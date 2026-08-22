@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QPainter, QPixmap
@@ -8,7 +10,7 @@ from PySide6.QtWidgets import QStyleOptionViewItem
 
 from app.domain.entities.inventory_item import InventoryItem
 from app.domain.enums.item_type import ItemType
-from app.presentation.widgets.item_picker_row import ItemDelegate, ItemPickerRow
+from app.presentation.widgets.item_picker_row import ItemDelegate, ItemPickerRow, PickedItem
 
 # What the row is for is picking one item out of a shop's whole
 # catalogue, so the cases pinned here are the ones that decide whether it
@@ -371,3 +373,107 @@ def test_a_placeholder_row_is_never_lost_to_a_refill(qt_app):
 
     assert combo.itemText(0) == "— choose a supplier —"
     assert combo.itemData(0) is None
+
+
+# ------------------------------------------------------------------- units
+
+
+class _Unit:
+    """As much of a `SkuUnit` as the row reads off one."""
+
+    def __init__(self, unit_id: int, name: str, factor: str) -> None:
+        self.id = unit_id
+        self.name = name
+        self.factor = Decimal(factor)
+
+
+def _picked(row: ItemPickerRow) -> PickedItem | None:
+    taken: list[PickedItem] = []
+    row.added.connect(taken.append)
+    row.submit()
+    return taken[0] if taken else None
+
+
+def test_the_unit_box_stays_out_of_the_way_until_there_is_a_choice(row):
+    """Most of a shop's catalogue is counted one way and always will be."""
+    _finish_typing(row, "80 gsm Art Paper")
+
+    assert not row._unit.isVisible()
+    assert row._unit.count() == 1
+
+
+def test_an_item_with_other_units_offers_them_beside_its_own(row):
+    row.set_base_unit("Piece")
+    row.set_units([_Unit(7, "Box", "288"), _Unit(8, "Packet", "24")])
+
+    assert [row._unit.itemText(i) for i in range(row._unit.count())] == [
+        "Piece",
+        "Box",
+        "Packet",
+    ]
+    assert row._unit.currentData() is None  # the item's own unit, chosen
+
+
+def test_a_line_reports_the_unit_it_was_entered_in_and_what_it_comes_to(row):
+    row.set_base_unit("Piece")
+    row.set_units([_Unit(7, "Box", "288")])
+    _finish_typing(row, "80 gsm Art Paper")
+    row._unit.setCurrentIndex(row._unit.findData(7))
+    row._quantity.setValue(Decimal("10"))
+    row._unit_price.setText("5000")
+
+    picked = _picked(row)
+
+    assert picked is not None
+    assert picked.quantity == Decimal("10")
+    assert picked.uom_id == 7
+    assert picked.unit_label == "Box"
+    assert picked.base_quantity == Decimal("2880")
+
+
+def test_a_line_in_the_item_s_own_unit_names_no_unit(row):
+    row.set_base_unit("Piece")
+    row.set_units([_Unit(7, "Box", "288")])
+    _finish_typing(row, "80 gsm Art Paper")
+    row._quantity.setValue(Decimal("3"))
+    row._unit_price.setText("25")
+
+    picked = _picked(row)
+
+    assert picked.uom_id is None
+    assert picked.base_quantity == Decimal("3")
+
+
+def test_a_fraction_of_a_unit_can_be_typed(row):
+    _finish_typing(row, "80 gsm Art Paper")
+    row._quantity.setValue(Decimal("0.25"))
+    row._unit_price.setText("25")
+
+    picked = _picked(row)
+
+    assert picked.quantity == Decimal("0.25")
+    assert picked.base_quantity == Decimal("0.25")
+
+
+def test_the_cap_on_the_quantity_is_read_in_whichever_unit_is_chosen(row):
+    """A shelf holding 2,880 pieces holds ten boxes, and the box is what
+    the field is counting in once it is picked."""
+    row.set_base_unit("Piece")
+    row.set_units([_Unit(7, "Box", "288")])
+    row.set_quantity_limit(Decimal("2880"))
+    assert row._quantity.maximum() == Decimal("2880")
+
+    row._unit.setCurrentIndex(row._unit.findData(7))
+
+    assert row._quantity.maximum() == Decimal("10")
+
+
+def test_nothing_is_added_for_a_quantity_of_nothing(row):
+    _finish_typing(row, "80 gsm Art Paper")
+    row._quantity.setValue(Decimal("0"))
+    row._unit_price.setText("25")
+    refusals: list[str] = []
+    row.rejected.connect(refusals.append)
+
+    assert _picked(row) is None
+    assert refusals

@@ -205,20 +205,25 @@ class DocumentDialog(QDialog):
         item_type: ItemType,
         item_id: int,
         label: str,
-        quantity: int,
+        quantity,
         unit_price,
+        uom_id: int | None = None,
+        unit_label: str | None = None,
+        base_quantity=None,
     ) -> None:
         """Add a line, or fold it into the matching one already there.
 
-        Same item at the same price is one line with a larger quantity —
-        two identical rows would only be harder to read. At a different
-        price it is genuinely a second line, and stays one.
+        Same item at the same price **in the same unit** is one line with
+        a larger quantity — two identical rows would only be harder to
+        read. At a different price, or counted a different way, it is
+        genuinely a second line and stays one: three boxes and two pieces
+        are not five of anything.
         """
         existing = next(
-            (line for line in self._lines if line.matches(item_type, item_id)), None
+            (line for line in self._lines if line.matches(item_type, item_id, uom_id)), None
         )
         if existing is not None and existing.unit_price == unit_price:
-            existing.quantity += quantity
+            existing.set_quantity(existing.quantity + quantity)
         else:
             self._lines.append(
                 DocumentLine(
@@ -227,12 +232,31 @@ class DocumentDialog(QDialog):
                     label=label,
                     quantity=quantity,
                     unit_price=unit_price,
+                    uom_id=uom_id,
+                    unit_label=unit_label,
+                    base_quantity=base_quantity,
                 )
             )
         self._render_lines()
 
-    def line_for(self, item_type: ItemType, item_id: int) -> DocumentLine | None:
-        return next((line for line in self._lines if line.matches(item_type, item_id)), None)
+    def line_for(
+        self, item_type: ItemType, item_id: int, uom_id: int | None = None
+    ) -> DocumentLine | None:
+        return next(
+            (line for line in self._lines if line.matches(item_type, item_id, uom_id)), None
+        )
+
+    def base_quantity_on_document(self, item_type: ItemType, item_id: int):
+        """How much of one item this document already holds, in base units.
+
+        Added up across its lines and across their units, because that is
+        the only way boxes and pieces of the same thing can be compared
+        with what is on the shelf.
+        """
+        return sum(
+            (line.base_quantity for line in self._lines if line.is_item(item_type, item_id)),
+            ZERO,
+        )
 
     def _edit_line(self, row: int) -> None:
         line = self._line_at(row)
@@ -253,7 +277,11 @@ class DocumentDialog(QDialog):
         entered = dialog.line()
         if entered is None:
             return
-        line.quantity, line.unit_price = entered
+        entered_quantity, line.unit_price = entered
+        # Through `set_quantity` so the line keeps the conversion it was
+        # added at: editing three boxes to four must not turn them into
+        # four pieces.
+        line.set_quantity(entered_quantity)
         self._render_lines()
 
     def available_stock(self, item_type: ItemType, item_id: int) -> int | None:

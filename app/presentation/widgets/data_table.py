@@ -95,9 +95,14 @@ class FlexibleWidths(QObject):
         self._view = None
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 (Qt override)
-        if self._view is None:
+        # `getattr`, not `self._view`: at interpreter exit Python can clear
+        # this object's attributes while Qt still has an event to deliver
+        # through the filter, and an AttributeError raised there is printed
+        # from inside Qt with no way to catch it.
+        view = getattr(self, "_view", None)
+        if view is None:
             return False
-        if watched is self._view.viewport() and event.type() == QEvent.Type.Resize:
+        if watched is view.viewport() and event.type() == QEvent.Type.Resize:
             self.rebalance()
         return super().eventFilter(watched, event)
 

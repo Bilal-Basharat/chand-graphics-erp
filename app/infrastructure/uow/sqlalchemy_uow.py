@@ -27,6 +27,11 @@ from app.infrastructure.repositories.transaction_repositories import (
     SqlAlchemySaleRepository,
     SqlAlchemySaleReturnRepository,
 )
+from app.infrastructure.repositories.catalogue_repositories import (
+    SqlAlchemyCategoryRepository,
+    SqlAlchemyProductRepository,
+    SqlAlchemySkuUnitRepository,
+)
 from app.infrastructure.repositories.login_audit_repository import SqlAlchemyLoginAuditRepository
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
@@ -41,6 +46,9 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.session: Session | None = None
 
         self.inventory_items: SqlAlchemyInventoryItemRepository | None = None
+        self.categories: SqlAlchemyCategoryRepository | None = None
+        self.products: SqlAlchemyProductRepository | None = None
+        self.sku_units: SqlAlchemySkuUnitRepository | None = None
         self.cabinets: SqlAlchemyCabinetRepository | None = None
         self.customers: SqlAlchemyCustomerRepository | None = None
         self.suppliers: SqlAlchemySupplierRepository | None = None
@@ -73,6 +81,9 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
 
         self.login_audits = SqlAlchemyLoginAuditRepository(self.session)
         self.inventory_items = SqlAlchemyInventoryItemRepository(self.session)
+        self.categories = SqlAlchemyCategoryRepository(self.session)
+        self.products = SqlAlchemyProductRepository(self.session)
+        self.sku_units = SqlAlchemySkuUnitRepository(self.session)
         self.cabinets = SqlAlchemyCabinetRepository(self.session)
         self.customers = SqlAlchemyCustomerRepository(self.session)
         self.suppliers = SqlAlchemySupplierRepository(self.session)

@@ -16,7 +16,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
 from app.domain.enums.item_type import ItemType
-from app.presentation.formatting import money
+from app.presentation.formatting import money, quantity
 from app.presentation.widgets.data_table import DataTable
 from app.presentation.widgets.input_validation import ZERO
 from app.presentation.widgets.row_actions import RowAction, RowActionsDelegate
@@ -28,14 +28,54 @@ class DocumentLine:
     item_type: ItemType
     item_id: int
     label: str
-    quantity: int
+    quantity: Decimal
     unit_price: Decimal
+
+    uom_id: int | None = None
+    """Which of the item's units this line is counted in, or None for its
+    own. Two lines of one item in different units are two lines: they are
+    not the same number of the same thing."""
+
+    unit_label: str | None = None
+    """That unit's name, for the table. Carried rather than looked up: the
+    line already knows which unit it chose."""
+
+    base_quantity: Decimal | None = None
+    """What the quantity comes to in the item's own unit.
+
+    Held on the line because the screen has to add up several lines of
+    one item to check them against the shelf, and boxes and pieces cannot
+    be added together as they stand.
+    """
+
+    def __post_init__(self) -> None:
+        if self.base_quantity is None:
+            self.base_quantity = self.quantity
 
     @property
     def total(self) -> Decimal:
         return self.unit_price * self.quantity
 
-    def matches(self, item_type: ItemType, item_id: int) -> bool:
+    @property
+    def factor(self) -> Decimal:
+        """How many base units one of this line's units is worth."""
+        return self.base_quantity / self.quantity if self.quantity else Decimal("1")
+
+    def set_quantity(self, quantity: Decimal) -> None:
+        """Change how many, keeping the conversion this line was added at."""
+        factor = self.factor
+        self.quantity = quantity
+        self.base_quantity = quantity * factor
+
+    def matches(self, item_type: ItemType, item_id: int, uom_id: int | None = None) -> bool:
+        return (
+            self.item_type is item_type
+            and self.item_id == item_id
+            and self.uom_id == uom_id
+        )
+
+    def is_item(self, item_type: ItemType, item_id: int) -> bool:
+        """The same item, whichever unit it was counted in."""
         return self.item_type is item_type and self.item_id == item_id
 
 
@@ -92,7 +132,12 @@ class LinesTable(DataTable):
                 # side panel, where wide numeric columns would elide the
                 # item name — the one column you need to read.
                 Column("ITEM", lambda line: line.label),
-                Column("QTY", lambda line: line.quantity, align="right", width=60),
+                Column(
+                    "QTY",
+                    lambda line: quantity(line.quantity, line.unit_label),
+                    align="right",
+                    width=90,
+                ),
                 Column("UNIT PRICE", lambda line: money(line.unit_price), align="right", width=105),
                 Column("LINE TOTAL", lambda line: money(line.total), align="right", width=115),
                 # Unlabelled: a heading over two buttons names nothing the

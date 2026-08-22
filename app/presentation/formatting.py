@@ -63,6 +63,29 @@ def money(value: Decimal | int | float | None) -> str:
     return f"{Decimal(value):,.2f}"
 
 
+def quantity(value: Decimal | int | None, unit: str | None = None) -> str:
+    """A count, written the way somebody counting would write it.
+
+    Thousands-separated, and with the trailing zeros of a four-decimal
+    column trimmed off: stock is held to four places because half a sheet
+    has to be sellable, but 2,880 sheets should read as "2,880" rather
+    than as "2,880.0000". A genuine fraction keeps its digits — "0.5"
+    stays "0.5".
+
+    The unit is what makes a count mean anything once an item can be
+    traded in more than one of them, so "2,880 Piece" is written here
+    rather than concatenated a slightly different way on each screen.
+    """
+    if value is None:
+        return DASH
+    value = Decimal(value)
+    trimmed = value.normalize() if value == value.to_integral_value() else value
+    text = f"{trimmed:,f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text} {unit}" if unit else text
+
+
 def percent(value: Decimal | None) -> str:
     """A margin, or a dash where there is nothing to take a share of."""
     return DASH if value is None else f"{value}%"
@@ -150,9 +173,3 @@ def payment_method_name(name: str | None) -> str:
     missing data, so neither renders as a dash.
     """
     return name or CASH
-
-
-def quantity(count: int, unit: str | None) -> str:
-    """"500 sheets", "2 bottles", or plain "500" when nothing names it."""
-    return f"{count} {unit}" if unit else str(count)
-

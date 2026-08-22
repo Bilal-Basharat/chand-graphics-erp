@@ -15,6 +15,7 @@ def _register_models() -> None:
     Import all SQLAlchemy models so their tables are registered on Base.metadata.
     """
     from app.infrastructure.db.models.cabinet_model import CabinetModel  # noqa: F401
+    from app.infrastructure.db.models.category_model import CategoryModel  # noqa: F401
     from app.infrastructure.db.models.company_settings_model import CompanySettingsModel  # noqa: F401
     from app.infrastructure.db.models.customer_model import CustomerModel  # noqa: F401
     from app.infrastructure.db.models.expense_category_model import ExpenseCategoryModel  # noqa: F401
@@ -22,6 +23,7 @@ def _register_models() -> None:
     from app.infrastructure.db.models.inventory_item_model import InventoryItemModel  # noqa: F401
     from app.infrastructure.db.models.inventory_movement_model import InventoryMovementModel  # noqa: F401
     from app.infrastructure.db.models.payment_method_model import PaymentMethodModel  # noqa: F401
+    from app.infrastructure.db.models.product_model import ProductModel  # noqa: F401
     from app.infrastructure.db.models.purchase_item_model import PurchaseItemModel  # noqa: F401
     from app.infrastructure.db.models.purchase_model import PurchaseModel  # noqa: F401
     from app.infrastructure.db.models.purchase_payment_model import PurchasePaymentModel  # noqa: F401
@@ -36,6 +38,7 @@ def _register_models() -> None:
         SaleReturnItemModel,
     )
     from app.infrastructure.db.models.sale_return_model import SaleReturnModel  # noqa: F401
+    from app.infrastructure.db.models.sku_unit_model import SkuUnitModel  # noqa: F401
     from app.infrastructure.db.models.supplier_model import SupplierModel  # noqa: F401
     from app.infrastructure.db.models.user_model import UserModel  # noqa: F401
 

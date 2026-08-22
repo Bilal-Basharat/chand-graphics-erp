@@ -18,6 +18,7 @@ class _PurchasesViewModel(QObject):
     itemCreated = Signal(object)
     errorOccurred = Signal(str)
     catalogueSearched = Signal(object, str, list)
+    unitsLoaded = Signal(object, int, list)
     partiesSearched = Signal(str, list)
 
     def __init__(self) -> None:
@@ -26,6 +27,10 @@ class _PurchasesViewModel(QObject):
 
     def search_catalogue(self, item_type, term: str) -> None:
         self.searched.append((item_type, term))
+
+    def load_units(self, item_type, item_id: int) -> None:
+        """An item with no alternate units, which is the ordinary case."""
+        self.unitsLoaded.emit(item_type, item_id, [])
 
     def search_parties(self, term: str) -> None:
         self.searched.append(("parties", term))

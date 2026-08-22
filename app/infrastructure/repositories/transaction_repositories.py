@@ -16,6 +16,7 @@ from app.domain.entities.sale import Sale
 from app.domain.entities.sale_payment import SalePayment
 from app.domain.entities.sale_return import SaleReturn
 from app.domain.enums.item_type import ItemType
+from app.domain.quantities import to_quantity
 from app.domain.enums.payment_filter import PaymentFilter
 from app.domain.repositories.aggregates import (
     CategorySpendRow,
@@ -170,7 +171,11 @@ def _sum_of(model):
     )
 
 
-_NO_RETURNS: tuple[int, Decimal, Decimal] = (0, Decimal("0.00"), Decimal("0.00"))
+_NO_RETURNS: tuple[Decimal, Decimal, Decimal] = (
+    Decimal("0"),
+    Decimal("0.00"),
+    Decimal("0.00"),
+)
 """An item nothing came back on, so a margin row subtracts nothing."""
 
 
@@ -513,17 +518,25 @@ class SqlAlchemyPurchaseRepository(
         )
 
     def weighted_average_cost(self, item_type: ItemType, item_id: int) -> Decimal | None:
-        """What one of these has cost, averaged over everything bought so far.
+        """What one **base unit** of these has cost, averaged over
+        everything bought so far.
 
         Weighted by quantity, not a plain average of prices: a hundred
         sheets at 10 and one at 100 cost about 10 each, not 55.
+
+        Weighted by the *base* quantity, so that a delivery bought by the
+        Box and one bought by the Piece average against each other rather
+        than against their own units — 10 Boxes at 2,880 the box and 288
+        pieces at 10 the piece is 288 pieces at 10 either way. It is also
+        why the figure is per base unit: a line multiplies it by its own
+        base quantity, and both sides then mean the same thing.
 
         Returns None when the item has never been bought. That is not
         zero, and callers must not fold it into a total as if it were.
         """
         stmt = select(
             func.sum(PurchaseItemModel.line_total),
-            func.sum(PurchaseItemModel.quantity),
+            func.sum(PurchaseItemModel.base_quantity),
         ).where(
             _item_column(PurchaseItemModel, item_type) == item_id,
             PurchaseItemModel.quantity > 0,
@@ -535,11 +548,11 @@ class SqlAlchemyPurchaseRepository(
         # would leave its price in the cost of everything sold afterwards.
         returned = select(
             func.coalesce(func.sum(_return_value(PurchaseReturnItemModel)), 0),
-            func.coalesce(func.sum(PurchaseReturnItemModel.quantity), 0),
+            func.coalesce(func.sum(PurchaseReturnItemModel.base_quantity), 0),
         ).where(_item_column(PurchaseReturnItemModel, item_type) == item_id)
         returned_total, returned_quantity = self.session.execute(returned).one()
         total = Decimal(total or 0) - Decimal(returned_total)
-        quantity = int(quantity or 0) - int(returned_quantity)
+        quantity = to_quantity(quantity or 0) - to_quantity(returned_quantity)
 
         if quantity <= 0:
             return None
@@ -851,7 +864,7 @@ class SqlAlchemySaleRepository(
                 func.coalesce(
                     func.sum(
                         case(
-                            (costed, SaleItemModel.unit_cost * SaleItemModel.quantity),
+                            (costed, SaleItemModel.unit_cost * SaleItemModel.base_quantity),
                             else_=0,
                         )
                     ),
@@ -887,7 +900,7 @@ class SqlAlchemySaleRepository(
                 func.coalesce(
                     func.sum(
                         case(
-                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.quantity),
+                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.base_quantity),
                             else_=0,
                         )
                     ),
@@ -914,12 +927,12 @@ class SqlAlchemySaleRepository(
         stmt = (
             select(
                 SaleItemModel.inventory_item_id,
-                func.coalesce(func.sum(SaleItemModel.quantity), 0),
+                func.coalesce(func.sum(SaleItemModel.base_quantity), 0),
                 func.coalesce(func.sum(SaleItemModel.line_total), 0),
                 func.coalesce(
                     func.sum(
                         case(
-                            (costed, SaleItemModel.unit_cost * SaleItemModel.quantity),
+                            (costed, SaleItemModel.unit_cost * SaleItemModel.base_quantity),
                             else_=0,
                         )
                     ),
@@ -935,7 +948,7 @@ class SqlAlchemySaleRepository(
         return [
             ItemMarginRow(
                 item_id=item_id,
-                quantity_sold=int(quantity) - returned.get(item_id, _NO_RETURNS)[0],
+                quantity_sold=to_quantity(quantity) - returned.get(item_id, _NO_RETURNS)[0],
                 revenue=_money(revenue) - returned.get(item_id, _NO_RETURNS)[1],
                 cost=_money(cost) - returned.get(item_id, _NO_RETURNS)[2],
                 uncosted_lines=int(uncosted),
@@ -945,7 +958,7 @@ class SqlAlchemySaleRepository(
 
     def _returns_by_item_between(
         self, start: datetime, end: datetime
-    ) -> dict[int, tuple[int, Decimal, Decimal]]:
+    ) -> dict[int, tuple[Decimal, Decimal, Decimal]]:
         """Per item: how many came back, what they sold for, what they cost.
 
         One query for the whole report rather than one per row. Keyed the
@@ -956,12 +969,12 @@ class SqlAlchemySaleRepository(
         stmt = (
             select(
                 SaleItemModel.inventory_item_id,
-                func.coalesce(func.sum(SaleReturnItemModel.quantity), 0),
+                func.coalesce(func.sum(SaleReturnItemModel.base_quantity), 0),
                 func.coalesce(func.sum(_return_value(SaleReturnItemModel)), 0),
                 func.coalesce(
                     func.sum(
                         case(
-                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.quantity),
+                            (costed, SaleItemModel.unit_cost * SaleReturnItemModel.base_quantity),
                             else_=0,
                         )
                     ),
@@ -979,7 +992,7 @@ class SqlAlchemySaleRepository(
             .group_by(SaleItemModel.inventory_item_id)
         )
         return {
-            item_id: (int(quantity), _money(revenue), _money(cost))
+            item_id: (to_quantity(quantity), _money(revenue), _money(cost))
             for item_id, quantity, revenue, cost in self.session.execute(stmt)
         }
 
@@ -1193,13 +1206,13 @@ class SqlAlchemySaleReturnRepository(
         models = self.session.execute(stmt).scalars().all()
         return [SaleReturnMapper.to_entity(model) for model in models]
 
-    def returned_quantity_for_line(self, sale_item_id: int) -> int:
+    def returned_quantity_for_line(self, sale_item_id: int) -> Decimal:
         stmt = select(func.coalesce(func.sum(SaleReturnItemModel.quantity), 0)).where(
             SaleReturnItemModel.sale_item_id == sale_item_id
         )
-        return int(self.session.execute(stmt).scalar_one())
+        return to_quantity(self.session.execute(stmt).scalar_one())
 
-    def returned_quantities_for_sale(self, sale_id: int) -> dict[int, int]:
+    def returned_quantities_for_sale(self, sale_id: int) -> dict[int, Decimal]:
         stmt = (
             select(
                 SaleReturnItemModel.sale_item_id,
@@ -1209,7 +1222,9 @@ class SqlAlchemySaleReturnRepository(
             .where(SaleReturnModel.sale_id == sale_id)
             .group_by(SaleReturnItemModel.sale_item_id)
         )
-        return {line_id: int(quantity) for line_id, quantity in self.session.execute(stmt)}
+        return {
+            line_id: to_quantity(quantity) for line_id, quantity in self.session.execute(stmt)
+        }
 
     def list_by_customer(
         self,
@@ -1285,13 +1300,13 @@ class SqlAlchemyPurchaseReturnRepository(
         models = self.session.execute(stmt).scalars().all()
         return [PurchaseReturnMapper.to_entity(model) for model in models]
 
-    def returned_quantity_for_line(self, purchase_item_id: int) -> int:
+    def returned_quantity_for_line(self, purchase_item_id: int) -> Decimal:
         stmt = select(func.coalesce(func.sum(PurchaseReturnItemModel.quantity), 0)).where(
             PurchaseReturnItemModel.purchase_item_id == purchase_item_id
         )
-        return int(self.session.execute(stmt).scalar_one())
+        return to_quantity(self.session.execute(stmt).scalar_one())
 
-    def returned_quantities_for_purchase(self, purchase_id: int) -> dict[int, int]:
+    def returned_quantities_for_purchase(self, purchase_id: int) -> dict[int, Decimal]:
         stmt = (
             select(
                 PurchaseReturnItemModel.purchase_item_id,
@@ -1301,7 +1316,9 @@ class SqlAlchemyPurchaseReturnRepository(
             .where(PurchaseReturnModel.purchase_id == purchase_id)
             .group_by(PurchaseReturnItemModel.purchase_item_id)
         )
-        return {line_id: int(quantity) for line_id, quantity in self.session.execute(stmt)}
+        return {
+            line_id: to_quantity(quantity) for line_id, quantity in self.session.execute(stmt)
+        }
 
     def list_by_supplier(
         self,

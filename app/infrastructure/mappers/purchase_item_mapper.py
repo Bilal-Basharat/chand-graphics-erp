@@ -13,6 +13,8 @@ class PurchaseItemMapper:
         entity = PurchaseItem(
             item_type=model.item_type,
             quantity=model.quantity,
+            uom_id=model.uom_id,
+            base_quantity=model.base_quantity,
             unit_price=model.unit_price,
             purchase_id=model.purchase_id,
             inventory_item_id=model.inventory_item_id,
@@ -30,6 +32,8 @@ class PurchaseItemMapper:
             item_type=entity.item_type,
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
+            uom_id=entity.uom_id,
+            base_quantity=entity.base_quantity,
             unit_price=entity.unit_price,
             line_total=entity.total_amount,
             previous_stock=entity.previous_stock,

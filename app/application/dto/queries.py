@@ -5,6 +5,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Generic, TypeVar
 
+from app.domain.entities.inventory_item import InventoryItem
+from app.domain.entities.product import Product
 from app.domain.enums.item_type import ItemType
 from app.domain.enums.movement_type import MovementType
 from app.domain.enums.payment_filter import PaymentFilter
@@ -122,6 +124,21 @@ class PageResult(Generic[RowT]):
 @dataclass(slots=True, kw_only=True)
 class InventoryPageQuery(PageQuery):
     stock: StockFilter | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class CataloguePageQuery(PageQuery):
+    """A page of the catalogue: products, with their variants under them.
+
+    Paged over products rather than over SKUs, because that is what the
+    screen lists — a product's variants are that row opened, not more
+    rows, and a page cut through the middle of them would show a product
+    with half its variants and no way to see the rest.
+    """
+
+    stock: StockFilter | None = None
+    category_id: int | None = None
+    """One shelf, or None for the whole catalogue."""
 
 
 @dataclass(slots=True, kw_only=True)
@@ -312,7 +329,7 @@ class ItemMargin:
 
     item_id: int
     name: str
-    quantity_sold: int
+    quantity_sold: Decimal
     revenue: Decimal
     """Line totals. Invoice-level discounts are not apportioned to items,
     so this runs slightly ahead of the revenue on the profit & loss."""
@@ -419,17 +436,61 @@ class ReturnableLine:
     item_type: ItemType
     inventory_item_id: int | None
     label: str
-    quantity: int
-    returned: int
+    quantity: Decimal
+    returned: Decimal
     unit_price: Decimal
+    unit_label: str | None = None
+    """The unit the line was traded in, where it was not the item's own.
+
+    What comes back is counted the way it went out, so the dialog says
+    "2 of 3 Box" rather than leaving the shopkeeper to work out whether
+    the number in front of them means boxes or pieces."""
 
     @property
-    def remaining(self) -> int:
+    def remaining(self) -> Decimal:
         return self.quantity - self.returned
 
     @property
     def is_returnable(self) -> bool:
         return self.remaining > 0
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogueRow:
+    """One product on the catalogue screen, with everything that row shows.
+
+    Assembled here rather than left to the view to stitch together: the
+    category name and the variants come from two other tables, and a
+    screen that fetched them per row would make a query per line of a
+    hundred-line page.
+    """
+
+    product: Product
+    category_id: int
+    category_name: str
+    skus: tuple[InventoryItem, ...]
+
+    @property
+    def sku(self) -> InventoryItem | None:
+        """The one SKU behind this product, where there is only one.
+
+        None where there are several, and there is then no single stock,
+        unit or minimum to show against the product — which is exactly why
+        the row opens instead.
+        """
+        return self.skus[0] if len(self.skus) == 1 else None
+
+    @property
+    def has_variants(self) -> bool:
+        return len(self.skus) > 1
+
+    @property
+    def name(self) -> str:
+        return self.product.name
+
+    @property
+    def id(self) -> int | None:
+        return self.product.id
 
 
 @dataclass(frozen=True, slots=True)

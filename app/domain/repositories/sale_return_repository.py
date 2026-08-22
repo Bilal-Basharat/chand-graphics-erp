@@ -23,7 +23,7 @@ class SaleReturnRepository(Repository[SaleReturn], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def returned_quantity_for_line(self, sale_item_id: int) -> int:
+    def returned_quantity_for_line(self, sale_item_id: int) -> Decimal:
         """How many of one sale line have already come back.
 
         The cap every new return is measured against: a line can give back
@@ -32,7 +32,7 @@ class SaleReturnRepository(Repository[SaleReturn], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def returned_quantities_for_sale(self, sale_id: int) -> dict[int, int]:
+    def returned_quantities_for_sale(self, sale_id: int) -> dict[int, Decimal]:
         """The same figure for every line of one sale, in one query.
 
         What the return dialog needs to show "10 of 40 left" beside each

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLineEdit, QWidget
 from app.application.dto.commands import CreateSaleCommand, SaleItemCommand, SalePaymentCommand
 from app.domain.enums.item_type import ItemType
 from app.presentation.dialogs.document_dialog import DocumentDialog, step_panel
+from app.presentation.formatting import quantity
 from app.presentation.item_types import item_name
 from app.presentation.widgets.document_lines import DocumentTotals
 from app.presentation.widgets.form_field import field
@@ -45,7 +46,7 @@ def unsellable_reason(product, label: str) -> str | None:
         )
     if product.current_stock <= product.minimum_stock:
         return (
-            f"'{label}' is down to its minimum ({product.current_stock} left). "
+            f"'{label}' is down to its minimum ({quantity(product.current_stock)} left). "
             "Record a purchase to bring it back above its minimum before "
             "selling it."
         )
@@ -91,6 +92,7 @@ class NewSaleDialog(DocumentDialog):
         # The view model outlives this dialog, so both are let go of again
         # in `done()` — see `DocumentDialog.listen`.
         self.listen(view_model.catalogueSearched, self._on_catalogue_searched)
+        self.listen(view_model.unitsLoaded, self._on_units_loaded)
         self.listen(view_model.partiesSearched, self._on_parties_searched)
         self._customer.searchRequested.connect(view_model.search_parties)
 
@@ -146,9 +148,29 @@ class NewSaleDialog(DocumentDialog):
         )
 
     def _on_item_changed(self, item_type: ItemType, item_id: int) -> None:
+        # What the item's own unit is called, and what else it can be
+        # counted in. Asked for as the item changes, so a unit left over
+        # from the last one can never be submitted against this one.
+        product = self._products.get((item_type, item_id))
+        self._picker.set_base_unit(getattr(product, "unit", None))
+        self._picker.set_units(())
+        self._view_model.load_units(item_type, item_id)
+
         # The quantity can never exceed what is on the shelf, so the field
         # stops there rather than letting a number be typed that the sale
         # would then refuse.
+        self._picker.set_quantity_limit(self.available_stock(item_type, item_id))
+
+    def _on_units_loaded(self, item_type: ItemType, item_id: int, units: list) -> None:
+        """Offer them, unless the picker has moved on already.
+
+        The answer arrives off the UI thread, and by then the shopkeeper
+        may have picked something else — offering another item's boxes
+        against this one is exactly what the use case would refuse.
+        """
+        if self._picker.selected_id() != item_id:
+            return
+        self._picker.set_units(units)
         self._picker.set_quantity_limit(self.available_stock(item_type, item_id))
 
     def _on_item_chosen(self, item_type: ItemType, item_id: int) -> None:
@@ -175,13 +197,16 @@ class NewSaleDialog(DocumentDialog):
             self.warn(refusal)
             return
 
-        already = self.line_for(picked.item_type, picked.item_id)
+        # Added up in the item's own unit and compared there. Three
+        # boxes on one line and forty pieces on another are the same
+        # shelf, and comparing either against it as it stands would let
+        # the invoice ask for stock that is not there.
+        already = self.base_quantity_on_document(picked.item_type, picked.item_id)
         on_hand = product.current_stock
-        wanted = picked.quantity + (already.quantity if already is not None else 0)
-        if wanted > on_hand:
+        if picked.base_quantity + already > on_hand:
             self.warn(
-                f"Only {on_hand} of '{picked.label}' in stock, and this invoice "
-                f"already has {already.quantity if already else 0}."
+                f"Only {quantity(on_hand, product.unit)} of '{picked.label}' in stock, "
+                f"and this invoice already has {quantity(already, product.unit)}."
             )
             return
 
@@ -191,12 +216,22 @@ class NewSaleDialog(DocumentDialog):
             label=picked.label,
             quantity=picked.quantity,
             unit_price=picked.unit_price,
+            uom_id=picked.uom_id,
+            unit_label=picked.unit_label,
+            base_quantity=picked.base_quantity,
         )
         self._picker.reset()
 
-    def available_stock(self, item_type: ItemType, item_id: int) -> int | None:
+    def available_stock(self, item_type: ItemType, item_id: int):
+        """What is left on the shelf, in the item's own unit.
+
+        Less whatever this invoice has already taken of it, so the
+        quantity box caps at what could still honestly be added.
+        """
         product = self._products.get((item_type, item_id))
-        return product.current_stock if product is not None else None
+        if product is None:
+            return None
+        return product.current_stock - self.base_quantity_on_document(item_type, item_id)
 
     # ---------------- submit ----------------
 
@@ -228,6 +263,7 @@ class NewSaleDialog(DocumentDialog):
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     inventory_item_id=line.item_id,
+                    uom_id=line.uom_id,
                 )
                 for line in self.lines
             ],

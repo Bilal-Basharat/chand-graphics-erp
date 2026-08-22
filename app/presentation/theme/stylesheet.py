@@ -334,9 +334,14 @@ def build_stylesheet() -> str:
     }}
 
     /* ---------------- Modern spin stepper (widgets/modern_spinbox.py) ----
-       A composite of our own +/- QPushButtons around a borderless
-       QSpinBox, styled as one seamless control — see that file for why
-       (native spin arrows don't reliably follow QSS). */
+       A composite of our own +/- QPushButtons around a borderless spin
+       box, styled as one seamless control — see that file for why
+       (native spin arrows don't reliably follow QSS).
+
+       Selected as QAbstractSpinBox, not QSpinBox: quantities are typed
+       into a QDoubleSpinBox, and the two are siblings rather than one
+       deriving from the other — a rule naming QSpinBox leaves the
+       fractional field drawing its own bordered box inside ours. */
     QWidget#ModernSpinBox {{
         background: {t.SURFACE};
         border: 1px solid {t.LINE};
@@ -346,7 +351,7 @@ def build_stylesheet() -> str:
     QWidget#ModernSpinBox:hover {{
         border: 1px solid {t.NAVY_TEXT_SOFT};
     }}
-    QSpinBox#ModernSpinBoxField {{
+    QAbstractSpinBox#ModernSpinBoxField {{
         background: transparent;
         border: none;
         border-radius: 0px;

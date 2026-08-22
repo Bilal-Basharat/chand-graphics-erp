@@ -3,7 +3,12 @@ from __future__ import annotations
 from app.application.dto.queries import MovementPageQuery, PageResult
 from app.application.dto.commands import DateRangeQuery, InventoryMovementCommand
 from app.application.exceptions import NotFoundError
-from app.application.use_cases.stock_helpers import decrease_stock, increase_stock, load_stock_target
+from app.application.use_cases.stock_helpers import (
+    decrease_stock,
+    increase_stock,
+    load_stock_target,
+    to_base_quantity,
+)
 from app.domain.entities.inventory_movement import InventoryMovement
 from app.domain.enums.movement_type import MovementType
 from app.domain.uow import UnitOfWork
@@ -100,21 +105,28 @@ class RecordInventoryMovementUseCase(AuthorizedUseCase[InventoryMovementCommand,
                 inventory_item_id=request.inventory_item_id,
             )
 
+            # Counted in whatever unit it was entered in, applied to
+            # the shelf in base units — an adjustment of one Box takes 288
+            # Pieces off the count. The sign is the caller's; the size is
+            # what gets converted.
+            entered = abs(request.quantity_change)
+            base_quantity = to_base_quantity(
+                uow, request.item_type, request.inventory_item_id, entered, request.uom_id
+            )
+
             if request.quantity_change > 0:
-                previous_stock, resulting_stock = increase_stock(
-                    target.entity, request.quantity_change
-                )
+                previous_stock, resulting_stock = increase_stock(target.entity, base_quantity)
             else:
-                previous_stock, resulting_stock = decrease_stock(
-                    target.entity, abs(request.quantity_change)
-                )
+                previous_stock, resulting_stock = decrease_stock(target.entity, base_quantity)
 
             target.repository.update(target.entity)
 
             movement = InventoryMovement(
                 movement_type=request.movement_type,
                 item_type=request.item_type,
-                quantity=abs(request.quantity_change),
+                quantity=entered,
+                uom_id=request.uom_id,
+                base_quantity=base_quantity,
                 inventory_item_id=request.inventory_item_id,
                 previous_stock=previous_stock,
                 resulting_stock=resulting_stock,

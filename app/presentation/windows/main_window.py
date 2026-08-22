@@ -24,13 +24,13 @@ from app.presentation.license_display import status_notice, status_tone
 from app.presentation.license_watch import LicenseWatcher
 from app.presentation.navigation.routes import Route
 from app.presentation.records import paper
+from app.presentation.viewmodels.catalogue_viewmodel import CatalogueViewModel
 from app.presentation.viewmodels.company_settings_viewmodel import CompanySettingsViewModel
 from app.presentation.viewmodels.dashboard_viewmodel import DashboardViewModel
 from app.presentation.viewmodels.license_viewmodel import LicenseViewModel
 from app.presentation.viewmodels.sales_viewmodel import SalesViewModel
 from app.presentation.viewmodels.session_viewmodel import SessionViewModel
 from app.presentation.viewmodels.master_data_viewmodels import (
-    InventoryViewModel,
     cabinets_view_model,
     customers_view_model,
     expense_categories_view_model,
@@ -44,6 +44,7 @@ from app.presentation.views.account_ledger_view import (
     CustomerLedgerViewModel,
     SupplierLedgerViewModel,
 )
+from app.presentation.views.catalogue_view import CatalogueView
 from app.presentation.views.collection_view import CollectionView
 from app.presentation.views.company_settings_view import CompanySettingsView
 from app.presentation.views.dashboard_view import DashboardView
@@ -51,7 +52,6 @@ from app.presentation.views.master_data_views import (
     CabinetsView,
     CustomersView,
     ExpenseCategoriesView,
-    InventoryView,
     PaymentMethodsView,
     SuppliersView,
 )
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         dashboard.recordRequested.connect(self._open_record)
         self._add_page(Route.DASHBOARD, dashboard, "Dashboard")
 
-        self._inventory_view = InventoryView(InventoryViewModel(self._container))
+        self._inventory_view = CatalogueView(CatalogueViewModel(self._container))
         self._add_page(Route.INVENTORY, self._inventory_view, "Inventory")
 
         settings_vm = CompanySettingsViewModel(self._container)

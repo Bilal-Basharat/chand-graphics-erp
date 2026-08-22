@@ -68,6 +68,17 @@ class Column(Generic[RowT]):
     mark and refuses the click, rather than appearing to sort and handing
     back the same rows.
     """
+    editable: str | None = None
+    """Which field of the record this column edits, or None for a column
+    that is only read.
+
+    Naming the field rather than a flag, because the table has to hand
+    what was typed to somebody who can save it, and "the third column"
+    is not something a use case takes. Only the catalogue edits in place
+    today; every other list opens a dialog, and leaving this unset is
+    what those columns already mean.
+    """
+
     width: int | None = None
     """
     Fixed pixel width. `None` means the column shares the leftover space

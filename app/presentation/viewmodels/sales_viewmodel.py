@@ -44,6 +44,7 @@ class SalesViewModel(CollectionViewModelBase):
     namesLoaded = Signal(object)
     """Names for the page just delivered have landed — the table redraws."""
     catalogueSearched = Signal(object, str, list)  # ItemType, term, records
+    unitsLoaded = Signal(object, int, list)  # ItemType, item id, its alternate units
     partiesSearched = Signal(str, list)  # term, customers
 
     def __init__(self, container: AppContainer, period: PeriodSelection) -> None:
@@ -157,6 +158,25 @@ class SalesViewModel(CollectionViewModelBase):
             self.referenceLoaded.emit(reference)
 
         self.run_async(fetch, on_success=_on_success)
+
+    def load_units(self, item_type: ItemType, item_id: int) -> None:
+        """The units this item may be traded in, for the picker.
+
+        Fetched when an item is chosen rather than with the catalogue: a
+        page of a hundred items would be a hundred lists nobody looked at,
+        and only the one being added to a line is ever offered.
+
+        Only the active ones. A retired unit still explains the documents
+        that used it, but nothing new may be entered in one.
+        """
+
+        def _on_success(units: list) -> None:
+            self.unitsLoaded.emit(item_type, item_id, units)
+
+        self.run_async(
+            lambda: self._container.active_sku_units_use_case().execute(item_id),
+            on_success=_on_success,
+        )
 
     def search_catalogue(self, item_type: ItemType, term: str) -> None:
         """Matches for what is being typed into the item picker."""

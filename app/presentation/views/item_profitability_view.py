@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QWidget
 from app.application.dto.queries import ItemProfitability, PageResult, ReportQuery
 from app.container import AppContainer
 from app.presentation.dialogs.record_card_dialog import print_card, save_pdf
-from app.presentation.formatting import counted, money, percent
+from app.presentation.formatting import counted, money, percent, quantity
 from app.presentation.records.builders import item_profitability_card
 from app.presentation.records.card import RecordCard
 from app.presentation.theme import tokens as t
@@ -123,7 +123,7 @@ class ItemProfitabilityView(CollectionView):
                 Column("ITEM", lambda row: row.name, sort_field="item"),
                 Column(
                     "QTY SOLD",
-                    lambda row: f"{row.quantity_sold:,}",
+                    lambda row: quantity(row.quantity_sold),
                     align="right",
                     sort_field="quantity",
                     width=110,

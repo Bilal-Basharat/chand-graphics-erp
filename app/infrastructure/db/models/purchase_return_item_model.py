@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric
+from sqlalchemy import Enum, ForeignKey, Numeric, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -40,10 +40,21 @@ class PurchaseReturnItemModel(Base, TimestampMixin):
         index=True,
     )
 
-    quantity: Mapped[int] = mapped_column(
-        Integer,
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
         nullable=False,
     )
+    """How many went back, in the unit the bill's line was bought in —
+    see `SaleReturnItemModel.quantity`."""
+
+    base_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    """What went back in base units, converted the way the purchase line
+    was — see `SaleReturnItemModel.base_quantity`."""
 
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),

@@ -180,6 +180,26 @@ class SqlAlchemyInventoryItemRepository(
         models = self.session.execute(stmt).scalars().all()
         return [InventoryItemMapper.to_entity(model) for model in models]
 
+    def list_by_product_ids(self, product_ids: Collection[int]) -> dict[int, list[InventoryItem]]:
+        """The SKUs behind a page of the catalogue, keyed by product id."""
+        ids = set(product_ids)
+        if not ids:
+            return {}
+        stmt = (
+            select(InventoryItemModel)
+            .where(InventoryItemModel.product_id.in_(ids))
+            .order_by(InventoryItemModel.product_id.asc(), InventoryItemModel.id.asc())
+        )
+        grouped: dict[int, list[InventoryItem]] = {}
+        for model in self.session.execute(stmt).scalars():
+            grouped.setdefault(model.product_id, []).append(InventoryItemMapper.to_entity(model))
+        return grouped
+
+    def count_by_product(self, product_id: int) -> int:
+        return self.count_of(
+            select(InventoryItemModel).where(InventoryItemModel.product_id == product_id)
+        )
+
     def clear_cabinet_id(self, cabinet_id: int) -> int:
         stmt = (
             update(InventoryItemModel)

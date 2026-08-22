@@ -28,13 +28,97 @@ class UpdateCabinetCommand:
 
 
 @dataclass(slots=True)
-class CreateInventoryItemCommand:
+class CreateCategoryCommand:
     name: str
-    minimum_stock: int = 0
-    current_stock: int = 0
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class UpdateCategoryCommand:
+    id: int
+    name: str
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class CreateProductCommand:
+    """A product and, with it, the one SKU it starts life with.
+
+    A product with nothing under it could not be bought, sold or counted,
+    so there is no step where one exists on its own. The SKU's fields are
+    here rather than in a second command for the same reason the screen
+    has no second step: a shopkeeper adding "A4 Ivory 250gsm" is adding
+    one thing.
+    """
+
+    name: str
+    category_id: int | None = None
+    """None means the default category — see `Category.DEFAULT_CATEGORY_NAME`."""
+
+    unit: str | None = None
+    """The SKU's base unit: the word its stock is counted in."""
+
+    minimum_stock: Decimal = Decimal("0")
+    description: str | None = None
+    cabinet_id: int | None = None
+
+
+@dataclass(slots=True)
+class UpdateProductCommand:
+    """Rename a product, or file it somewhere else.
+
+    Renaming reaches its SKU when it has exactly one — see
+    `UpdateProductUseCase`. `category_id` of None leaves the shelf alone
+    rather than clearing it, because a product always has one.
+    """
+
+    id: int
+    name: str | None = None
+    category_id: int | None = None
+
+
+@dataclass(slots=True)
+class SkuUnitCommand:
+    """One alternate unit of a SKU, as a screen states it.
+
+    "Box = 288" — a name and how many base units one of them is worth.
+    An `id` where the unit already exists, so a factor can be corrected
+    without the unit being replaced and the documents that used it losing
+    what they name.
+    """
+
+    name: str
+    factor: Decimal
+    id: int | None = None
+
+
+@dataclass(slots=True)
+class CreateInventoryItemCommand:
+    """A SKU. Normally the one a new product is created with; otherwise a
+    further variant of a product that already exists.
+
+    `product_id` of None means "make a product for this", which is what a
+    lone item has always meant and what keeps every caller that predates
+    products working unchanged.
+    """
+
+    name: str
+    minimum_stock: Decimal = Decimal("0")
+    current_stock: Decimal = Decimal("0")
     description: str | None = None
     cabinet_id: int | None = None
     unit: str | None = None
+    product_id: int | None = None
+
+    units: tuple[SkuUnitCommand, ...] = ()
+    """Its alternate units, as the whole list rather than as add/remove
+    instructions: the dialog shows a list and the shopkeeper edits it,
+    and turning that back into a sequence of operations in the view
+    would be business logic in a widget.
+
+    Carried on the same command as the item so both land in one unit of
+    work — a SKU and the ways it is counted are one thing to save.
+    """
 
 
 @dataclass(slots=True)
@@ -48,10 +132,22 @@ class UpdateInventoryItemCommand:
 
     id: int
     name: str
-    minimum_stock: int = 0
+    minimum_stock: Decimal = Decimal("0")
     description: str | None = None
     cabinet_id: int | None = None
     unit: str | None = None
+
+    units: tuple[SkuUnitCommand, ...] = ()
+    """See `CreateInventoryItemCommand.units` — the complete list, saved
+    with the item."""
+
+    category_id: int | None = None
+    """Which shelf to file its product on.
+
+    A product's, not an item's — and only meaningful where this item is
+    the only one of its product, which is exactly when the catalogue
+    shows the two as one row and one form. None leaves the shelf alone.
+    """
 
 
 @dataclass(slots=True)
@@ -152,9 +248,18 @@ class CreateExpenseCommand:
 @dataclass(slots=True)
 class PurchaseItemCommand:
     item_type: ItemType
-    quantity: int
+    quantity: Decimal
+    """How many, in the unit named by `uom_id`."""
+
     unit_price: Decimal
+    """What one of *those* costs. A price is a price for the unit it was
+    quoted in."""
+
     inventory_item_id: int | None = None
+    uom_id: int | None = None
+    """Which of the SKU's alternate units the quantity is in, or None for
+    its base unit."""
+
     note: str | None = None
 
 
@@ -191,9 +296,18 @@ class CreatePurchaseCommand:
 @dataclass(slots=True)
 class SaleItemCommand:
     item_type: ItemType
-    quantity: int
+    quantity: Decimal
+    """How many, in the unit named by `uom_id`."""
+
     unit_price: Decimal
+    """What one of *those* costs. A price is a price for the unit it was
+    quoted in."""
+
     inventory_item_id: int | None = None
+    uom_id: int | None = None
+    """Which of the SKU's alternate units the quantity is in, or None for
+    its base unit."""
+
     note: str | None = None
 
 
@@ -230,8 +344,13 @@ class CreateSaleCommand:
 class InventoryMovementCommand:
     movement_type: MovementType
     item_type: ItemType
-    quantity_change: int
+    quantity_change: Decimal
+    """How far the count moves, with its sign, in the unit named by
+    `uom_id`. Negative takes stock off the shelf."""
+
     inventory_item_id: int | None = None
+    uom_id: int | None = None
+    """Which of the SKU's alternate units, or None for its base unit."""
     source_document_type: str | None = None
     source_document_id: int | None = None
     reference_no: str | None = None
@@ -250,7 +369,10 @@ class ReturnedLineCommand:
     """
 
     line_id: int
-    quantity: int
+    quantity: Decimal
+    """In the unit that line was traded in. A return carries no unit of
+    its own: it is a reversal, and one measured differently from what it
+    reverses could not be bounded by it."""
 
 
 @dataclass(slots=True)

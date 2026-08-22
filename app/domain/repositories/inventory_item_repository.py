@@ -56,6 +56,26 @@ class InventoryItemRepository(Repository[InventoryItem], ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def list_by_product_ids(self, product_ids: Collection[int]) -> dict[int, list[InventoryItem]]:
+        """The SKUs of several products at once, keyed by product id.
+
+        One trip for a whole page of the catalogue. Fetched with the page
+        rather than when a row is opened: a product's variants are few and
+        already known by then, so a lazy fetch would buy nothing and add
+        an asynchronous path through a table model.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_by_product(self, product_id: int) -> int:
+        """How many SKUs a product has.
+
+        What decides whether the catalogue shows a plain row or one that
+        opens, and whether renaming the product renames its SKU too.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def clear_cabinet_id(self, cabinet_id: int) -> int:
         """Unfile every item in a cabinet, and return how many.
 

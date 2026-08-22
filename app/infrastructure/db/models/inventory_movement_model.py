@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums.item_type import ItemType
@@ -39,10 +39,31 @@ class InventoryMovementModel(Base, AuditMixin):
         index=True,
     )
 
-    quantity: Mapped[int] = mapped_column(
-        Integer,
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
         nullable=False,
     )
+    """The size of the movement, in the unit it was recorded in. Always
+    positive; which way it moved the count is read from the two stock
+    figures below."""
+
+    uom_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sku_units.id"),
+        nullable=True,
+        index=True,
+    )
+    """Which of the SKU's units, or NULL for its base unit — see
+    `SaleItemModel.uom_id`."""
+
+    base_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    """The same, in base units: what the shelf actually moved by. An
+    adjustment of one Box takes 288 Pieces off the count, and the register
+    has to be able to show both."""
 
     unit_price: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 2),
@@ -50,13 +71,13 @@ class InventoryMovementModel(Base, AuditMixin):
         default=0,
     )
 
-    previous_stock: Mapped[int | None] = mapped_column(
-        Integer,
+    previous_stock: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 4),
         nullable=True,
     )
 
-    resulting_stock: Mapped[int | None] = mapped_column(
-        Integer,
+    resulting_stock: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 4),
         nullable=True,
     )
 

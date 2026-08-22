@@ -74,6 +74,9 @@ class PartySeed:
 class ItemSeed:
     name: str
     unit: str
+    """The base unit — what stock is counted in, whatever a document is
+    written in."""
+
     cabinet: str
     """Cabinet code. Every item here is filed; the app allows unfiled ones."""
     opening_stock: int
@@ -92,6 +95,23 @@ class ItemSeed:
     """Whether filler documents may buy or sell this item. An ink is
     bought and consumed, never resold; the foil roll is neither, so that
     the low-stock screen always has something to show."""
+
+    category: str | None = None
+    """Which shelf its product is listed on. None leaves it on the
+    default one, which is where a shop that never made any would have
+    everything."""
+
+    variant_of: str | None = None
+    """Another item this is a second version of.
+
+    Set on exactly one item here, so the catalogue screen always has a
+    row that opens — most shops will have none, and a seeded database
+    that had none either would leave that half of the screen untried.
+    """
+
+    units: tuple[tuple[str, Decimal], ...] = ()
+    """Other ways it is counted — ("Ream", 500). Configuration only: what
+    a document was actually written in is on the document."""
 
     @property
     def quantity_bought(self) -> tuple[int, int]:
@@ -228,6 +248,7 @@ class CompanySeed:
 class Dataset:
     company: CompanySeed
     cabinets: tuple[NamedSeed, ...]
+    categories: tuple[NamedSeed, ...]
     payment_methods: tuple[str, ...]
     expense_categories: tuple[NamedSeed, ...]
     customers: tuple[PartySeed, ...]
@@ -310,24 +331,44 @@ _PURCHASE_LOT = 5
 
 ITEMS = (
     ItemSeed("Art Card 250gsm (23x36)", "sheets", "A1", 40_000, 2_000,
-             Decimal("38.00"), Decimal("55.00"), (25, 150)),
+             Decimal("38.00"), Decimal("55.00"), (25, 150), category="Papers",
+             units=(("Ream", Decimal("500")), ("Packet", Decimal("100")))),
+    # The one product here that comes in two: the catalogue screen's row
+    # that opens. Everything else is one thing counted one way, which is
+    # what most of a real shop's catalogue is.
+    ItemSeed("Art Card 250gsm (23x36) Gloss", "sheets", "A1", 12_000, 1_000,
+             Decimal("41.00"), Decimal("59.00"), (25, 150),
+             variant_of="Art Card 250gsm (23x36)"),
     ItemSeed("Matt Paper 130gsm (20x30)", "sheets", "A1", 60_000, 3_000,
-             Decimal("12.50"), Decimal("20.00"), (50, 400)),
+             Decimal("12.50"), Decimal("20.00"), (50, 400), category="Papers",
+             units=(("Ream", Decimal("500")),)),
     ItemSeed("Offset Paper 70gsm (23x36)", "sheets", "A1", 120_000, 5_000,
-             Decimal("6.75"), Decimal("11.00"), (200, 1_500)),
+             Decimal("6.75"), Decimal("11.00"), (200, 1_500), category="Papers"),
     ItemSeed("Cyan Offset Ink 1kg", "tins", "B2", 45, 10,
-             Decimal("1450.00"), Decimal("1900.00"), (2, 6), sold=False),
+             Decimal("1450.00"), Decimal("1900.00"), (2, 6), sold=False,
+             category="Inks"),
     ItemSeed("Black Offset Ink 1kg", "tins", "B2", 60, 12,
-             Decimal("1250.00"), Decimal("1700.00"), (2, 8), sold=False),
+             Decimal("1250.00"), Decimal("1700.00"), (2, 8), sold=False,
+             category="Inks"),
     ItemSeed("Lamination Roll 12in", "rolls", "C3", 400, 10,
-             Decimal("2600.00"), Decimal("3400.00"), (1, 4)),
+             Decimal("2600.00"), Decimal("3400.00"), (1, 4), category="Finishing"),
     ItemSeed("Binding Wire Spool", "spools", "C3", 600, 20,
-             Decimal("850.00"), Decimal("1200.00"), (2, 10)),
+             Decimal("850.00"), Decimal("1200.00"), (2, 10), category="Finishing"),
     # Below its own minimum and kept out of every document, so the
     # low-stock screen is never empty.
     ItemSeed("Gold Foil Roll 6in", "rolls", "C3", 3, 6,
-             Decimal("4200.00"), Decimal("5500.00"), (1, 2), bought=False, sold=False),
+             Decimal("4200.00"), Decimal("5500.00"), (1, 2), bought=False, sold=False,
+             category="Finishing"),
 )
+
+CATEGORIES: tuple[NamedSeed, ...] = (
+    NamedSeed("Papers", "Everything printed on."),
+    NamedSeed("Inks", "Offset and digital."),
+    NamedSeed("Finishing", "Lamination, binding, foiling."),
+)
+"""The shelves the catalogue is grouped by. `General` is not among them:
+the application makes that one itself, and a shop that never files
+anything has only it."""
 
 
 # ---------------------------------------------------------------- fixtures
@@ -600,6 +641,7 @@ def build(profile: Profile, rng: Random) -> Dataset:
         cabinets=CABINETS,
         payment_methods=PAYMENT_METHODS,
         expense_categories=EXPENSE_CATEGORIES,
+        categories=CATEGORIES,
         customers=CUSTOMERS,
         suppliers=SUPPLIERS,
         items=ITEMS,

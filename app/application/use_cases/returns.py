@@ -39,10 +39,12 @@ from app.application.dto.queries import (
 from app.application.exceptions import DuplicateEntityError, NotFoundError
 from app.application.use_cases.authenticated_base import AuthenticatedUseCase
 from app.application.use_cases.authorized_base import AuthorizedUnitOfWorkUseCase
+from app.application.use_cases.base import UseCase
 from app.application.use_cases.stock_helpers import (
     decrease_stock,
     increase_stock,
     load_stock_target,
+    returned_base_quantity,
 )
 from app.domain.entities.inventory_movement import InventoryMovement
 from app.domain.entities.purchase_return import PurchaseReturn
@@ -50,6 +52,7 @@ from app.domain.entities.purchase_return_item import PurchaseReturnItem
 from app.domain.entities.sale_return import SaleReturn
 from app.domain.entities.sale_return_item import SaleReturnItem
 from app.domain.enums.movement_type import MovementType
+from app.domain.quantities import to_quantity
 from app.domain.uow import UnitOfWork
 from app.shared.datetimes import now_pkt
 
@@ -61,11 +64,18 @@ The movement register shows every change to a count and says which
 document caused it, and these are the two new causes.
 """
 
+ZERO = Decimal("0")
+
 _WALK_IN = "Walk-in customer"
 _NO_SUPPLIER = "No supplier"
 
 
-def _lines_of(document, returned: dict[int, int], names: dict[int, str]) -> tuple[ReturnableLine, ...]:
+def _lines_of(
+    document,
+    returned: dict[int, Decimal],
+    names: dict[int, str],
+    units: dict[int, str],
+) -> tuple[ReturnableLine, ...]:
     """A document's lines with how much of each has already come back.
 
     Sale lines and purchase lines carry the same five facts under the same
@@ -78,31 +88,33 @@ def _lines_of(document, returned: dict[int, int], names: dict[int, str]) -> tupl
             inventory_item_id=line.inventory_item_id,
             label=names.get(line.inventory_item_id, "Unknown item"),
             quantity=line.quantity,
-            returned=returned.get(line.id, 0),
+            returned=returned.get(line.id, ZERO),
             unit_price=line.unit_price,
+            unit_label=units.get(line.uom_id) if line.uom_id else None,
         )
         for line in document.items
         if line.id is not None
     )
 
 
-def _wanted(lines: list[ReturnedLineCommand]) -> dict[int, int]:
+def _wanted(lines: list[ReturnedLineCommand]) -> dict[int, Decimal]:
     """How much is coming back off each line, one entry per line.
 
     A line named twice is one line coming back twice over, so the
     quantities are added: checking each half against the cap separately
     would let two halves through that the whole would not.
     """
-    wanted: dict[int, int] = {}
+    wanted: dict[int, Decimal] = {}
     for line in lines:
-        if line.quantity <= 0:
+        quantity = to_quantity(line.quantity)
+        if quantity <= 0:
             raise ValueError("quantity must be greater than zero")
-        wanted[line.line_id] = wanted.get(line.line_id, 0) + line.quantity
+        wanted[line.line_id] = wanted.get(line.line_id, ZERO) + quantity
     return wanted
 
 
 def _returned_lines(
-    document, wanted: dict[int, int], returns, document_noun: str, traded: str
+    document, wanted: dict[int, Decimal], returns, document_noun: str, traded: str
 ):
     """Each line being returned, paired with how many of it may be.
 
@@ -128,6 +140,21 @@ def _returned_lines(
             )
         checked.append((line, quantity))
     return checked
+
+
+def _unit_labels(uow, document) -> dict[int, str]:
+    """The names of the units this document's lines were entered in.
+
+    Fetched for the ids on the document rather than by loading a SKU's
+    units: a line says which unit it used, and the dialog only has to be
+    able to write the word next to the number. Retired units are named
+    too — a line entered in one still has to read back.
+    """
+    unit_ids = {line.uom_id for line in document.items if line.uom_id}
+    if not unit_ids:
+        return {}
+    sku_units = UseCase.require(uow.sku_units, "sku_units")
+    return sku_units.names_by_id(unit_ids)
 
 
 def _line_of(document, line_id: int):
@@ -178,12 +205,13 @@ class GetReturnableSaleUseCase(AuthenticatedUseCase[ReturnableDocumentQuery, Ret
             names = items.names_by_id(
                 {line.inventory_item_id for line in sale.items if line.inventory_item_id}
             )
+            units = _unit_labels(uow, sale)
             return ReturnableDocument(
                 document_id=sale.id,
                 reference=sale.invoice_no,
                 party_id=sale.customer_id,
                 party_name=customer.name if customer else _WALK_IN,
-                lines=_lines_of(sale, returns.returned_quantities_for_sale(sale.id), names),
+                lines=_lines_of(sale, returns.returned_quantities_for_sale(sale.id), names, units),
                 paid_amount=sale.paid_amount,
                 balance_amount=sale.balance_amount,
                 # What can honestly be handed back: money that came in and
@@ -224,6 +252,7 @@ class GetReturnablePurchaseUseCase(
             names = items.names_by_id(
                 {line.inventory_item_id for line in purchase.items if line.inventory_item_id}
             )
+            units = _unit_labels(uow, purchase)
             return ReturnableDocument(
                 document_id=purchase.id,
                 reference=purchase.purchase_no,
@@ -233,6 +262,7 @@ class GetReturnablePurchaseUseCase(
                     purchase,
                     returns.returned_quantities_for_purchase(purchase.id),
                     names,
+                    units,
                 ),
                 paid_amount=purchase.paid_amount,
                 balance_amount=purchase.balance_amount,
@@ -301,6 +331,7 @@ class RecordSaleReturnUseCase(AuthorizedUnitOfWorkUseCase[RecordSaleReturnComman
                             item_type=line.item_type,
                             inventory_item_id=line.inventory_item_id,
                             quantity=quantity,
+                            base_quantity=returned_base_quantity(line, quantity),
                             unit_price=line.unit_price,
                         )
                         for line, quantity in returning
@@ -320,7 +351,11 @@ class RecordSaleReturnUseCase(AuthorizedUnitOfWorkUseCase[RecordSaleReturnComman
                     item_type=line.item_type,
                     inventory_item_id=line.inventory_item_id,
                 )
-                previous_stock, resulting_stock = increase_stock(target.entity, quantity)
+                # Converted the way that line was, not the way its SKU
+                # is configured today: a factor corrected since must not
+                # change how much stock a return puts back.
+                base_quantity = returned_base_quantity(line, quantity)
+                previous_stock, resulting_stock = increase_stock(target.entity, base_quantity)
                 target.repository.update(target.entity)
 
                 # The stock register still shows the change, now with a
@@ -332,6 +367,8 @@ class RecordSaleReturnUseCase(AuthorizedUnitOfWorkUseCase[RecordSaleReturnComman
                         movement_type=MovementType.RETURN,
                         item_type=line.item_type,
                         quantity=quantity,
+                        uom_id=line.uom_id,
+                        base_quantity=base_quantity,
                         inventory_item_id=line.inventory_item_id,
                         previous_stock=previous_stock,
                         resulting_stock=resulting_stock,
@@ -408,6 +445,7 @@ class RecordPurchaseReturnUseCase(
                             item_type=line.item_type,
                             inventory_item_id=line.inventory_item_id,
                             quantity=quantity,
+                            base_quantity=returned_base_quantity(line, quantity),
                             unit_price=line.unit_price,
                         )
                         for line, quantity in returning
@@ -427,9 +465,12 @@ class RecordPurchaseReturnUseCase(
                     item_type=line.item_type,
                     inventory_item_id=line.inventory_item_id,
                 )
+                # Converted at the bill's own conversion — see the sale
+                # return above.
+                base_quantity = returned_base_quantity(line, quantity)
                 # Raises if the shelf no longer holds them — stock already
                 # sold on cannot also be sent back to the supplier.
-                previous_stock, resulting_stock = decrease_stock(target.entity, quantity)
+                previous_stock, resulting_stock = decrease_stock(target.entity, base_quantity)
                 target.repository.update(target.entity)
 
                 movements.add(
@@ -440,6 +481,8 @@ class RecordPurchaseReturnUseCase(
                         # read off previous/resulting stock — see
                         # InventoryMovement.quantity_change.
                         quantity=quantity,
+                        uom_id=line.uom_id,
+                        base_quantity=base_quantity,
                         inventory_item_id=line.inventory_item_id,
                         previous_stock=previous_stock,
                         resulting_stock=resulting_stock,

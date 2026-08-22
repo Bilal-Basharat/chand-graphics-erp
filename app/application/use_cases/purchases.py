@@ -14,6 +14,7 @@ from app.application.use_cases.stock_helpers import (
     ResolvedStockTarget,
     increase_stock,
     load_stock_target,
+    to_base_quantity,
 )
 from app.domain.entities.purchase import Purchase
 from app.domain.entities.purchase_item import PurchaseItem
@@ -85,13 +86,23 @@ class CreatePurchaseUseCase(AuthorizedUseCase[CreatePurchaseCommand, Purchase]):
                     target = load_stock_target(uow, item.item_type, item.inventory_item_id)
                     targets[key] = target
 
-                previous_stock, resulting_stock = increase_stock(target.entity, item.quantity)
+                # See CreateSaleUseCase: bought in Boxes, shelved in
+                # Pieces. `base_quantity` is also what the weighted
+                # average cost is divided by, so a delivery in Boxes and
+                # one in Pieces average against each other correctly.
+                base_quantity = to_base_quantity(
+                    uow, item.item_type, item.inventory_item_id, item.quantity, item.uom_id
+                )
+
+                previous_stock, resulting_stock = increase_stock(target.entity, base_quantity)
                 target.entity = target.repository.update(target.entity)
 
                 purchase.add_item(
                     PurchaseItem(
                         item_type=item.item_type,
                         quantity=item.quantity,
+                        uom_id=item.uom_id,
+                        base_quantity=base_quantity,
                         unit_price=item.unit_price,
                         inventory_item_id=item.inventory_item_id,
                         previous_stock=previous_stock,

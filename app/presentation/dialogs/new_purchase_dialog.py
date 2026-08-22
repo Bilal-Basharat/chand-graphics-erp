@@ -54,6 +54,10 @@ class NewPurchaseDialog(DocumentDialog):
         # Set before super(), which calls the build hooks below.
         self._suppliers = suppliers
         self._catalogues = catalogues
+        # The records the picker has offered, kept for their unit —
+        # see `_remember`.
+        self._items: dict[int, object] = {}
+        self._remember(catalogues)
 
         super().__init__(
             view_model,
@@ -69,6 +73,7 @@ class NewPurchaseDialog(DocumentDialog):
 
         # Let go of again in `done()` — the view model outlives this.
         self.listen(view_model.catalogueSearched, self._on_catalogue_searched)
+        self.listen(view_model.unitsLoaded, self._on_units_loaded)
         self.listen(view_model.partiesSearched, self._on_parties_searched)
         self._supplier.searchRequested.connect(view_model.search_parties)
 
@@ -106,10 +111,34 @@ class NewPurchaseDialog(DocumentDialog):
         )
         self._picker.added.connect(self._add_line)
         self._picker.rejected.connect(self.warn)
+        self._picker.itemChanged.connect(self._on_item_changed)
         return self._picker
 
     def _on_catalogue_searched(self, item_type, term: str, records: list) -> None:
+        self._remember({item_type: records})
         self._picker.set_options(item_type, records, term)
+
+    def _remember(self, catalogues: dict) -> None:
+        """Keep the records the picker has offered.
+
+        Only for their unit: a purchase has no stock rule to answer, but
+        the quantity box still has to say what it is counting in.
+        """
+        self._items.update(
+            {record.id: record for records in catalogues.values() for record in records}
+        )
+
+    def _on_item_changed(self, item_type, item_id: int) -> None:
+        item = self._items.get(item_id)
+        self._picker.set_base_unit(getattr(item, "unit", None))
+        self._picker.set_units(())
+        self._view_model.load_units(item_type, item_id)
+
+    def _on_units_loaded(self, _item_type, item_id: int, units: list) -> None:
+        # The answer arrives off the UI thread; by then the picker may
+        # have moved on — see the sale dialog.
+        if self._picker.selected_id() == item_id:
+            self._picker.set_units(units)
 
     def _on_parties_searched(self, term: str, suppliers: list) -> None:
         self._supplier.set_options([(s.name, s.id) for s in suppliers], term=term)
@@ -123,6 +152,9 @@ class NewPurchaseDialog(DocumentDialog):
             label=picked.label,
             quantity=picked.quantity,
             unit_price=picked.unit_price,
+            uom_id=picked.uom_id,
+            unit_label=picked.unit_label,
+            base_quantity=picked.base_quantity,
         )
         self._picker.reset()
 
@@ -165,6 +197,7 @@ class NewPurchaseDialog(DocumentDialog):
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     inventory_item_id=line.item_id,
+                    uom_id=line.uom_id,
                 )
                 for line in self.lines
             ],

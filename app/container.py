@@ -109,6 +109,7 @@ class AppContainer:
         from app.application.startup.application_initializer import ApplicationInitializer
         return ApplicationInitializer(
         ensure_initial_admin_use_case=self.ensure_initial_admin_use_case(),
+        ensure_default_category_use_case=self.ensure_default_category_use_case(),
         restore_session_use_case=self.restore_session_use_case(),
         )
 
@@ -200,6 +201,61 @@ class AppContainer:
     def list_low_stock_inventory_items_use_case(self):
         from app.application.use_cases.inventory_items import ListLowStockInventoryItemsUseCase
         return ListLowStockInventoryItemsUseCase(self.create_uow(), self.current_user_session)
+
+    ############################################################
+    ##################### Catalogue Use Cases ###################
+    ############################################################
+    def ensure_default_category_use_case(self):
+        from app.application.use_cases.catalogue import EnsureDefaultCategoryUseCase
+        return EnsureDefaultCategoryUseCase(self.create_uow())
+
+    def create_category_use_case(self):
+        from app.application.use_cases.catalogue import CreateCategoryUseCase
+        return CreateCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_category_use_case(self):
+        from app.application.use_cases.catalogue import UpdateCategoryUseCase
+        return UpdateCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_category_use_case(self):
+        from app.application.use_cases.catalogue import DeleteCategoryUseCase
+        return DeleteCategoryUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def page_categories_use_case(self):
+        from app.application.use_cases.catalogue import PageCategoriesUseCase
+        return PageCategoriesUseCase(self.create_uow(), self.current_user_session)
+
+    def category_names_use_case(self):
+        from app.application.use_cases.catalogue import GetCategoryNamesUseCase
+        return GetCategoryNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def create_product_use_case(self):
+        from app.application.use_cases.catalogue import CreateProductUseCase
+        return CreateProductUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def update_product_use_case(self):
+        from app.application.use_cases.catalogue import UpdateProductUseCase
+        return UpdateProductUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def delete_product_use_case(self):
+        from app.application.use_cases.catalogue import DeleteProductUseCase
+        return DeleteProductUseCase(self.create_uow(), self.current_user_session, self.authorization_service())
+
+    def page_catalogue_use_case(self):
+        from app.application.use_cases.catalogue import PageCatalogueUseCase
+        return PageCatalogueUseCase(self.create_uow(), self.current_user_session)
+
+    def product_names_use_case(self):
+        from app.application.use_cases.catalogue import GetProductNamesUseCase
+        return GetProductNamesUseCase(self.create_uow(), self.current_user_session)
+
+    def sku_units_use_case(self):
+        from app.application.use_cases.catalogue import GetSkuUnitsUseCase
+        return GetSkuUnitsUseCase(self.create_uow(), self.current_user_session)
+
+    def active_sku_units_use_case(self):
+        from app.application.use_cases.catalogue import GetActiveSkuUnitsUseCase
+        return GetActiveSkuUnitsUseCase(self.create_uow(), self.current_user_session)
 
     ############################################################
     #################### Expense Use Cases #######################

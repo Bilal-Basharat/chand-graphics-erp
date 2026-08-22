@@ -16,6 +16,7 @@ class PurchaseReturnItemMapper:
             item_type=model.item_type,
             inventory_item_id=model.inventory_item_id,
             quantity=model.quantity,
+            base_quantity=model.base_quantity,
             unit_price=model.unit_price,
         )
         copy_shared_fields(model, entity)
@@ -28,6 +29,7 @@ class PurchaseReturnItemMapper:
             item_type=entity.item_type,
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
+            base_quantity=entity.base_quantity,
             unit_price=entity.unit_price,
         )
         copy_shared_fields(entity, model)

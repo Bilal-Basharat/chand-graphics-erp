@@ -208,6 +208,32 @@ def _add_column(connection: Connection, table: str, column: str, definition: str
     connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+def _add_index(connection: Connection, table: str, column: str) -> None:
+    """Index a column the way `create_all` would have.
+
+    A column added by `ALTER TABLE` gets no index, so a database in the
+    field would end up with the columns of a fresh one and none of its
+    indexes — the same schema on paper and a different one to query. The
+    name is SQLAlchemy's own, so the two files agree on that too.
+    """
+    connection.exec_driver_sql(
+        f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} ON {table} ({column})"
+    )
+
+
+def _create_if_missing(connection: Connection, table: str) -> None:
+    """Create a table from its model, if this database has not got it.
+
+    For a table this build introduces. `create_all` would make it too, but
+    only on the way in to a database that has none of them: a migration
+    that assumes its tables are already there is one that fails on the
+    first customer to upgrade.
+    """
+    from app.infrastructure.db.base import Base
+
+    Base.metadata.tables[table].create(bind=connection, checkfirst=True)
+
+
 def _rebuild_to_match_model(connection: Connection, table: str, carried: tuple[str, ...]) -> None:
     """Recreate a table from its model, carrying `carried` across.
 
@@ -579,6 +605,139 @@ def _repair_lifted_return_lines(connection: Connection) -> None:
         )
 
 
+def _add_catalogue_grouping(connection: Connection) -> None:
+    """The catalogue gains a shape: categories, products, and SKUs under
+    them.
+
+    What was one flat list of items becomes a shelf (`categories`), the
+    thing the shop trades in (`products`), and the stockable record under
+    it — which is the item table itself, untouched. Every id, every
+    foreign key and every document that names one stays exactly as it is;
+    what is added is a `product_id` above them.
+
+    Each existing item gets a product of its own name, because that is
+    what it has always been: one thing, counted one way. A shop that later
+    wants two variants of one product adds the second SKU itself.
+
+    Items sharing a name become SKUs of one product rather than two
+    products with the same name — the same rule the application enforces
+    on the way in.
+
+    Safe to rerun, and safe on a database that already has some of this:
+    tables are created only if missing, columns added only if absent, and
+    only items with no product yet are given one.
+    """
+    _create_if_missing(connection, "categories")
+    _create_if_missing(connection, "products")
+    _add_index(connection, "categories", "name")
+    _add_index(connection, "products", "name")
+    _add_index(connection, "products", "category_id")
+
+    _add_column(connection, "inventory_items", "product_id", "INTEGER REFERENCES products(id)")
+    _add_index(connection, "inventory_items", "product_id")
+
+    general = _default_category_id(connection)
+
+    # A product filed nowhere would fall out of the catalogue screen
+    # entirely, so anything without a shelf goes on the default one.
+    connection.exec_driver_sql(
+        "UPDATE products SET category_id = ? WHERE category_id IS NULL", (general,)
+    )
+
+    connection.exec_driver_sql(
+        """
+        INSERT INTO products (name, category_id, created_by_user_id, created_at)
+        SELECT i.name, ?, MIN(i.created_by_user_id), MIN(i.created_at)
+          FROM inventory_items i
+         WHERE i.product_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM products p WHERE p.name = i.name)
+         GROUP BY i.name
+        """,
+        (general,),
+    )
+    connection.exec_driver_sql(
+        """
+        UPDATE inventory_items
+           SET product_id = (SELECT p.id FROM products p WHERE p.name = inventory_items.name)
+         WHERE product_id IS NULL
+        """
+    )
+
+
+def _default_category_id(connection: Connection) -> int:
+    """The `General` category, made if this database has never had one.
+
+    Matched on the name rather than on an id, because the row is written
+    here on a database that already has data and by the initializer on a
+    fresh one: its id differs between installations, its name never does.
+    Matched case-insensitively so a shop that made its own "general"
+    keeps it rather than getting a second one beside it.
+    """
+    from app.domain.entities.category import DEFAULT_CATEGORY_NAME
+
+    row = connection.exec_driver_sql(
+        "SELECT id FROM categories WHERE name = ? COLLATE NOCASE", (DEFAULT_CATEGORY_NAME,)
+    ).fetchone()
+    if row is not None:
+        return int(row[0])
+
+    connection.exec_driver_sql(
+        "INSERT INTO categories (name, description, created_at) "
+        "VALUES (?, 'Everything not filed anywhere else yet.', CURRENT_TIMESTAMP)",
+        (DEFAULT_CATEGORY_NAME,),
+    )
+    return int(connection.exec_driver_sql("SELECT last_insert_rowid()").scalar_one())
+
+
+def _add_transaction_units(connection: Connection) -> None:
+    """A SKU can be traded in more than one unit, and a line records which.
+
+    A shop that buys A4 by the box and sells it by the piece could not say
+    so: stock was counted in whole units of whatever word was on the item,
+    and half a sheet could not be sold at all. `sku_units` holds the
+    alternates — "a Box is 288 Pieces" — and every document line gains the
+    unit it was entered in and what that came to in base units.
+
+    **Every existing line was entered in its item's own unit**, which is
+    what `uom_id IS NULL` means, so `base_quantity` is its quantity and
+    nothing that was ever traded changes value, count or cost. That is the
+    whole of the backfill, and it is why the step can be rerun: it only
+    fills rows that have not been filled.
+
+    The quantity columns keep their declared `INTEGER` here while the
+    models say `NUMERIC(14, 4)`. Nothing is rebuilt to close that gap on
+    purpose: SQLite's declared types are affinity rather than constraint,
+    an INTEGER-affinity column stores 0.5 as REAL and returns it
+    unchanged, and rebuilding six tables that point at each other with
+    foreign keys enforced is a real risk taken for a cosmetic difference.
+    """
+    _create_if_missing(connection, "sku_units")
+    _add_index(connection, "sku_units", "sku_id")
+
+    for table in ("sale_items", "purchase_items", "inventory_movements"):
+        _add_column(connection, table, "base_quantity", "NUMERIC(14, 4) NOT NULL DEFAULT 0")
+        _add_column(connection, table, "uom_id", "INTEGER REFERENCES sku_units(id)")
+        _add_index(connection, table, "uom_id")
+
+    # Return lines carry no unit of their own: a return is measured the
+    # way the line it reverses was, and its base quantity is that line's
+    # conversion applied to what came back.
+    for table in ("sale_return_items", "purchase_return_items"):
+        _add_column(connection, table, "base_quantity", "NUMERIC(14, 4) NOT NULL DEFAULT 0")
+
+    for table in (
+        "sale_items",
+        "purchase_items",
+        "inventory_movements",
+        "sale_return_items",
+        "purchase_return_items",
+    ):
+        connection.exec_driver_sql(
+            f"UPDATE {table} SET base_quantity = quantity "
+            f" WHERE base_quantity IS NULL OR base_quantity = 0"
+        )
+
+
 def _references_a_missing_table(connection: Connection, table: str) -> bool:
     """Whether any of this table's foreign keys names a table that is
     not there — which is what a rebuild leaves behind when foreign keys
@@ -598,6 +757,8 @@ _STEPS: tuple[Callable[[Connection], None], ...] = (
     _add_document_returns,
     _lift_return_lines,
     _repair_lifted_return_lines,
+    _add_catalogue_grouping,
+    _add_transaction_units,
 )
 """Ordered, append-only. A step's position is its version, so never
 reorder or remove one — a database in the field records how far down this

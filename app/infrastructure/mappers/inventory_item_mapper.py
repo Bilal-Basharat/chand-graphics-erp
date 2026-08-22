@@ -12,6 +12,7 @@ class InventoryItemMapper:
     def to_entity(model: InventoryItemModel) -> InventoryItem:
         entity = InventoryItem(
             name=model.name,
+            product_id=model.product_id,
             current_stock=model.current_stock,
             minimum_stock=model.minimum_stock,
             description=model.description,
@@ -25,6 +26,7 @@ class InventoryItemMapper:
     def to_model(entity: InventoryItem) -> InventoryItemModel:
         model = InventoryItemModel(
             name=entity.name,
+            product_id=entity.product_id,
             current_stock=entity.current_stock,
             minimum_stock=entity.minimum_stock,
             description=entity.description,

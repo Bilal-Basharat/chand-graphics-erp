@@ -48,7 +48,7 @@ class ItemMarginRow:
     """One item's trading in a period, before it is given a name."""
 
     item_id: int
-    quantity_sold: int
+    quantity_sold: Decimal
     revenue: Decimal
     cost: Decimal
     uncosted_lines: int

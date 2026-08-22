@@ -14,6 +14,7 @@ from app.application.use_cases.stock_helpers import (
     ResolvedStockTarget,
     decrease_stock,
     load_stock_target,
+    to_base_quantity,
 )
 from app.domain.entities.sale import Sale
 from app.domain.entities.sale_item import SaleItem
@@ -106,13 +107,23 @@ class CreateSaleUseCase(AuthorizedUseCase[CreateSaleCommand, Sale]):
                         f"'{target.entity.name}' is low/out of stock and cannot be sold."
                     )
 
-                previous_stock, resulting_stock = decrease_stock(target.entity, item.quantity)
+                # The one conversion, done once per line: what was sold
+                # in Boxes leaves the shelf in Pieces. Everything below
+                # this point counts in base units — the stock, the cost
+                # and the two figures the line records either side of it.
+                base_quantity = to_base_quantity(
+                    uow, item.item_type, item.inventory_item_id, item.quantity, item.uom_id
+                )
+
+                previous_stock, resulting_stock = decrease_stock(target.entity, base_quantity)
                 target.entity = target.repository.update(target.entity)
 
                 sale.add_item(
                     SaleItem(
                         item_type=item.item_type,
                         quantity=item.quantity,
+                        uom_id=item.uom_id,
+                        base_quantity=base_quantity,
                         unit_price=item.unit_price,
                         unit_cost=costs[key],
                         inventory_item_id=item.inventory_item_id,

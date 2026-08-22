@@ -155,16 +155,36 @@ class RowActionsDelegate(QStyledItemDelegate):
             x += width + _GAP
         return rects
 
-    @staticmethod
-    def _acts_on(index: QModelIndex) -> bool:
+    def _acts_on(self, index: QModelIndex) -> bool:
         """Whether this row is one the actions can act on.
 
         Only top-level rows are. In a grouped list the child rows are the
         detail of the row above them — the lines of an invoice, the items
         of a job — and an "Edit" on one of those has nothing to edit. A
         flat table has no children, so this is always true there.
+
+        A view where depth means something else says so itself: the
+        catalogue's top level is a category heading, which nothing acts
+        on, while the two levels under it are both records that can be
+        edited and deleted.
         """
-        return index.isValid() and not index.parent().isValid()
+        if not index.isValid():
+            return False
+        acts_on = getattr(self._view, "acts_on", None)
+        if acts_on is not None:
+            return bool(acts_on(index))
+        return not index.parent().isValid()
+
+    def _row_key(self, index: QModelIndex) -> int:
+        """How this view names the record at `index`, for `row_at`.
+
+        A flat table names it by row number, which is what every screen
+        here has always meant. A tree cannot: row 2 under one parent and
+        row 2 under another are different records, so a view with more
+        than one level hands out keys of its own and reads them back.
+        """
+        row_key = getattr(self._view, "row_key", None)
+        return int(row_key(index)) if row_key is not None else index.row()
 
     def _resolved(self, index: QModelIndex) -> list[tuple[RowAction, str, bool]]:
         """Each action as this row takes it: its text, and whether it is live.
@@ -174,7 +194,7 @@ class RowActionsDelegate(QStyledItemDelegate):
         after a reload. The static wording stands in for that, which is
         what an action with no per-row callbacks shows anyway.
         """
-        row = self._view.row_at(index.row()) if self._view is not None else None
+        row = self._view.row_at(self._row_key(index)) if self._view is not None else None
         return [
             (
                 action,
@@ -214,7 +234,7 @@ class RowActionsDelegate(QStyledItemDelegate):
         ):
             if not _shows(action, label):
                 continue  # nothing to do on this row; the slot keeps its width
-            hovered = enabled and self._hover == (index.row(), position)
+            hovered = enabled and self._hover == (self._row_key(index), position)
             border, background, text = (
                 _STYLES[(action.tone, hovered)] if enabled else _DISABLED
             )
@@ -255,7 +275,9 @@ class RowActionsDelegate(QStyledItemDelegate):
     # ---------------- mouse ----------------
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 (Qt override)
-        if self._view is None or watched is not self._view.viewport():
+        # `getattr` — see `FlexibleWidths.eventFilter` for why.
+        view = getattr(self, "_view", None)
+        if view is None or watched is not view.viewport():
             return super().eventFilter(watched, event)
 
         kind = event.type()
@@ -274,13 +296,13 @@ class RowActionsDelegate(QStyledItemDelegate):
             hit = self._hit(event.position().toPoint())
             if hit is not None:
                 index, action_index = hit
-                self.triggered.emit(self._actions[action_index].key, index.row())
+                self.triggered.emit(self._actions[action_index].key, self._row_key(index))
                 return True
 
         return super().eventFilter(watched, event)
 
     def _set_hover(self, hit: tuple[QModelIndex, int] | None) -> None:
-        hover = (hit[0].row(), hit[1]) if hit is not None else None
+        hover = (self._row_key(hit[0]), hit[1]) if hit is not None else None
         if hover == self._hover:
             return
         self._hover = hover

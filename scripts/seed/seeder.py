@@ -22,6 +22,7 @@ from app.application.auth.commands import (
 )
 from app.application.dto.commands import (
     CreateCabinetCommand,
+    CreateCategoryCommand,
     CreateCompanySettingsCommand,
     CreateCustomerCommand,
     CreateExpenseCategoryCommand,
@@ -32,13 +33,15 @@ from app.application.dto.commands import (
     CreateSaleCommand,
     CreateSupplierCommand,
     InventoryMovementCommand,
+    PurchaseItemCommand,
+    PurchasePaymentCommand,
     RecordPurchaseReturnCommand,
     RecordSaleReturnCommand,
     ReturnedLineCommand,
-    PurchaseItemCommand,
-    PurchasePaymentCommand,
     SaleItemCommand,
     SalePaymentCommand,
+    SkuUnitCommand,
+    UpdateProductCommand,
 )
 from app.config import constants
 from app.container import AppContainer
@@ -125,6 +128,10 @@ class Seeder:
     _cabinets: dict[str, int] = field(default_factory=dict)
     _methods: dict[str, int] = field(default_factory=dict)
     _categories: dict[str, int] = field(default_factory=dict)
+    """Expense categories. The catalogue's shelves are `_shelves` — two
+    unrelated things that a shop calls the same word."""
+    _shelves: dict[str, int] = field(default_factory=dict)
+    _products: dict[str, int] = field(default_factory=dict)
     _customers: dict[str, int] = field(default_factory=dict)
     _suppliers: dict[str, int] = field(default_factory=dict)
     _items: dict[str, tuple[int, ItemSeed]] = field(default_factory=dict)
@@ -253,17 +260,41 @@ class Seeder:
             self._suppliers[supplier.name] = record.id
             self._backdater.row("suppliers", record.id, opened)
 
+        for category in self.dataset.categories:
+            record = self.container.create_category_use_case().execute(
+                CreateCategoryCommand(name=category.name, description=category.description)
+            )
+            self._shelves[category.name] = record.id
+            self._backdater.row("categories", record.id, opened)
+
         for item in self.dataset.items:
+            # A second version of something goes under the product that
+            # already exists; anything else brings its own product with
+            # it, which is what creating an item has always done.
             record = self.container.create_inventory_item_use_case().execute(
                 CreateInventoryItemCommand(
                     name=item.name,
                     unit=item.unit,
                     minimum_stock=item.minimum_stock,
                     cabinet_id=self._cabinets[item.cabinet],
+                    product_id=self._products.get(item.variant_of),
+                    units=tuple(
+                        SkuUnitCommand(name=name, factor=factor) for name, factor in item.units
+                    ),
                 )
             )
             self._items[item.name] = (record.id, item)
+            self._products[item.name] = record.product_id
             self._backdater.row("inventory_items", record.id, opened)
+
+            if item.variant_of is None and item.category:
+                self.container.update_product_use_case().execute(
+                    UpdateProductCommand(
+                        id=record.product_id,
+                        category_id=self._shelves[item.category],
+                    )
+                )
+                self._backdater.row("products", record.product_id, opened)
 
             # A new item starts at nothing — the app is firm about that,
             # because stock is meant to arrive through a document. What

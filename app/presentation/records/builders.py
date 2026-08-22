@@ -25,6 +25,7 @@ from app.presentation.formatting import (
     money_or_blank,
     or_dash,
     percent,
+    quantity,
     uncosted_caveat,
 )
 from app.presentation.records.card import (
@@ -449,7 +450,7 @@ def item_profitability_card(report, *, period_label: str) -> RecordCard:
                 rows=tuple(
                     (
                         row.name,
-                        f"{row.quantity_sold:,}",
+                        quantity(row.quantity_sold),
                         money(row.revenue),
                         money(row.cost),
                         money(row.profit),

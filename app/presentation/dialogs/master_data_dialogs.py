@@ -20,16 +20,20 @@ from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
 
 from app.application.dto.commands import (
     CreateCabinetCommand,
+    CreateCategoryCommand,
+    CreateProductCommand,
     CreateCustomerCommand,
     CreateExpenseCategoryCommand,
     CreateInventoryItemCommand,
     CreatePaymentMethodCommand,
     CreateSupplierCommand,
     UpdateCabinetCommand,
+    UpdateCategoryCommand,
     UpdateCustomerCommand,
     UpdateExpenseCategoryCommand,
     UpdateInventoryItemCommand,
     UpdatePaymentMethodCommand,
+    UpdateProductCommand,
     UpdateSupplierCommand,
 )
 from app.presentation.dialogs.form_dialog import FormDialog
@@ -42,7 +46,8 @@ from app.presentation.widgets.input_validation import (
     parse_balance,
     parse_phone,
 )
-from app.presentation.widgets.modern_spinbox import ModernSpinBox
+from app.presentation.widgets.modern_spinbox import ModernDecimalSpinBox
+from app.presentation.widgets.unit_rows import UnitRows
 
 _NO_CABINET = "— None —"
 
@@ -187,12 +192,24 @@ class ExpenseCategoryDialog(_CollectionFormDialog):
 
 
 class InventoryItemDialog(_CollectionFormDialog):
+    """One stocked record: what it is called, what it is counted in, and
+    what else it can be counted in.
+
+    The same form whether it is the first item of its product or a second
+    variant of one — `product_id` says which, and is the only difference
+    between them. Nothing here says "SKU": for all but a handful of
+    products this dialog is simply "the item".
+    """
+
     def __init__(
         self,
         view_model: CollectionViewModel,
         cabinet_names: dict[int, str],
         *,
         item: Any | None = None,
+        product_id: int | None = None,
+        categories: dict[int, str] | None = None,
+        category_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
@@ -202,13 +219,29 @@ class InventoryItemDialog(_CollectionFormDialog):
             record=item,
             parent=parent,
         )
+        self._product_id = product_id
+
         self._name = self.add_row("Name", QLineEdit(), required=True)
         self._name.setPlaceholderText("e.g. A4 Ivory Sheet 250gsm")
 
+        # Only where this item is the only one of its product, which is
+        # when the catalogue shows the two as one row: the form that edits
+        # that row has to be able to change everything on it, and where it
+        # is filed is on it. A variant has no shelf of its own — its
+        # product does.
+        self._category = None
+        if categories:
+            self._category = QComboBox()
+            for shelf_id, shelf in sorted(categories.items(), key=lambda kv: kv[1]):
+                self._category.addItem(shelf, shelf_id)
+            self._category.setCurrentIndex(max(self._category.findData(category_id), 0))
+            self.add_row("Category", self._category)
+
         self._unit = self.add_row("Unit", QLineEdit())
         self._unit.setPlaceholderText("e.g. sheets, ml, bottles")
+        self._unit.textChanged.connect(lambda text: self._units.set_base_unit(text.strip()))
 
-        self._minimum_stock = ModernSpinBox()
+        self._minimum_stock = ModernDecimalSpinBox()
         self._minimum_stock.setRange(0, 1_000_000)
         self.add_row("Minimum stock", self._minimum_stock)
 
@@ -221,26 +254,44 @@ class InventoryItemDialog(_CollectionFormDialog):
         self._description = self.add_row("Description", QTextEdit())
         self._description.setFixedHeight(64)
 
+        self._units = UnitRows()
+        self.add_row("Other units", self._units)
+
         if item is not None:
             self._name.setText(item.name)
             self._unit.setText(item.unit or "")
             self._minimum_stock.setValue(item.minimum_stock)
             self._cabinet.setCurrentIndex(max(self._cabinet.findData(item.cabinet_id), 0))
             self._description.setPlainText(item.description or "")
+            self._units.set_base_unit(item.unit)
 
         self.add_note(
-            "Count stock in the smallest unit you use it in — buy a ream, record "
-            "500 sheets — so a job can consume part of one.\n\n"
-            "Stock isn't set here; it moves through purchases, sales, jobs and "
+            "Count stock in the unit you keep it in — pieces, sheets, ml. Anything "
+            "you also buy or sell it by goes under Other units: a Box worth 288 "
+            "means buying ten boxes puts 2,880 on the shelf.\n\n"
+            "Stock isn't set here; it moves through purchases, sales and "
             "adjustments. Prices aren't either; they're recorded per transaction."
         )
 
-    def build_command(self) -> CreateInventoryItemCommand | UpdateInventoryItemCommand:
+    def load_units(self, units) -> None:
+        """Show the units this item already has, once they have arrived."""
+        self._units.set_units(units)
+
+    def build_command(self) -> CreateInventoryItemCommand | UpdateInventoryItemCommand | None:
+        if self._units.units() is None:
+            self.reject_with(
+                "Give every other unit a name and how many of this item's own unit "
+                "it is worth.",
+                self._units.first_incomplete(),
+            )
+            return None
+
         name = self._name.text().strip()
         minimum_stock = self._minimum_stock.value()
         description = _optional(self._description)
         cabinet_id = self._cabinet.currentData()
         unit = _optional(self._unit)
+        units = self._units.units() or ()
         if self._record is None:
             return CreateInventoryItemCommand(
                 name=name,
@@ -249,6 +300,8 @@ class InventoryItemDialog(_CollectionFormDialog):
                 description=description,
                 cabinet_id=cabinet_id,
                 unit=unit,
+                product_id=self._product_id,
+                units=units,
             )
         return UpdateInventoryItemCommand(
             id=self._record.id,
@@ -257,6 +310,133 @@ class InventoryItemDialog(_CollectionFormDialog):
             description=description,
             cabinet_id=cabinet_id,
             unit=unit,
+            units=units,
+            category_id=self._category.currentData() if self._category else None,
+        )
+
+
+class CategoryDialog(_CollectionFormDialog):
+    """A shelf in the catalogue. A name, and a line about what goes on it."""
+
+    def __init__(
+        self,
+        view_model: CollectionViewModel,
+        *,
+        category: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            view_model,
+            noun="category",
+            subtitle="How the catalogue is grouped — papers, inks, packaging.",
+            record=category,
+            parent=parent,
+        )
+        self._name = self.add_row("Name", QLineEdit(), required=True)
+        self._name.setPlaceholderText("e.g. Papers")
+
+        self._description = self.add_row("Description", QTextEdit())
+        self._description.setFixedHeight(64)
+
+        if category is not None:
+            self._name.setText(category.name)
+            self._description.setPlainText(category.description or "")
+
+        self.add_note(
+            "A category is only where a product is listed. Moving one between "
+            "categories never touches its stock, its units or anything already "
+            "bought or sold."
+        )
+
+    def build_command(self) -> CreateCategoryCommand | UpdateCategoryCommand:
+        name = self._name.text().strip()
+        description = _optional(self._description)
+        if self._record is None:
+            return CreateCategoryCommand(name=name, description=description)
+        return UpdateCategoryCommand(id=self._record.id, name=name, description=description)
+
+
+class ProductDialog(_CollectionFormDialog):
+    """Something the shop trades in — and, the first time, the item under it.
+
+    Creating one creates both: a product with nothing under it could not
+    be bought, sold or counted. So the fields of the item are here too,
+    and the shopkeeper adds one thing rather than two.
+
+    Editing shows only what belongs to the product — its name and its
+    shelf. Everything else is the item's, and a product with two variants
+    has no single one of them to edit here.
+    """
+
+    def __init__(
+        self,
+        view_model: CollectionViewModel,
+        categories: dict[int, str],
+        cabinet_names: dict[int, str],
+        *,
+        product: Any | None = None,
+        category_id: int | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            view_model,
+            noun="product",
+            subtitle="What you trade in — the name a customer would ask for.",
+            record=product,
+            parent=parent,
+        )
+        self._name = self.add_row("Name", QLineEdit(), required=True)
+        self._name.setPlaceholderText("e.g. A4 Ivory 250gsm")
+
+        self._category = QComboBox()
+        for cid, name in sorted(categories.items(), key=lambda kv: kv[1]):
+            self._category.addItem(name, cid)
+        self.add_row("Category", self._category)
+
+        if product is None:
+            self._unit = self.add_row("Unit", QLineEdit())
+            self._unit.setPlaceholderText("e.g. sheets, ml, bottles")
+
+            self._minimum_stock = ModernDecimalSpinBox()
+            self._minimum_stock.setRange(0, 1_000_000)
+            self.add_row("Minimum stock", self._minimum_stock)
+
+            self._cabinet = QComboBox()
+            self._cabinet.addItem(_NO_CABINET, None)
+            for cabinet_id, code in sorted(cabinet_names.items(), key=lambda kv: kv[1]):
+                self._cabinet.addItem(code, cabinet_id)
+            self.add_row("Cabinet", self._cabinet)
+
+            self._description = self.add_row("Description", QTextEdit())
+            self._description.setFixedHeight(64)
+
+        if product is not None:
+            self._name.setText(product.name)
+            self._category.setCurrentIndex(max(self._category.findData(product.category_id), 0))
+        elif category_id is not None:
+            self._category.setCurrentIndex(max(self._category.findData(category_id), 0))
+
+        self.add_note(
+            "Most products are one thing counted one way, and that is all this "
+            "asks for. Where a product really does come in two — matt and gloss, "
+            "say — add the second from its row afterwards."
+        )
+
+    def build_command(self) -> CreateProductCommand | UpdateProductCommand:
+        name = self._name.text().strip()
+        if self._record is not None:
+            return UpdateProductCommand(
+                id=self._record.id,
+                name=name,
+                category_id=self._category.currentData(),
+            )
+        return CreateProductCommand(
+            name=name,
+            category_id=self._category.currentData(),
+            unit=_optional(self._unit),
+            minimum_stock=self._minimum_stock.value(),
+            description=_optional(self._description),
+            cabinet_id=self._cabinet.currentData(),
         )
 
 

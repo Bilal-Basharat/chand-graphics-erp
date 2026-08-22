@@ -13,6 +13,8 @@ class SaleItemMapper:
         entity = SaleItem(
             item_type=model.item_type,
             quantity=model.quantity,
+            uom_id=model.uom_id,
+            base_quantity=model.base_quantity,
             unit_price=model.unit_price,
             unit_cost=model.unit_cost,
             sale_id=model.sale_id,
@@ -31,6 +33,8 @@ class SaleItemMapper:
             item_type=entity.item_type,
             inventory_item_id=entity.inventory_item_id,
             quantity=entity.quantity,
+            uom_id=entity.uom_id,
+            base_quantity=entity.base_quantity,
             unit_price=entity.unit_price,
             # Carried deliberately, not incidentally: `update()` rebuilds
             # this model from the entity and merges it by id, so a column
